@@ -1,0 +1,25 @@
+{
+	"key": "afa37914b030a201a184d05a",
+	"addrs": [
+		{
+			"addr": {
+				"id": "6e2a587c84e27914ff6dbcc0e0d7488267e6b72d",
+				"ip": "127.0.0.1",
+				"port": 26656
+			},
+			"src": {
+				"id": "bc589675eb69be8a556376e6ab905bd8a34c145c",
+				"ip": "0.0.0.0",
+				"port": 26756
+			},
+			"buckets": [
+				204
+			],
+			"attempts": 0,
+			"bucket_type": 1,
+			"last_attempt": "2025-11-27T19:59:28.123192611Z",
+			"last_success": "0001-01-01T00:00:00Z",
+			"last_ban_time": "0001-01-01T00:00:00Z"
+		}
+	]
+}
