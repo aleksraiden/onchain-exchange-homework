@@ -728,3 +728,49 @@ func BenchmarkAsyncCommit(b *testing.B) {
     b.StopTimer()
     tree.WaitForCommit()  // Ждем завершения всех коммитов
 }
+
+func TestDifferentNodeWidths(t *testing.T) {
+    widths := []int{8, 16, 32, 64, 128, 256}
+    
+    for _, width := range widths {
+        t.Run(fmt.Sprintf("width_%d", width), func(t *testing.T) {
+            tree, err := New(4, width, testSRS, nil)
+            if err != nil {
+                t.Fatalf("Ошибка создания дерева с width=%d: %v", width, err)
+            }
+            
+            batch := tree.BeginBatch()
+            
+            // Добавляем больше пользователей чем ширина узла
+            for i := 0; i < width*2; i++ {
+                userID := fmt.Sprintf("user_%d_%d", width, i)
+                userData := &UserData{
+                    Balances: map[string]float64{
+                        "USD": float64(i * 100),
+                    },
+                }
+                
+                if err := batch.AddUserData(userID, userData); err != nil {
+                    t.Fatalf("Ошибка добавления пользователя: %v", err)
+                }
+            }
+            
+            root, err := tree.CommitBatch(batch)
+            if err != nil {
+                t.Fatalf("Ошибка коммита с width=%d: %v", width, err)
+            }
+            
+            t.Logf("Width=%d: root=%x, nodes=%d", width, root[:8], tree.GetNodeCount())
+            
+            // Проверяем что можем получить данные
+            retrieved, err := tree.GetUserData("user_" + fmt.Sprintf("%d_0", width))
+            if err != nil {
+                t.Fatalf("Ошибка получения данных: %v", err)
+            }
+            
+            if retrieved.Balances["USD"] != 0 {
+                t.Errorf("Неверные данные")
+            }
+        })
+    }
+}

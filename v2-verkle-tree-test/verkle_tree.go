@@ -55,6 +55,25 @@ type UserData struct {
 	Timestamp int64 `json:"timestamp,omitempty"`
 }
 
+// validateNodeWidth проверяет что NodeWidth - степень двойки
+func validateNodeWidth(width int) error {
+    validWidths := []int{8, 16, 32, 64, 128, 256, 512, 1024}
+    for _, valid := range validWidths {
+        if width == valid {
+            return nil
+        }
+    }
+    return fmt.Errorf("NodeWidth должен быть одним из: 8, 16, 32, 64, 128, 256, 512, 1024")
+}
+
+// getNodeIndex возвращает индекс узла с учетом NodeWidth
+func getNodeIndex(byteValue byte, nodeWidth int) int {
+    // Используем битовую маску для получения индекса в пределах nodeWidth
+    // Например: для nodeWidth=64 (0b1000000), маска = 63 (0b111111)
+    mask := nodeWidth - 1
+    return int(byteValue) & mask
+}
+
 // Serialize сериализует UserData в JSON байты
 func (ud *UserData) Serialize() ([]byte, error) {
 	data, err := json.Marshal(ud)
@@ -220,19 +239,24 @@ type Batch struct {
 
 // NewConfig создает новую конфигурацию с параметрами по умолчанию
 func NewConfig(levels, nodeWidth int, srs *kzg_bls12381.SRS) *Config {
-	if levels == 0 {
-		levels = DefaultLevels
-	}
-	if nodeWidth == 0 {
-		nodeWidth = DefaultNodeWidth
-	}
-	
-	return &Config{
-		Levels:    levels,
-		NodeWidth: nodeWidth,
-		KZGConfig: srs,
-		UseKZGForInternal: false,
-	}
+    if levels == 0 {
+        levels = DefaultLevels
+    }
+    if nodeWidth == 0 {
+        nodeWidth = DefaultNodeWidth
+    }
+    
+    // Валидируем NodeWidth
+    if err := validateNodeWidth(nodeWidth); err != nil {
+        panic(err)  // Или можно вернуть ошибку
+    }
+    
+    return &Config{
+        Levels:            levels,
+        NodeWidth:         nodeWidth,
+        KZGConfig:         srs,
+        UseKZGForInternal: false,
+    }
 }
 
 // New создает новое Verkle дерево в памяти
@@ -483,94 +507,172 @@ func (vt *VerkleTree) GetFinalRoot() []byte {
 
 // insert выполняет вставку узла с данными пользователя в дерево
 func (vt *VerkleTree) insert(userIDHash []byte, data []byte) error {
-	if len(userIDHash) != 32 {
-		return ErrInvalidKey
-	}
-	
-	// Используем userIDHash для навигации в дереве
-	var stem [StemSize]byte
-	copy(stem[:], userIDHash[:StemSize])
-	
-	// Находим или создаем путь к листовому узлу
-	node := vt.root
-	
-	for depth := 0; depth < vt.config.Levels-1; depth++ {
-		// Вычисляем индекс для текущего уровня
-		index := int(stem[depth])
-		
-		if node.children[index] == nil {
-			// Создаем новый внутренний узел
-			node.children[index] = &InternalNode{
-				children: make([]VerkleNode, vt.config.NodeWidth),
-				depth:    depth + 1,
-				dirty:    true,
-			}
-		}
-		
-		// Переходим к следующему уровню
-		if internalNode, ok := node.children[index].(*InternalNode); ok {
-			node = internalNode
-		} else {
-			// Уже достигли листа
-			break
-		}
-	}
-	
-	// Вычисляем индекс для листа
-	leafIndex := int(stem[vt.config.Levels-1])
-	
-	// Создаем или обновляем листовой узел
-	var leaf *LeafNode
-	if node.children[leafIndex] == nil {
-		var userIDHashArray [32]byte
-		copy(userIDHashArray[:], userIDHash)
-		
-		dataKey := "data:" + fmt.Sprintf("%x", userIDHash)
-		
-		leaf = &LeafNode{
-			userIDHash: userIDHashArray,
-			stem:       stem,
-			dataKey:    dataKey,
-			inMemoryData: data,  
-			dirty:      true,
-			hasData:    true,
-		}
-		node.children[leafIndex] = leaf
-		
-		// Добавляем в индекс для быстрого поиска
-		vt.nodeIndex[string(userIDHash)] = leaf
-	} else {
-		var ok bool
-		leaf, ok = node.children[leafIndex].(*LeafNode)
-		if !ok {
-			return errors.New("ожидался листовой узел")
-		}
-		leaf.inMemoryData = data
-		leaf.hasData = true
-		leaf.dirty = true
-	}
-	
-	// Помечаем все родительские узлы как dirty
-	vt.markDirtyPath(userIDHash)
-	
-	return nil
+    if len(userIDHash) != 32 {
+        return ErrInvalidKey
+    }
+    
+    var stem [StemSize]byte
+    copy(stem[:], userIDHash[:StemSize])
+    
+    // Находим или создаем путь к листовому узлу
+    node := vt.root
+    
+    for depth := 0; depth < vt.config.Levels-1; depth++ {
+        // Вычисляем индекс с учетом NodeWidth
+        index := getNodeIndex(stem[depth], vt.config.NodeWidth)
+        
+        if node.children[index] == nil {
+            // Создаем новый внутренний узел
+            node.children[index] = &InternalNode{
+                children: make([]VerkleNode, vt.config.NodeWidth),
+                depth:    depth + 1,
+                dirty:    true,
+            }
+        }
+        
+        // Переходим к следующему уровню
+        if internalNode, ok := node.children[index].(*InternalNode); ok {
+            node = internalNode
+        } else {
+            // Достигли листа раньше времени, нужно расширить
+            // Сохраняем старый лист
+            oldLeaf := node.children[index].(*LeafNode)
+            
+            // Создаем новый внутренний узел
+            newInternal := &InternalNode{
+                children: make([]VerkleNode, vt.config.NodeWidth),
+                depth:    depth + 1,
+                dirty:    true,
+            }
+            
+            // Перемещаем старый лист в новый узел
+            oldLeafIndex := getNodeIndex(oldLeaf.stem[depth+1], vt.config.NodeWidth)
+            newInternal.children[oldLeafIndex] = oldLeaf
+            
+            // Заменяем лист на внутренний узел
+            node.children[index] = newInternal
+            node = newInternal
+        }
+    }
+    
+    // Вычисляем индекс для листа
+    leafIndex := getNodeIndex(stem[vt.config.Levels-1], vt.config.NodeWidth)
+    
+    // Проверяем автоматическое расширение листа
+    if node.children[leafIndex] != nil {
+        if leaf, ok := node.children[leafIndex].(*LeafNode); ok {
+            // Проверяем нужно ли расширение (заполнено больше половины)
+            threshold := (vt.config.NodeWidth + 1) / 2  // Округление вверх
+            
+            if leaf.hasData && leaf.userIDHash != [32]byte(userIDHash) {
+                // Это другой пользователь, создаем подузел
+                if vt.shouldExpandLeaf(node, leafIndex, threshold) {
+                    if err := vt.expandLeaf(node, leafIndex, leaf); err != nil {
+                        return err
+                    }
+                    // Пробуем вставить снова в расширенный узел
+                    return vt.insert(userIDHash, data)
+                }
+            }
+        }
+    }
+    
+    // Создаем или обновляем листовой узел
+    var leaf *LeafNode
+    if node.children[leafIndex] == nil {
+        var userIDHashArray [32]byte
+        copy(userIDHashArray[:], userIDHash)
+        
+        dataKey := "data:" + fmt.Sprintf("%x", userIDHash)
+        
+        leaf = &LeafNode{
+            userIDHash:   userIDHashArray,
+            stem:         stem,
+            dataKey:      dataKey,
+            inMemoryData: data,
+            dirty:        true,
+            hasData:      true,
+        }
+        node.children[leafIndex] = leaf
+        
+        // Добавляем в индекс для быстрого поиска
+        vt.nodeIndex[string(userIDHash)] = leaf
+    } else {
+        var ok bool
+        leaf, ok = node.children[leafIndex].(*LeafNode)
+        if !ok {
+            return errors.New("ожидался листовой узел")
+        }
+        leaf.inMemoryData = data
+        leaf.hasData = true
+        leaf.dirty = true
+    }
+    
+    // Помечаем все родительские узлы как dirty
+    vt.markDirtyPath(userIDHash)
+    
+    return nil
 }
+
+// shouldExpandLeaf проверяет нужно ли расширять узел
+func (vt *VerkleTree) shouldExpandLeaf(node *InternalNode, leafIndex int, threshold int) bool {
+    // Подсчитываем заполненность узла
+    occupied := 0
+    for _, child := range node.children {
+        if child != nil {
+            if leaf, ok := child.(*LeafNode); ok && leaf.hasData {
+                occupied++
+            }
+        }
+    }
+    
+    return occupied >= threshold
+}
+
+// expandLeaf расширяет листовой узел в поддерево
+func (vt *VerkleTree) expandLeaf(parentNode *InternalNode, leafIndex int, oldLeaf *LeafNode) error {
+    // Создаем новый внутренний узел на месте листа
+    newInternal := &InternalNode{
+        children: make([]VerkleNode, vt.config.NodeWidth),
+        depth:    parentNode.depth + 1,
+        dirty:    true,
+    }
+    
+    // Вычисляем новый индекс для старого листа
+    if newInternal.depth >= vt.config.Levels {
+        // Достигли максимальной глубины, не можем расширять
+        return errors.New("достигнута максимальная глубина дерева")
+    }
+    
+    newLeafIndex := getNodeIndex(oldLeaf.stem[newInternal.depth], vt.config.NodeWidth)
+    
+    // Перемещаем старый лист в новый узел
+    newInternal.children[newLeafIndex] = oldLeaf
+    
+    // Заменяем лист на внутренний узел
+    parentNode.children[leafIndex] = newInternal
+    parentNode.dirty = true
+    
+    return nil
+}
+
 
 // markDirtyPath помечает все узлы на пути к ключу как требующие обновления
 func (vt *VerkleTree) markDirtyPath(userIDHash []byte) {
-	node := vt.root
-	node.dirty = true
-	
-	for depth := 0; depth < vt.config.Levels-1; depth++ {
-		index := int(userIDHash[depth])
-		if node.children[index] != nil {
-			if internalNode, ok := node.children[index].(*InternalNode); ok {
-				internalNode.dirty = true
-				node = internalNode
-			}
-		}
-	}
+    node := vt.root
+    node.dirty = true
+    
+    for depth := 0; depth < vt.config.Levels-1; depth++ {
+        index := getNodeIndex(userIDHash[depth], vt.config.NodeWidth)
+        if node.children[index] != nil {
+            if internalNode, ok := node.children[index].(*InternalNode); ok {
+                internalNode.dirty = true
+                node = internalNode
+            }
+        }
+    }
 }
+
 
 // recomputeCommitments рекурсивно пересчитывает KZG коммитменты
 func (vt *VerkleTree) recomputeCommitments(node *InternalNode) error {
@@ -1023,40 +1125,41 @@ func (vt *VerkleTree) generateProof(userIDs []string) (*Proof, error) {
 
 // collectProofPath собирает путь и соседние хеши для доказательства
 func (vt *VerkleTree) collectProofPath(userIDHash []byte, proof *Proof) error {
-	var stem [StemSize]byte
-	copy(stem[:], userIDHash[:StemSize])
-	
-	node := vt.root
-	
-	// Добавляем коммитмент корня
-	if node.commitment != nil {
-		proof.Path = append(proof.Path, node.commitment)
-	}
-	
-	for depth := 0; depth < vt.config.Levels-1; depth++ {
-		index := int(stem[depth])
-		
-		// Собираем хеши соседних узлов
-		for i, child := range node.children {
-			if i != index && child != nil {
-				proof.SiblingHashes = append(proof.SiblingHashes, child.Hash())
-			}
-		}
-		
-		if node.children[index] == nil {
-			return ErrKeyNotFound
-		}
-		
-		if internalNode, ok := node.children[index].(*InternalNode); ok {
-			if internalNode.commitment != nil {
-				proof.Path = append(proof.Path, internalNode.commitment)
-			}
-			node = internalNode
-		}
-	}
-	
-	return nil
+    var stem [StemSize]byte
+    copy(stem[:], userIDHash[:StemSize])
+    
+    node := vt.root
+    
+    // Добавляем коммитмент корня
+    if node.commitment != nil {
+        proof.Path = append(proof.Path, node.commitment)
+    }
+    
+    for depth := 0; depth < vt.config.Levels-1; depth++ {
+        index := getNodeIndex(stem[depth], vt.config.NodeWidth)
+        
+        // Собираем хеши соседних узлов
+        for i, child := range node.children {
+            if i != index && child != nil {
+                proof.SiblingHashes = append(proof.SiblingHashes, child.Hash())
+            }
+        }
+        
+        if node.children[index] == nil {
+            return ErrKeyNotFound
+        }
+        
+        if internalNode, ok := node.children[index].(*InternalNode); ok {
+            if internalNode.commitment != nil {
+                proof.Path = append(proof.Path, internalNode.commitment)
+            }
+            node = internalNode
+        }
+    }
+    
+    return nil
 }
+
 
 // VerifyProof проверяет доказательство
 func VerifyProof(root []byte, proof *Proof) (bool, error) {
