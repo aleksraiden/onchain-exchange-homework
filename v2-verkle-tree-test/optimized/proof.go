@@ -83,8 +83,14 @@ func (vt *VerkleTree) generateSingleProof(userID string) (*Proof, error) {
 	
 	// Проверяем существование
 	cacheKey := string(userIDHash[:])
-	leaf, exists := vt.nodeIndex[cacheKey]
-	if !exists || !leaf.hasData {
+	
+	value, exists := vt.nodeIndex.Load(cacheKey)
+	if !exists {
+		return nil, ErrKeyNotFound
+	}
+	
+	leaf := value.(*LeafNode)
+	if !leaf.hasData {
 		return nil, ErrKeyNotFound
 	}
 	
@@ -297,8 +303,14 @@ func (vt *VerkleTree) generateBundledProof(userIDs []string) (*Proof, error) {
 		userIDHashes[i] = userIDHash
 		
 		cacheKey := string(userIDHash[:])
-		leaf, exists := vt.nodeIndex[cacheKey]
-		if !exists || !leaf.hasData {
+		
+		value, exists := vt.nodeIndex.Load(cacheKey)
+		if !exists {
+			return nil, fmt.Errorf("user %s not found", userID)
+		}
+		
+		leaf := value.(*LeafNode)
+		if !leaf.hasData {
 			return nil, fmt.Errorf("user %s not found", userID)
 		}
 	}

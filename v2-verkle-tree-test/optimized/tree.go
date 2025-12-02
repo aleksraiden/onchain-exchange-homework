@@ -4,7 +4,6 @@ package optimized
 
 import (
 	"fmt"
-//	"runtime"
 	"sync"
 	"sync/atomic"
 )
@@ -20,8 +19,8 @@ type VerkleTree struct {
 	// Хранилище (Pebble DB, может быть nil для in-memory)
 	dataStore Storage
 	
-	// Индекс листьев для O(1) поиска
-	nodeIndex map[string]*LeafNode
+	// ✅ Thread-safe индекс листьев (sync.Map для параллельного доступа)
+	nodeIndex sync.Map // map[string]*LeafNode
 	
 	// LRU cache для горячих узлов (5000 элементов)
 	cache *LRUCache
@@ -35,8 +34,11 @@ type VerkleTree struct {
 	// Worker pool для параллельных операций
 	workerPool *WorkerPool
 	
-	// Мьютекс для потокобезопасности
+	// Мьютекс для потокобезопасности дерева
 	mu sync.RWMutex
+	
+	// ✅ Отдельный мьютекс для модификации структуры дерева
+	treeMu sync.Mutex
 }
 
 // commitTask - задача на асинхронный commit
@@ -58,9 +60,8 @@ func New(config *Config, dataStore Storage) (*VerkleTree, error) {
 		root:        root,
 		config:      config,
 		dataStore:   dataStore,
-		nodeIndex:   make(map[string]*LeafNode, 10000), // Pre-allocate
 		cache:       NewLRUCache(config.CacheSize),
-		commitQueue: make(chan *commitTask, 100), // Буфер на 100 задач
+		commitQueue: make(chan *commitTask, 100),
 		workerPool:  NewWorkerPool(config.Workers),
 	}
 	
@@ -81,9 +82,6 @@ func (vt *VerkleTree) getNodeIndex(byteValue byte) int {
 
 // Insert вставляет данные пользователя в дерево
 func (vt *VerkleTree) Insert(userID string, data []byte) error {
-	vt.mu.Lock()
-	defer vt.mu.Unlock()
-	
 	if len(data) > MaxValueSize {
 		return ErrValueTooLarge
 	}
@@ -91,7 +89,7 @@ func (vt *VerkleTree) Insert(userID string, data []byte) error {
 	// Hash user ID
 	userIDHash := HashUserID(userID)
 	
-	// Сохраняем в Pebble DB если есть
+	// Сохраняем в Pebble DB если есть (можно параллельно)
 	if vt.dataStore != nil {
 		dataKey := fmt.Sprintf("data:%x", userIDHash)
 		if err := vt.dataStore.Put([]byte(dataKey), data); err != nil {
@@ -99,11 +97,15 @@ func (vt *VerkleTree) Insert(userID string, data []byte) error {
 		}
 	}
 	
-	// Вставляем в дерево
-	return vt.insert(userIDHash, data)
+	// ✅ Лочим только на время модификации дерева
+	vt.treeMu.Lock()
+	err := vt.insert(userIDHash, data)
+	vt.treeMu.Unlock()
+	
+	return err
 }
 
-// insert - внутренняя функция вставки
+// insert - внутренняя функция вставки (требует treeMu.Lock())
 func (vt *VerkleTree) insert(userIDHash [32]byte, data []byte) error {
 	// Создаем stem (первые 31 байт)
 	var stem [StemSize]byte
@@ -113,7 +115,6 @@ func (vt *VerkleTree) insert(userIDHash [32]byte, data []byte) error {
 	node := vt.root
 	
 	for depth := 0; depth < TreeDepth-1; depth++ {
-		// Оптимизированный getNodeIndex с pre-computed mask
 		index := vt.getNodeIndex(stem[depth])
 		
 		if node.children[index] == nil {
@@ -123,7 +124,7 @@ func (vt *VerkleTree) insert(userIDHash [32]byte, data []byte) error {
 		
 		// Переходим к следующему уровню
 		if internalNode, ok := node.children[index].(*InternalNode); ok {
-			node.SetDirty(true) // Помечаем родителя как dirty
+			node.SetDirty(true)
 			node = internalNode
 		} else {
 			// Достигли листа раньше - конфликт, нужно расширить
@@ -145,7 +146,7 @@ func (vt *VerkleTree) insert(userIDHash [32]byte, data []byte) error {
 		leaf.SetDirty(true)
 		
 		node.children[leafIndex] = leaf
-		vt.nodeIndex[cacheKey] = leaf
+		vt.nodeIndex.Store(cacheKey, leaf) // ✅ Thread-safe
 		
 		// Кэшируем горячий узел
 		vt.cache.Put(cacheKey, leaf)
@@ -162,7 +163,7 @@ func (vt *VerkleTree) insert(userIDHash [32]byte, data []byte) error {
 		}
 	}
 	
-	// Помечаем путь как dirty (Lazy commit - не вычисляем KZG сейчас!)
+	// Помечаем путь как dirty (Lazy commit)
 	vt.markDirtyPath(stem)
 	
 	return nil
@@ -208,9 +209,6 @@ func (vt *VerkleTree) markDirtyPath(stem [StemSize]byte) {
 
 // Get получает данные пользователя
 func (vt *VerkleTree) Get(userID string) ([]byte, error) {
-	vt.mu.RLock()
-	defer vt.mu.RUnlock()
-	
 	userIDHash := HashUserID(userID)
 	cacheKey := string(userIDHash[:])
 	
@@ -231,9 +229,14 @@ func (vt *VerkleTree) Get(userID string) ([]byte, error) {
 		}
 	}
 	
-	// Cache MISS - ищем в индексе
-	leaf, exists := vt.nodeIndex[cacheKey]
-	if !exists || !leaf.hasData {
+	// Cache MISS - ищем в sync.Map
+	value, exists := vt.nodeIndex.Load(cacheKey)
+	if !exists {
+		return nil, ErrKeyNotFound
+	}
+	
+	leaf := value.(*LeafNode)
+	if !leaf.hasData {
 		return nil, ErrKeyNotFound
 	}
 	
@@ -360,22 +363,26 @@ func (vt *VerkleTree) Close() error {
 
 // Stats возвращает статистику дерева
 func (vt *VerkleTree) Stats() map[string]interface{} {
-	vt.mu.RLock()
-	defer vt.mu.RUnlock()
+	// Подсчитываем элементы в sync.Map
+	nodeCount := 0
+	vt.nodeIndex.Range(func(key, value interface{}) bool {
+		nodeCount++
+		return true
+	})
 	
 	hits, misses, hitRate := vt.cache.Stats()
 	
 	return map[string]interface{}{
-		"depth":           TreeDepth,
-		"width":           NodeWidth,
-		"node_count":      len(vt.nodeIndex),
-		"workers":         vt.config.Workers,
-		"cache_size":      vt.config.CacheSize,
-		"cache_hits":      hits,
-		"cache_misses":    misses,
-		"cache_hit_rate":  hitRate,
-		"lazy_commit":     vt.config.LazyCommit,
-		"async_mode":      vt.config.AsyncMode,
+		"depth":              TreeDepth,
+		"width":              NodeWidth,
+		"node_count":         nodeCount,
+		"workers":            vt.config.Workers,
+		"cache_size":         vt.config.CacheSize,
+		"cache_hits":         hits,
+		"cache_misses":       misses,
+		"cache_hit_rate":     hitRate,
+		"lazy_commit":        vt.config.LazyCommit,
+		"async_mode":         vt.config.AsyncMode,
 		"commit_in_progress": vt.commitInProgress.Load(),
 	}
 }

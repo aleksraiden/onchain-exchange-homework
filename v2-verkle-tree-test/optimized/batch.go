@@ -18,7 +18,7 @@ type Batch struct {
 // NewBatch создает новый batch
 func (vt *VerkleTree) NewBatch() *Batch {
 	return &Batch{
-		updates: make(map[string][]byte, 1000), // Pre-allocate
+		updates: make(map[string][]byte, 1000),
 		closed:  false,
 	}
 }
@@ -52,35 +52,38 @@ func (b *Batch) AddUserData(userID string, userData *UserData) error {
 	return b.Add(userID, data)
 }
 
-// Commit применяет batch с async/parallel оптимизациями
+// CommitBatch применяет batch с async/parallel оптимизациями
 func (vt *VerkleTree) CommitBatch(batch *Batch) ([]byte, error) {
-	vt.mu.Lock()
-	defer vt.mu.Unlock()
-	
 	batch.mu.Lock()
 	batch.closed = true
 	updates := batch.updates
 	batch.mu.Unlock()
 	
 	if len(updates) == 0 {
-		return vt.root.Hash(), nil
+		vt.mu.RLock()
+		root := vt.root.Hash()
+		vt.mu.RUnlock()
+		return root, nil
 	}
 	
-	// Параллельная вставка (если workers >= 4)
+	// ✅ Параллельная вставка (если workers >= 4 и batch >= 100)
 	if vt.config.Workers >= 4 && len(updates) >= 100 {
 		if err := vt.parallelBatchInsert(updates); err != nil {
 			return nil, err
 		}
 	} else {
 		// Последовательная вставка для малых batch
+		vt.treeMu.Lock()
 		for userIDHashStr, data := range updates {
 			var userIDHash [32]byte
 			copy(userIDHash[:], []byte(userIDHashStr))
 			
 			if err := vt.insert(userIDHash, data); err != nil {
+				vt.treeMu.Unlock()
 				return nil, err
 			}
 		}
+		vt.treeMu.Unlock()
 	}
 	
 	// Async commit с temporary root
@@ -89,12 +92,15 @@ func (vt *VerkleTree) CommitBatch(batch *Batch) ([]byte, error) {
 	}
 	
 	// Синхронный commit (только Blake3, Lazy KZG)
-	return vt.root.Hash(), nil
+	vt.mu.RLock()
+	root := vt.root.Hash()
+	vt.mu.RUnlock()
+	
+	return root, nil
 }
 
-// parallelBatchInsert - параллельная вставка для больших batch
+// parallelBatchInsert - МАКСИМАЛЬНО параллельная вставка
 func (vt *VerkleTree) parallelBatchInsert(updates map[string][]byte) error {
-	// Конвертируем map в slice для параллельной обработки
 	type updateEntry struct {
 		userIDHash [32]byte
 		data       []byte
@@ -107,53 +113,72 @@ func (vt *VerkleTree) parallelBatchInsert(updates map[string][]byte) error {
 		entries = append(entries, updateEntry{userIDHash, data})
 	}
 	
-	// Параллельная обработка через worker pool
-	errChan := make(chan error, len(entries))
+	// ✅ СТРАТЕГИЯ: Параллельная запись в Pebble + последовательная модификация дерева
 	
-	chunkSize := (len(entries) + vt.config.Workers - 1) / vt.config.Workers
-	var wg sync.WaitGroup
-	
-	for w := 0; w < vt.config.Workers; w++ {
-		start := w * chunkSize
-		if start >= len(entries) {
-			break
-		}
+	// Фаза 1: Параллельная запись в Pebble (если есть)
+	if vt.dataStore != nil {
+		errChan := make(chan error, len(entries))
+		var wg sync.WaitGroup
 		
-		end := start + chunkSize
-		if end > len(entries) {
-			end = len(entries)
-		}
+		chunkSize := (len(entries) + vt.config.Workers - 1) / vt.config.Workers
 		
-		wg.Add(1)
-		go func(chunk []updateEntry) {
-			defer wg.Done()
-			
-			for _, entry := range chunk {
-				if err := vt.insert(entry.userIDHash, entry.data); err != nil {
-					errChan <- err
-					return
-				}
+		for w := 0; w < vt.config.Workers; w++ {
+			start := w * chunkSize
+			if start >= len(entries) {
+				break
 			}
-		}(entries[start:end])
+			
+			end := start + chunkSize
+			if end > len(entries) {
+				end = len(entries)
+			}
+			
+			wg.Add(1)
+			go func(chunk []updateEntry) {
+				defer wg.Done()
+				
+				for _, entry := range chunk {
+					dataKey := fmt.Sprintf("data:%x", entry.userIDHash)
+					if err := vt.dataStore.Put([]byte(dataKey), entry.data); err != nil {
+						errChan <- err
+						return
+					}
+				}
+			}(entries[start:end])
+		}
+		
+		wg.Wait()
+		close(errChan)
+		
+		// Проверяем ошибки Pebble
+		for err := range errChan {
+			if err != nil {
+				return err
+			}
+		}
 	}
 	
-	wg.Wait()
-	close(errChan)
-	
-	// Проверяем ошибки
-	for err := range errChan {
-		if err != nil {
+	// Фаза 2: Быстрая последовательная вставка в дерево
+	// (один treeMu.Lock на весь batch - минимальное время блокировки)
+	vt.treeMu.Lock()
+	for _, entry := range entries {
+		if err := vt.insert(entry.userIDHash, entry.data); err != nil {
+			vt.treeMu.Unlock()
 			return err
 		}
 	}
+	vt.treeMu.Unlock()
 	
 	return nil
 }
 
 // asyncCommit - асинхронный commit с temporary Blake3 root
 func (vt *VerkleTree) asyncCommit() ([]byte, error) {
+	vt.mu.RLock()
 	// Быстрый temporary root (Blake3)
 	tempRoot := vt.root.Hash()
+	vt.mu.RUnlock()
+	
 	vt.pendingRoot = tempRoot
 	
 	// Создаем задачу на async KZG commit
@@ -175,17 +200,24 @@ func (vt *VerkleTree) asyncCommit() ([]byte, error) {
 		vt.commitWG.Done()
 		vt.commitInProgress.Store(false)
 		
+		vt.mu.Lock()
 		if err := vt.computeKZGForRoot(); err != nil {
+			vt.mu.Unlock()
 			return nil, err
 		}
-		return vt.root.commitment, nil
+		finalRoot := vt.root.commitment
+		vt.mu.Unlock()
+		
+		return finalRoot, nil
 	}
 	
 	// Фоновое обновление финального root
 	go func() {
 		finalRoot := <-resultChan
 		vt.mu.Lock()
-		vt.root.commitment = finalRoot
+		if finalRoot != nil {
+			vt.root.commitment = finalRoot
+		}
 		vt.commitInProgress.Store(false)
 		vt.mu.Unlock()
 	}()
