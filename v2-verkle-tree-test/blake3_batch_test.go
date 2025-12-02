@@ -1,4 +1,4 @@
-// Создайте файл blake3_batch_test.go
+// blake3_batch_test.go
 
 package verkletree
 
@@ -41,8 +41,8 @@ func TestBlake3BatchConcept(t *testing.T) {
 	t.Log("\n" + strings.Repeat("=", 100))
 }
 
-// TestSequentialVsBatchHashing - сравнение подходов
-func TestSequentialVsBatchHashing(t *testing.T) {
+// TestBlake3SequentialVsBatch - сравнение подходов
+func TestBlake3SequentialVsBatch(t *testing.T) {
 	nodeCounts := []int{10, 50, 100, 500, 1000}
 	dataSize := 256 // байт на узел (типичный размер)
 	
@@ -144,8 +144,8 @@ func hashBatchParallel(data [][]byte) [][]byte {
 	return results
 }
 
-// TestVerkleTreeBatchCommitment - применение в реальном дереве
-func TestVerkleTreeBatchCommitment(t *testing.T) {
+// TestBlake3VerkleTreeIntegration - применение в реальном дереве
+func TestBlake3VerkleTreeIntegration(t *testing.T) {
 	t.Log("\n" + strings.Repeat("=", 100))
 	t.Log("ПРИМЕНЕНИЕ BATCH HASHING В VERKLE TREE")
 	t.Log(strings.Repeat("=", 100))
@@ -188,8 +188,8 @@ func TestVerkleTreeBatchCommitment(t *testing.T) {
 	t.Log("\n" + strings.Repeat("=", 100))
 }
 
-// TestBatchHashingStrategies - разные стратегии
-func TestBatchHashingStrategies(t *testing.T) {
+// TestBlake3Strategies - разные стратегии
+func TestBlake3Strategies(t *testing.T) {
 	t.Log("\n" + strings.Repeat("=", 100))
 	t.Log("СТРАТЕГИИ BATCH HASHING")
 	t.Log(strings.Repeat("=", 100))
@@ -283,8 +283,8 @@ func TestBatchHashingStrategies(t *testing.T) {
 	t.Log("\n" + strings.Repeat("=", 100))
 }
 
-// TestImplementationExample - пример реализации
-func TestImplementationExample(t *testing.T) {
+// TestBlake3Implementation - пример реализации
+func TestBlake3Implementation(t *testing.T) {
 	t.Log("\n" + strings.Repeat("=", 100))
 	t.Log("ПРИМЕР РЕАЛИЗАЦИИ BATCH HASHING")
 	t.Log(strings.Repeat("=", 100))
@@ -338,8 +338,8 @@ func (vt *VerkleTree) recomputeCommitmentsBatch() {
 	t.Log("\n" + strings.Repeat("=", 100))
 }
 
-// TestRealWorldImpact - влияние на ваш сценарий
-func TestRealWorldImpact(t *testing.T) {
+// TestBlake3RealWorldImpact - влияние на ваш сценарий
+func TestBlake3RealWorldImpact(t *testing.T) {
 	t.Log("\n" + strings.Repeat("=", 100))
 	t.Log("ВЛИЯНИЕ НА ВАШ СЦЕНАРИЙ (50K operations в 300ms)")
 	t.Log(strings.Repeat("=", 100))
