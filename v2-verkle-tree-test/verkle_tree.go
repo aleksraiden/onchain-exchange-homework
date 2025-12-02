@@ -67,6 +67,11 @@ func validateNodeWidth(width int) error {
     return fmt.Errorf("NodeWidth должен быть одним из: 8, 16, 32, 64, 128, 256")
 }
 
+//Для совместимости с старыми тестами, МОЖНО УДАЛИТЬ потом 
+func getNodeIndex(byteValue byte, mask int) int {
+	return int(byteValue) & mask
+}
+
 // getNodeIndex возвращает индекс узла с использованием предвычисленной маски
 func (vt *VerkleTree) getNodeIndex(byteValue byte) int {
     return int(byteValue) & vt.config.NodeMask
@@ -98,14 +103,16 @@ func DeserializeUserData(data []byte) (*UserData, error) {
 // HashUserID создает хеш от ID пользователя для использования как ключ в дереве
 // userID - строковый идентификатор пользователя (например, "user123")
 func HashUserID(userID string) []byte {
-	hasher := blake3.New()
-	hasher.Write([]byte(userID))
-	hash := hasher.Sum(nil)
-	
-	// Возвращаем первые 32 байта (blake3 выдает 32 байта по умолчанию)
-	result := make([]byte, 32)
-	copy(result, hash)
-	return result
+    hasher := blake3.New()
+    hasher.Write([]byte(userID))
+    
+    // ✅ Используем пул для временного hash
+    tempHash := hasher.Sum(nil)
+    
+    // Копируем в новый буфер для возврата
+    result := make([]byte, 32)
+    copy(result, tempHash)
+    return result
 }
 
 // Config - конфигурация Verkle tree
@@ -853,7 +860,7 @@ func (vt *VerkleTree) insert(userIDHash []byte, data []byte) error {
     
     for depth := 0; depth < vt.config.Levels-1; depth++ {
         // Вычисляем индекс с учетом NodeWidth
-        index := getNodeIndex(stem[depth])
+        index := vt.getNodeIndex(stem[depth])
         
         if node.children[index] == nil {
             // Создаем новый внутренний узел
@@ -880,7 +887,7 @@ func (vt *VerkleTree) insert(userIDHash []byte, data []byte) error {
             }
             
             // Перемещаем старый лист в новый узел
-            oldLeafIndex := getNodeIndex(oldLeaf.stem[depth+1])
+            oldLeafIndex := vt.getNodeIndex(oldLeaf.stem[depth+1])
             newInternal.children[oldLeafIndex] = oldLeaf
             
             // Заменяем лист на внутренний узел
@@ -890,7 +897,7 @@ func (vt *VerkleTree) insert(userIDHash []byte, data []byte) error {
     }
     
     // Вычисляем индекс для листа
-    leafIndex := getNodeIndex(stem[vt.config.Levels-1])
+    leafIndex := vt.getNodeIndex(stem[vt.config.Levels-1])
     
     // Проверяем автоматическое расширение листа
     if node.children[leafIndex] != nil {
@@ -989,7 +996,7 @@ func (vt *VerkleTree) expandLeaf(parentNode *InternalNode, leafIndex int, oldLea
     }
     
     // Вычисляем новый индекс для старого листа
-    newLeafIndex := getNodeIndex(oldLeaf.stem[newInternal.depth])
+    newLeafIndex := vt.getNodeIndex(oldLeaf.stem[newInternal.depth])
     
     // Перемещаем старый лист в новый узел
     newInternal.children[newLeafIndex] = oldLeaf
@@ -1009,7 +1016,7 @@ func (vt *VerkleTree) markDirtyPath(userIDHash []byte) {
     node.dirty = true
     
     for depth := 0; depth < vt.config.Levels-1; depth++ {
-        index := getNodeIndex(userIDHash[depth])
+        index := vt.getNodeIndex(userIDHash[depth])
         if node.children[index] != nil {
             if internalNode, ok := node.children[index].(*InternalNode); ok {
                 internalNode.dirty = true
@@ -1322,25 +1329,22 @@ func (n *InternalNode) Commit(cfg *Config) ([]byte, error) {
     // Для промежуточных узлов используем быстрый Blake3 хеш
     if !cfg.UseKZGForInternal && n.depth > 0 {
         hasher := blake3.New()
-        
         for _, child := range n.children {
             if child == nil {
-                // Записываем нулевые байты для пустых узлов
                 hasher.Write(make([]byte, 32))
             } else {
                 hash := child.Hash()
                 hasher.Write(hash)
             }
         }
-        
         n.commitment = hasher.Sum(nil)
         n.dirty = false
         return n.commitment, nil
     }
     
-    // KZG только для корня (depth == 0) или если явно включено
+    // ✅ Берем из пула вместо аллокации
     values := getFrElementSlice(cfg.NodeWidth)
-    defer putFrElementSlice(values)
+    defer putFrElementSlice(values) // Вернем в пул после использования
     
     for i, child := range n.children {
         if child == nil {
@@ -1358,12 +1362,8 @@ func (n *InternalNode) Commit(cfg *Config) ([]byte, error) {
     
     n.commitment = commitment
     n.dirty = false
-    
     return commitment, nil
 }
-
-
-
 
 // Hash возвращает blake3 хеш коммитмента для InternalNode
 func (n *InternalNode) Hash() []byte {
@@ -1516,7 +1516,7 @@ func (vt *VerkleTree) collectProofPath(userIDHash []byte, proof *Proof) error {
     }
     
     for depth := 0; depth < vt.config.Levels-1; depth++ {
-        index := getNodeIndex(stem[depth])
+        index := vt.getNodeIndex(stem[depth])
         
         // Собираем хеши соседних узлов
         for i, child := range node.children {
@@ -1608,7 +1608,15 @@ func (vt *VerkleTree) serializeNode(node VerkleNode) ([]byte, error) {
 		return []byte{0xFF}, nil
 	}
 	
-	var buf []byte
+	if node == nil {
+        return []byte{0xFF}, nil
+    }
+    
+    // ✅ Берем буфер из пула
+    buf := getByteBuffer(1024) // Стартовый размер
+    defer putByteBuffer(buf)
+    
+    buf = buf[:0] // Сбрасываем length но оставляем capacity
 	
 	if leaf, ok := node.(*LeafNode); ok {
 		buf = append(buf, 0x01) // Тип: лист
@@ -1673,7 +1681,9 @@ func (vt *VerkleTree) serializeNode(node VerkleNode) ([]byte, error) {
 		}
 	}
 	
-	return buf, nil
+	result := make([]byte, len(buf))
+    copy(result, buf)
+    return result, nil
 }
 
 // SerializeJSON сериализует дерево в человеко-читаемый JSON

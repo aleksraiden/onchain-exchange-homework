@@ -433,7 +433,7 @@ func TestBottleneckAnalysis(t *testing.T) {
     - Вы сказали "без disk I/O"
     - Только RAM operations
     - **Экономия: 20-30ms**
-7. **⚡ Pre-computed masks и lookup tables**
+DONE: 7. **⚡ Pre-computed masks и lookup tables**
     - getNodeIndex() без вычислений
     - **Экономия: 5-10ms**
 
