@@ -705,7 +705,7 @@ func BenchmarkBatchInsertWithKZG(b *testing.B) {
 }
 
 func BenchmarkAsyncCommit(b *testing.B) {
-    tree, _ := New(4, 64, testSRS, nil)
+    tree, _ := New(4, 256, testSRS, nil)
     tree.EnableAsyncCommit(2)
     defer tree.DisableAsyncCommit()
     
