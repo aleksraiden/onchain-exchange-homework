@@ -176,6 +176,9 @@ type VerkleTree struct {
 	currentDepth      int  
 
 	parallelConfig    *ParallelConfig
+	
+	// nodeCache - LRU кэш для горячих узлов
+	nodeCache *NodeCache
 }
 
 // commitTask - задача на асинхронный коммит
@@ -380,6 +383,7 @@ func New(levels, nodeWidth int, srs *kzg_bls12381.SRS, dataStore Storage) (*Verk
         commitQueue: make(chan *commitTask, 10),  // Буфер на 10 задач
 		currentDepth: levels,
 		parallelConfig: NewParallelConfig(),
+		nodeCache:      NewNodeCache(5000), // 5000 горячих узлов
 	}
 	
 	return tree, nil
@@ -949,10 +953,13 @@ func (vt *VerkleTree) insert(userIDHash []byte, data []byte) error {
         leaf.dirty = true
     }
     
-    // Помечаем все родительские узлы как dirty
-    vt.markDirtyPath(userIDHash)
-    
-    return nil
+	// ✅ Инвалидируем кэш при обновлении
+	cacheKey := string(userIDHash)
+	vt.nodeCache.Invalidate(cacheKey)
+	
+	// Помечаем как dirty
+	vt.markDirtyPath(userIDHash)
+	return nil
 }
 
 // shouldExpandLeaf проверяет нужно ли расширять узел
@@ -1008,8 +1015,6 @@ func (vt *VerkleTree) expandLeaf(parentNode *InternalNode, leafIndex int, oldLea
     return nil
 }
 
-
-
 // markDirtyPath помечает все узлы на пути к ключу как требующие обновления
 func (vt *VerkleTree) markDirtyPath(userIDHash []byte) {
     node := vt.root
@@ -1025,7 +1030,6 @@ func (vt *VerkleTree) markDirtyPath(userIDHash []byte) {
         }
     }
 }
-
 
 // recomputeCommitments рекурсивно пересчитывает KZG коммитменты
 func (vt *VerkleTree) recomputeCommitments(node *InternalNode) error {
@@ -1083,40 +1087,6 @@ func (vt *VerkleTree) recomputeCommitments(node *InternalNode) error {
     
     return nil
 }
-
-/***
-func (vt *VerkleTree) recomputeCommitmentsBatch() {
-    // Группируем dirty узлы по уровням
-    dirtyByLevel := make(map[int][]*InternalNode)
-    
-    vt.visitDirtyNodes(func(node *InternalNode, depth int) {
-        dirtyByLevel[depth] = append(dirtyByLevel[depth], node)
-    })
-    
-    // Обрабатываем каждый уровень batch'ем (от листьев к корню)
-    for level := vt.config.Levels - 1; level >= 0; level-- {
-        nodes := dirtyByLevel[level]
-        if len(nodes) == 0 {
-            continue
-        }
-        
-        // Подготавливаем данные для batch hash
-        data := make([][]byte, len(nodes))
-        for i, node := range nodes {
-            data[i] = node.serializeChildren()
-        }
-        
-        // BATCH HASH!
-        hashes := hashBatchParallel(data)
-        
-        // Применяем результаты
-        for i, node := range nodes {
-            node.commitment = hashes[i]
-            node.dirty = false
-        }
-    }
-}
-***/
 
 // Добавьте функцию параллельных коммитментов
 func (vt *VerkleTree) parallelLeafCommit(leaves []*LeafNode) error {
@@ -1177,7 +1147,6 @@ func (vt *VerkleTree) parallelLeafCommit(leaves []*LeafNode) error {
     return nil
 }
 
-
 // Get получает данные пользователя по его ID
 // Возвращает сырые байты данных, которые нужно десериализовать
 func (vt *VerkleTree) Get(userID string) ([]byte, error) {
@@ -1204,7 +1173,25 @@ func (vt *VerkleTree) get(userIDHash []byte) ([]byte, error) {
 		return nil, ErrInvalidKey
 	}
 	
-	// Сначала проверяем наличие узла в индексе (быстрый путь)
+	cacheKey := string(userIDHash)
+	
+	// ✅ Сначала проверяем кэш
+	if cachedNode, found := vt.nodeCache.Get(cacheKey); found {
+		if leaf, ok := cachedNode.(*LeafNode); ok && leaf.hasData {
+			// Cache HIT! ⚡
+			if vt.dataStore == nil {
+				return leaf.inMemoryData, nil
+			}
+			
+			data, err := vt.dataStore.Get([]byte(leaf.dataKey))
+			if err != nil {
+				return nil, fmt.Errorf("ошибка чтения из Pebble: %w", err)
+			}
+			return data, nil
+		}
+	}
+	
+	// Cache MISS - идем по дереву
 	leaf, exists := vt.nodeIndex[string(userIDHash)]
 	if !exists {
 		return nil, ErrKeyNotFound
@@ -1214,7 +1201,10 @@ func (vt *VerkleTree) get(userIDHash []byte) ([]byte, error) {
 		return nil, ErrKeyNotFound
 	}
 	
-	// Если работаем в памяти - возвращаем данные из узла
+	// ✅ Кэшируем найденный узел
+	vt.nodeCache.Put(cacheKey, leaf)
+	
+	// Возвращаем данные
 	if vt.dataStore == nil {
 		if leaf.inMemoryData == nil {
 			return nil, ErrKeyNotFound
@@ -1222,14 +1212,13 @@ func (vt *VerkleTree) get(userIDHash []byte) ([]byte, error) {
 		return leaf.inMemoryData, nil
 	}
 	
-	// Получаем данные из Pebble
 	data, err := vt.dataStore.Get([]byte(leaf.dataKey))
 	if err != nil {
 		return nil, fmt.Errorf("ошибка чтения из Pebble: %w", err)
 	}
+	
 	return data, nil
 }
-
 
 // GetMultiple получает данные нескольких пользователей одним запросом
 // userIDs - массив строковых ID пользователей
@@ -1878,4 +1867,23 @@ func LoadFromDisk(dataStore Storage, srs *kzg_bls12381.SRS) (*VerkleTree, error)
 	// TODO: Загрузить индекс узлов
 	
 	return tree, nil
+}
+
+
+// GetCacheStats возвращает статистику кэша
+func (vt *VerkleTree) GetCacheStats() map[string]interface{} {
+	if vt.nodeCache == nil {
+		return map[string]interface{}{"enabled": false}
+	}
+	
+	stats := vt.nodeCache.Stats()
+	stats["enabled"] = true
+	return stats
+}
+
+// ClearCache очищает кэш узлов
+func (vt *VerkleTree) ClearCache() {
+	if vt.nodeCache != nil {
+		vt.nodeCache.Clear()
+	}
 }
