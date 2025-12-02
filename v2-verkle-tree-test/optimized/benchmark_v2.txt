@@ -1,0 +1,57 @@
+BenchmarkInsert-20                                409482              5762 ns/op           12009 B/op         18 allocs/op
+BenchmarkInsert-20                                537040              6226 ns/op           11927 B/op         18 allocs/op
+BenchmarkInsert-20                                505801              6543 ns/op           11946 B/op         18 allocs/op
+BenchmarkBatchInsert8-20                            2174           1228401 ns/op                 8.000 elements/batch       153550 ns/element     154144 B/op        385 allocs/op
+BenchmarkBatchInsert8-20                            2400           1176894 ns/op                 8.000 elements/batch       147112 ns/element     153694 B/op        386 allocs/op
+BenchmarkBatchInsert8-20                            2208           1029528 ns/op                 8.000 elements/batch       128691 ns/element     154122 B/op        386 allocs/op
+BenchmarkBatchInsert16-20                           1551           2429765 ns/op                16.00 elements/batch        151860 ns/element     260216 B/op        567 allocs/op
+BenchmarkBatchInsert16-20                            764           2908848 ns/op                16.00 elements/batch        181803 ns/element     267651 B/op        571 allocs/op
+BenchmarkBatchInsert16-20                           1053           3071855 ns/op                16.00 elements/batch        191991 ns/element     264389 B/op        568 allocs/op
+BenchmarkBatchInsert32-20                           1081           3395296 ns/op                32.00 elements/batch        106103 ns/element     468366 B/op        928 allocs/op
+BenchmarkBatchInsert32-20                            688           3696315 ns/op                32.00 elements/batch        115510 ns/element     478444 B/op        932 allocs/op
+BenchmarkBatchInsert32-20                            691           4218990 ns/op                32.00 elements/batch        131843 ns/element     478503 B/op        933 allocs/op
+BenchmarkBatchInsert64-20                            480           4393973 ns/op                64.00 elements/batch         68656 ns/element     897468 B/op       1647 allocs/op
+BenchmarkBatchInsert64-20                            412           5312796 ns/op                64.00 elements/batch         83012 ns/element     904621 B/op       1652 allocs/op
+BenchmarkBatchInsert64-20                            390           5517816 ns/op                64.00 elements/batch         86216 ns/element     906964 B/op       1653 allocs/op
+BenchmarkBatchInsert128-20                           320           7522581 ns/op               128.0 elements/batch          58770 ns/element    1723791 B/op       3063 allocs/op
+BenchmarkBatchInsert128-20                           308           7443307 ns/op               128.0 elements/batch          58151 ns/element    1727394 B/op       3064 allocs/op
+BenchmarkBatchInsert128-20                           285           8057985 ns/op               128.0 elements/batch          62953 ns/element    1734223 B/op       3067 allocs/op
+BenchmarkGet-20                                 11645518               189.3 ns/op            64 B/op          2 allocs/op
+BenchmarkGet-20                                 10415401               193.1 ns/op            64 B/op          2 allocs/op
+BenchmarkGet-20                                 12121544               187.8 ns/op            64 B/op          2 allocs/op
+BenchmarkGetColdCache-20                         5175894               437.1 ns/op           143 B/op          3 allocs/op
+BenchmarkGetColdCache-20                         4397224               461.1 ns/op           143 B/op          3 allocs/op
+BenchmarkGetColdCache-20                         5003257               475.7 ns/op           143 B/op          3 allocs/op
+BenchmarkProofGeneration-20                           38          65863459 ns/op          924788 B/op      25742 allocs/op
+BenchmarkProofGeneration-20                           37          67891343 ns/op          925344 B/op      25744 allocs/op
+BenchmarkProofGeneration-20                           34          66185233 ns/op          925392 B/op      25742 allocs/op
+BenchmarkProofGenerationParallel-20                  286           8438705 ns/op          928615 B/op      25803 allocs/op
+BenchmarkProofGenerationParallel-20                  255           9545546 ns/op          928700 B/op      25804 allocs/op
+BenchmarkProofGenerationParallel-20                  246           9428330 ns/op          928631 B/op      25804 allocs/op
+BenchmarkBundledProof10-20                           432           5390591 ns/op            539053 ns/user              10.00 users/proof         578963 B/op      10864 allocs/op
+BenchmarkBundledProof10-20                           421           5719528 ns/op            571949 ns/user              10.00 users/proof         578975 B/op      10864 allocs/op
+BenchmarkBundledProof10-20                           441           5487721 ns/op            548768 ns/user              10.00 users/proof         578943 B/op      10864 allocs/op
+BenchmarkBundledProof50-20                            85          25666645 ns/op            513327 ns/user              50.00 users/proof        2480682 B/op      46901 allocs/op
+BenchmarkBundledProof50-20                            81          24874946 ns/op            497477 ns/user              50.00 users/proof        2480697 B/op      46901 allocs/op
+BenchmarkBundledProof50-20                            93          25367906 ns/op            507354 ns/user              50.00 users/proof        2480703 B/op      46901 allocs/op
+BenchmarkBundledProof100-20                           48          47574268 ns/op            475739 ns/user             100.0 users/proof         4190209 B/op      79952 allocs/op
+BenchmarkBundledProof100-20                           43          48544511 ns/op            485440 ns/user             100.0 users/proof         4190155 B/op      79952 allocs/op
+BenchmarkBundledProof100-20                           48          48349437 ns/op            483490 ns/user             100.0 users/proof         4190170 B/op      79952 allocs/op
+BenchmarkProofVerification-20                        709           4549330 ns/op           88992 B/op        330 allocs/op
+BenchmarkProofVerification-20                        601           5798993 ns/op           88996 B/op        330 allocs/op
+BenchmarkProofVerification-20                        691           5259804 ns/op           88979 B/op        330 allocs/op
+BenchmarkBundledProofVerification-20                  68          34659093 ns/op                50.00 users/proof         454400 B/op      14200 allocs/op
+BenchmarkBundledProofVerification-20                  67          35263604 ns/op                50.00 users/proof         454400 B/op      14200 allocs/op
+BenchmarkBundledProofVerification-20                  70          34618277 ns/op                50.00 users/proof         454400 B/op      14200 allocs/op
+BenchmarkSingleVsBundled/Single_Generation-20                  4         544954587 ns/op         9450644 B/op     135150 allocs/op
+BenchmarkSingleVsBundled/Single_Generation-20                  4         558484186 ns/op         9448680 B/op     135135 allocs/op
+BenchmarkSingleVsBundled/Single_Generation-20                  6         490646961 ns/op         9448906 B/op     135149 allocs/op
+BenchmarkSingleVsBundled/Bundled_Generation-20               420           6008107 ns/op         2243847 B/op      39170 allocs/op
+BenchmarkSingleVsBundled/Bundled_Generation-20               469           5800780 ns/op         2244010 B/op      39171 allocs/op
+BenchmarkSingleVsBundled/Bundled_Generation-20               386           5496388 ns/op         2243854 B/op      39170 allocs/op
+BenchmarkCacheHitRate-20                                10353112               227.1 ns/op             100.0 %_cache_hit              64 B/op          2 allocs/op
+BenchmarkCacheHitRate-20                                 9211316               228.8 ns/op             100.0 %_cache_hit              64 B/op          2 allocs/op
+BenchmarkCacheHitRate-20                                10227121               237.6 ns/op             100.0 %_cache_hit              64 B/op          2 allocs/op
+BenchmarkFullWorkflow-20                                     252           8327251 ns/op          300161 B/op       1836 allocs/op
+BenchmarkFullWorkflow-20                                     289           8861497 ns/op          299948 B/op       1837 allocs/op
+BenchmarkFullWorkflow-20                                     447           6756763 ns/op          300305 B/op       1836 allocs/op
