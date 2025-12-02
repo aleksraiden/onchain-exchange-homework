@@ -3,7 +3,7 @@ package verkletree
 
 import (
 	"fmt"
-	mrand "math/rand" 
+	"math/rand" 
 	"testing"
 	"time"
 	
@@ -399,7 +399,7 @@ func BenchmarkRealisticWorkload(b *testing.B) {
 					userIDs[j] = userID
 					
 					// Случайный баланс от 0 до $1000
-					balance := mrand.Float64() * 1000.0
+					balance := rand.Float64() * 1000.0
 					
 					userData := &UserData{
 						Balances: map[string]float64{
@@ -427,14 +427,14 @@ func BenchmarkRealisticWorkload(b *testing.B) {
 			// === Фаза 2: Обновление 10 случайных пользователей ===
 			selectedUsers := make([]string, 10)
 			for j := 0; j < 10; j++ {
-				randomIdx := mrand.Intn(userCount)
+				randomIdx := rand.Intn(userCount)
 				selectedUsers[j] = userIDs[randomIdx]
 			}
 			
 			updateBatch := tree.BeginBatch()
 			for _, userID := range selectedUsers {
 				// Новый случайный баланс
-				newBalance := mrand.Float64() * 1000.0
+				newBalance := rand.Float64() * 1000.0
 				
 				userData := &UserData{
 					Balances: map[string]float64{
@@ -505,7 +505,7 @@ func BenchmarkDetailedMetrics(b *testing.B) {
 			
 			userData := &UserData{
 				Balances: map[string]float64{
-					"USD": mrand.Float64() * 1000.0,
+					"USD": rand.Float64() * 1000.0,
 				},
 				Timestamp: time.Now().Unix(),
 			}
@@ -523,10 +523,10 @@ func BenchmarkDetailedMetrics(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			batch := tree.BeginBatch()
 			
-			userID := userIDs[mrand.Intn(userCount)]
+			userID := userIDs[rand.Intn(userCount)]
 			userData := &UserData{
 				Balances: map[string]float64{
-					"USD": mrand.Float64() * 1000.0,
+					"USD": rand.Float64() * 1000.0,
 				},
 				Timestamp: time.Now().Unix(),
 			}
@@ -542,10 +542,10 @@ func BenchmarkDetailedMetrics(b *testing.B) {
 			batch := tree.BeginBatch()
 			
 			for j := 0; j < 10; j++ {
-				userID := userIDs[mrand.Intn(userCount)]
+				userID := userIDs[rand.Intn(userCount)]
 				userData := &UserData{
 					Balances: map[string]float64{
-						"USD": mrand.Float64() * 1000.0,
+						"USD": rand.Float64() * 1000.0,
 					},
 					Timestamp: time.Now().Unix(),
 				}
@@ -559,7 +559,7 @@ func BenchmarkDetailedMetrics(b *testing.B) {
 	// Бенчмарк 3: Генерация одного пруфа
 	b.Run("single_proof_generation", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			userID := userIDs[mrand.Intn(userCount)]
+			userID := userIDs[rand.Intn(userCount)]
 			_, err := tree.GenerateProof(userID)
 			if err != nil {
 				b.Fatal(err)
@@ -572,7 +572,7 @@ func BenchmarkDetailedMetrics(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			selectedUsers := make([]string, 10)
 			for j := 0; j < 10; j++ {
-				selectedUsers[j] = userIDs[mrand.Intn(userCount)]
+				selectedUsers[j] = userIDs[rand.Intn(userCount)]
 			}
 			
 			_, err := tree.GenerateMultiProof(selectedUsers)
@@ -585,7 +585,7 @@ func BenchmarkDetailedMetrics(b *testing.B) {
 	// Бенчмарк 5: Чтение данных
 	b.Run("read_user_data", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			userID := userIDs[mrand.Intn(userCount)]
+			userID := userIDs[rand.Intn(userCount)]
 			_, err := tree.GetUserData(userID)
 			if err != nil {
 				b.Fatal(err)
@@ -598,7 +598,7 @@ func BenchmarkDetailedMetrics(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			selectedUsers := make([]string, 10)
 			for j := 0; j < 10; j++ {
-				selectedUsers[j] = userIDs[mrand.Intn(userCount)]
+				selectedUsers[j] = userIDs[rand.Intn(userCount)]
 			}
 			
 			_, err := tree.GetMultipleUserData(selectedUsers)
@@ -611,7 +611,7 @@ func BenchmarkDetailedMetrics(b *testing.B) {
 	// Бенчмарк 7: Проверка наличия пользователя (Has)
 	b.Run("has_user_check", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			userID := userIDs[mrand.Intn(userCount)]
+			userID := userIDs[rand.Intn(userCount)]
 			_ = tree.Has(userID)
 		}
 	})
@@ -644,7 +644,7 @@ func BenchmarkScalability(b *testing.B) {
 						userID := fmt.Sprintf("user_%d", j)
 						userData := &UserData{
 							Balances: map[string]float64{
-								"USD": mrand.Float64() * 1000.0,
+								"USD": rand.Float64() * 1000.0,
 							},
 						}
 						batch.AddUserData(userID, userData)
@@ -770,6 +770,271 @@ func TestDifferentNodeWidths(t *testing.T) {
             
             if retrieved.Balances["USD"] != 0 {
                 t.Errorf("Неверные данные")
+            }
+        })
+    }
+}
+
+
+// BenchmarkNodeWidthComparison сравнивает производительность для разных NodeWidth
+func BenchmarkNodeWidthComparison(b *testing.B) {
+    widths := []int{8, 16, 32, 64, 128, 256, 512, 1024}
+    userCount := 100000
+    
+    for _, width := range widths {
+        b.Run(fmt.Sprintf("width_%d", width), func(b *testing.B) {
+            for i := 0; i < b.N; i++ {
+                b.StopTimer()
+                
+                // Создаем дерево с конкретной шириной
+                tree, err := New(6, width, testSRS, nil) // 6 уровней для 100k элементов
+                if err != nil {
+                    b.Fatal(err)
+                }
+                
+                b.StartTimer()
+                
+                // Вставляем 100k пользователей батчами по 5000
+                batchSize := 5000
+                for batchStart := 0; batchStart < userCount; batchStart += batchSize {
+                    batch := tree.BeginBatch()
+                    
+                    batchEnd := batchStart + batchSize
+                    if batchEnd > userCount {
+                        batchEnd = userCount
+                    }
+                    
+                    for j := batchStart; j < batchEnd; j++ {
+                        userID := fmt.Sprintf("user_%d_%d", width, j)
+                        userData := &UserData{
+                            Balances: map[string]float64{
+                                "USD": rand.Float64() * 1000.0,
+                            },
+                            Timestamp: time.Now().Unix(),
+                        }
+                        
+                        if err := batch.AddUserData(userID, userData); err != nil {
+                            b.Fatal(err)
+                        }
+                    }
+                    
+                    _, err := tree.CommitBatch(batch)
+                    if err != nil {
+                        b.Fatal(err)
+                    }
+                }
+                
+                b.StopTimer()
+                
+                // Логируем статистику
+                if i == 0 { // Только для первой итерации
+                    b.Logf("Width=%d: nodes=%d, root=%x", 
+                        width, tree.GetNodeCount(), tree.GetRoot()[:8])
+                }
+            }
+        })
+    }
+}
+
+// BenchmarkNodeWidthOperations детальные операции для разных ширин
+func BenchmarkNodeWidthOperations(b *testing.B) {
+    widths := []int{8, 16, 32, 64, 128, 256}
+    userCount := 100000
+    
+    // Подготавливаем деревья для каждой ширины
+    trees := make(map[int]*VerkleTree)
+    userIDs := make([]string, userCount)
+    
+    b.Log("Подготовка тестовых деревьев...")
+    for _, width := range widths {
+        tree, _ := New(6, width, testSRS, nil)
+        
+        // Заполняем дерево
+        for batchStart := 0; batchStart < userCount; batchStart += 5000 {
+            batch := tree.BeginBatch()
+            
+            batchEnd := batchStart + 5000
+            if batchEnd > userCount {
+                batchEnd = userCount
+            }
+            
+            for j := batchStart; j < batchEnd; j++ {
+                userID := fmt.Sprintf("user_%d", j)
+                if batchStart == 0 {
+                    userIDs[j] = userID
+                }
+                
+                userData := &UserData{
+                    Balances: map[string]float64{
+                        "USD": rand.Float64() * 1000.0,
+                    },
+                }
+                batch.AddUserData(userID, userData)
+            }
+            
+            tree.CommitBatch(batch)
+        }
+        
+        trees[width] = tree
+        b.Logf("Width=%d подготовлено: %d узлов", width, tree.GetNodeCount())
+    }
+    
+    // Бенчмарк 1: Чтение одного пользователя
+    for _, width := range widths {
+        tree := trees[width]
+        b.Run(fmt.Sprintf("read_single_w%d", width), func(b *testing.B) {
+            for i := 0; i < b.N; i++ {
+                userID := userIDs[rand.Intn(userCount)]
+                _, err := tree.GetUserData(userID)
+                if err != nil {
+                    b.Fatal(err)
+                }
+            }
+        })
+    }
+    
+    // Бенчмарк 2: Обновление одного пользователя
+    for _, width := range widths {
+        tree := trees[width]
+        b.Run(fmt.Sprintf("update_single_w%d", width), func(b *testing.B) {
+            for i := 0; i < b.N; i++ {
+                batch := tree.BeginBatch()
+                
+                userID := userIDs[rand.Intn(userCount)]
+                userData := &UserData{
+                    Balances: map[string]float64{
+                        "USD": rand.Float64() * 1000.0,
+                    },
+                }
+                
+                batch.AddUserData(userID, userData)
+                tree.CommitBatch(batch)
+            }
+        })
+    }
+    
+    // Бенчмарк 3: Генерация пруфа
+    for _, width := range widths {
+        tree := trees[width]
+        b.Run(fmt.Sprintf("proof_w%d", width), func(b *testing.B) {
+            for i := 0; i < b.N; i++ {
+                userID := userIDs[rand.Intn(userCount)]
+                _, err := tree.GenerateProof(userID)
+                if err != nil {
+                    b.Fatal(err)
+                }
+            }
+        })
+    }
+    
+    // Бенчмарк 4: Мульти-чтение (10 пользователей)
+    for _, width := range widths {
+        tree := trees[width]
+        b.Run(fmt.Sprintf("read_10_w%d", width), func(b *testing.B) {
+            for i := 0; i < b.N; i++ {
+                selectedUsers := make([]string, 10)
+                for j := 0; j < 10; j++ {
+                    selectedUsers[j] = userIDs[rand.Intn(userCount)]
+                }
+                
+                _, err := tree.GetMultipleUserData(selectedUsers)
+                if err != nil {
+                    b.Fatal(err)
+                }
+            }
+        })
+    }
+    
+    // Бенчмарк 5: Has проверка
+    for _, width := range widths {
+        tree := trees[width]
+        b.Run(fmt.Sprintf("has_w%d", width), func(b *testing.B) {
+            for i := 0; i < b.N; i++ {
+                userID := userIDs[rand.Intn(userCount)]
+                _ = tree.Has(userID)
+            }
+        })
+    }
+}
+
+// BenchmarkNodeWidthMemory измеряет использование памяти для разных ширин
+func BenchmarkNodeWidthMemory(b *testing.B) {
+    widths := []int{8, 16, 32, 64, 128, 256}
+    userCount := 50000 // Меньше для измерения памяти
+    
+    for _, width := range widths {
+        b.Run(fmt.Sprintf("memory_w%d", width), func(b *testing.B) {
+            b.ReportAllocs()
+            
+            for i := 0; i < b.N; i++ {
+                tree, _ := New(6, width, nil, nil) // Без KZG для чистого измерения
+                
+                for batchStart := 0; batchStart < userCount; batchStart += 5000 {
+                    batch := tree.BeginBatch()
+                    
+                    batchEnd := batchStart + 5000
+                    if batchEnd > userCount {
+                        batchEnd = userCount
+                    }
+                    
+                    for j := batchStart; j < batchEnd; j++ {
+                        userID := fmt.Sprintf("user_%d", j)
+                        userData := &UserData{
+                            Balances: map[string]float64{
+                                "USD": float64(j),
+                            },
+                        }
+                        batch.AddUserData(userID, userData)
+                    }
+                    
+                    tree.CommitBatch(batch)
+                }
+            }
+        })
+    }
+}
+
+// BenchmarkNodeWidthDepth сравнивает влияние глубины дерева
+func BenchmarkNodeWidthDepth(b *testing.B) {
+    type config struct {
+        width  int
+        levels int
+        name   string
+    }
+    
+    configs := []config{
+        {width: 16, levels: 8, name: "shallow_wide"},   // Узкие и глубокие
+        {width: 256, levels: 4, name: "wide_shallow"},  // Широкие и мелкие
+        {width: 64, levels: 6, name: "balanced"},       // Сбалансированные
+    }
+    
+    userCount := 10000
+    
+    for _, cfg := range configs {
+        b.Run(cfg.name, func(b *testing.B) {
+            for i := 0; i < b.N; i++ {
+                b.StopTimer()
+                tree, _ := New(cfg.levels, cfg.width, testSRS, nil)
+                b.StartTimer()
+                
+                for batchStart := 0; batchStart < userCount; batchStart += 1000 {
+                    batch := tree.BeginBatch()
+                    
+                    batchEnd := batchStart + 1000
+                    if batchEnd > userCount {
+                        batchEnd = userCount
+                    }
+                    
+                    for j := batchStart; j < batchEnd; j++ {
+                        userID := fmt.Sprintf("user_%d", j)
+                        userData := &UserData{
+                            Balances: map[string]float64{"USD": float64(j)},
+                        }
+                        batch.AddUserData(userID, userData)
+                    }
+                    
+                    tree.CommitBatch(batch)
+                }
             }
         })
     }
