@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"runtime"
 
 	"github.com/consensys/gnark-crypto/ecc/bls12-381/fr"
 	kzg_bls12381 "github.com/consensys/gnark-crypto/ecc/bls12-381/kzg"
@@ -165,7 +166,9 @@ type VerkleTree struct {
     commitInProgress atomic.Bool       // Флаг активного коммита
 	
 	// Текущая глубина дерева
-	currentDepth      int   
+	currentDepth      int  
+
+	parallelConfig    *ParallelConfig
 }
 
 // commitTask - задача на асинхронный коммит
@@ -246,6 +249,81 @@ type Batch struct {
 	mu sync.Mutex
 }
 
+// OptimizationLevel - уровень оптимизации
+type OptimizationLevel int
+
+const (
+	OptimizationNone     OptimizationLevel = 0 // Без оптимизаций
+	OptimizationBasic    OptimizationLevel = 1 // Только lazy commit
+	OptimizationParallel OptimizationLevel = 2 // + параллелизм
+	OptimizationAsync    OptimizationLevel = 3 // + асинхронные коммитменты
+	OptimizationMax      OptimizationLevel = 4 // Все оптимизации
+)
+
+// SetOptimizationLevel устанавливает уровень оптимизации
+func (vt *VerkleTree) SetOptimizationLevel(level OptimizationLevel) {
+	vt.mu.Lock()
+	defer vt.mu.Unlock()
+	
+	switch level {
+	case OptimizationNone:
+		vt.lazyCommit = false
+		vt.DisableParallelCommits()
+		if vt.asyncMode {
+			vt.DisableAsyncCommit()
+		}
+		
+	case OptimizationBasic:
+		vt.lazyCommit = true
+		vt.DisableParallelCommits()
+		if vt.asyncMode {
+			vt.DisableAsyncCommit()
+		}
+		
+	case OptimizationParallel:
+		vt.lazyCommit = true
+		vt.EnableParallelCommits(0) // 0 = auto-detect CPU count
+		if vt.asyncMode {
+			vt.DisableAsyncCommit()
+		}
+		
+	case OptimizationAsync:
+		vt.lazyCommit = true
+		vt.DisableParallelCommits() // Async без параллелизма
+		vt.EnableAsyncCommit(2)
+		
+	case OptimizationMax:
+		vt.lazyCommit = true
+		vt.EnableParallelCommits(0)
+		vt.EnableAsyncCommit(2)
+	}
+}
+
+// GetOptimizationInfo возвращает информацию о включенных оптимизациях
+func (vt *VerkleTree) GetOptimizationInfo() map[string]interface{} {
+	vt.mu.RLock()
+	defer vt.mu.RUnlock()
+	
+	info := map[string]interface{}{
+		"lazy_commit": vt.lazyCommit,
+		"async_mode":  vt.asyncMode,
+	}
+	
+	if vt.parallelConfig != nil {
+		info["parallel_enabled"] = vt.parallelConfig.Enabled
+		info["parallel_workers"] = vt.parallelConfig.Workers
+	} else {
+		info["parallel_enabled"] = false
+		info["parallel_workers"] = 0
+	}
+	
+	if vt.asyncMode {
+		info["commit_in_progress"] = vt.commitInProgress.Load()
+	}
+	
+	return info
+}
+
 // NewConfig создает новую конфигурацию с параметрами по умолчанию
 func NewConfig(levels, nodeWidth int, srs *kzg_bls12381.SRS) *Config {
     if levels == 0 {
@@ -293,10 +371,85 @@ func New(levels, nodeWidth int, srs *kzg_bls12381.SRS, dataStore Storage) (*Verk
 		asyncMode:  false,  // По умолчанию выключено
         commitQueue: make(chan *commitTask, 10),  // Буфер на 10 задач
 		currentDepth: levels,
+		parallelConfig: NewParallelConfig(),
 	}
 	
 	return tree, nil
 }
+
+// GenerateMultiProofParallel - параллельная генерация множественных пруфов
+func (vt *VerkleTree) GenerateMultiProofParallel(userIDs []string) ([]*Proof, error) {
+	vt.mu.RLock()
+	defer vt.mu.RUnlock()
+	
+	if len(userIDs) == 0 {
+		return nil, nil
+	}
+	
+	// Для малого количества - последовательно
+	if len(userIDs) < 4 {
+		proofs := make([]*Proof, len(userIDs))
+		for i, userID := range userIDs {
+			proof, err := vt.generateProof([]string{userID})
+			if err != nil {
+				return nil, err
+			}
+			proofs[i] = proof
+		}
+		return proofs, nil
+	}
+	
+	// Параллельная генерация
+	proofs := make([]*Proof, len(userIDs))
+	errChan := make(chan error, len(userIDs))
+	var wg sync.WaitGroup
+	
+	workers := runtime.NumCPU()
+	if workers > len(userIDs) {
+		workers = len(userIDs)
+	}
+	
+	chunkSize := (len(userIDs) + workers - 1) / workers
+	
+	for i := 0; i < workers; i++ {
+		start := i * chunkSize
+		if start >= len(userIDs) {
+			break
+		}
+		
+		end := start + chunkSize
+		if end > len(userIDs) {
+			end = len(userIDs)
+		}
+		
+		wg.Add(1)
+		go func(startIdx, endIdx int) {
+			defer wg.Done()
+			
+			for idx := startIdx; idx < endIdx; idx++ {
+				proof, err := vt.generateProof([]string{userIDs[idx]})
+				if err != nil {
+					errChan <- err
+					return
+				}
+				proofs[idx] = proof
+			}
+		}(start, end)
+	}
+	
+	wg.Wait()
+	close(errChan)
+	
+	// Проверяем ошибки
+	for err := range errChan {
+		if err != nil {
+			return nil, err
+		}
+	}
+	
+	return proofs, nil
+}
+
 
 // needsDepthExpansion проверяет нужно ли увеличить глубину дерева
 func (vt *VerkleTree) needsDepthExpansion() bool {
@@ -474,51 +627,121 @@ func (b *Batch) AddUserData(userID string, userData *UserData) error {
 
 // CommitBatch закрывает батч и выполняет все обновления с пересчетом коммитментов
 func (vt *VerkleTree) CommitBatch(b *Batch) ([]byte, error) {
-    vt.mu.Lock()
-    defer vt.mu.Unlock()
-    
-    b.mu.Lock()
-    b.closed = true
-    updates := b.updates
-    b.mu.Unlock()
-    
-    if vt.root.commitment != nil {
-        vt.previousRoot = vt.root.Hash()
-    }
-    
-    // ДОБАВИТЬ: Проверяем нужно ли расширение перед вставкой
-    if vt.needsDepthExpansion() {
-        if err := vt.expandDepth(); err != nil {
-            return nil, fmt.Errorf("ошибка расширения глубины: %w", err)
-        }
-    }
-    
-    // Применяем все обновления из батча
-    for userIDHashStr, data := range updates {
-        userIDHash := []byte(userIDHashStr)
-        
-        if vt.dataStore != nil {
-            dataKey := "data:" + fmt.Sprintf("%x", userIDHash)
-            if err := vt.dataStore.Put([]byte(dataKey), data); err != nil {
-                return nil, fmt.Errorf("ошибка сохранения в Pebble: %w", err)
-            }
-        }
-        
-        if err := vt.insert(userIDHash, data); err != nil {
-            return nil, fmt.Errorf("ошибка вставки узла: %w", err)
-        }
-    }
-    
-    // Если асинхронный режим включен
-    if vt.asyncMode {
-        return vt.commitBatchAsync()
-    }
-    
-    if err := vt.recomputeCommitments(vt.root); err != nil {
-        return nil, fmt.Errorf("ошибка пересчета коммитментов: %w", err)
-    }
-    
-    return vt.root.Hash(), nil
+	vt.mu.Lock()
+	defer vt.mu.Unlock()
+	
+	b.mu.Lock()
+	b.closed = true
+	updates := b.updates
+	b.mu.Unlock()
+	
+	if vt.root.commitment != nil {
+		vt.previousRoot = vt.root.Hash()
+	}
+	
+	// Проверка автоматического расширения глубины
+	if vt.needsDepthExpansion() {
+		if err := vt.expandDepth(); err != nil {
+			return nil, fmt.Errorf("ошибка расширения глубины: %w", err)
+		}
+	}
+	
+	// Применяем все обновления из батча
+	for userIDHashStr, data := range updates {
+		userIDHash := []byte(userIDHashStr)
+		
+		if vt.dataStore != nil {
+			dataKey := "data:" + fmt.Sprintf("%x", userIDHash)
+			if err := vt.dataStore.Put([]byte(dataKey), data); err != nil {
+				return nil, fmt.Errorf("ошибка сохранения в Pebble: %w", err)
+			}
+		}
+		
+		if err := vt.insert(userIDHash, data); err != nil {
+			return nil, fmt.Errorf("ошибка вставки узла: %w", err)
+		}
+	}
+	
+	// === КОМБИНАЦИЯ ASYNC + PARALLEL ===
+	
+	// Если асинхронный режим включен
+	if vt.asyncMode {
+		return vt.commitBatchAsyncParallel()  // НОВАЯ ФУНКЦИЯ
+	}
+	
+	// Синхронный режим с возможным параллелизмом
+	var err error
+	if vt.parallelConfig != nil && vt.parallelConfig.Enabled {
+		err = vt.recomputeCommitmentsParallel(vt.root)
+	} else {
+		err = vt.recomputeCommitments(vt.root)
+	}
+	
+	if err != nil {
+		return nil, fmt.Errorf("ошибка пересчета коммитментов: %w", err)
+	}
+	
+	return vt.root.Hash(), nil
+}
+
+// commitBatchAsyncParallel - асинхронный коммит с параллелизмом
+func (vt *VerkleTree) commitBatchAsyncParallel() ([]byte, error) {
+	// Генерируем временный хеш (быстрый Blake3)
+	hasher := blake3.New()
+	for _, child := range vt.root.children {
+		if child != nil {
+			hasher.Write(child.Hash())
+		}
+	}
+	tempRoot := hasher.Sum(nil)
+	vt.pendingRoot = tempRoot
+	
+	// Создаем задачу на асинхронный параллельный коммит
+	resultChan := make(chan commitResult, 1)
+	task := &commitTask{
+		node:       vt.root,
+		resultChan: resultChan,
+	}
+	
+	vt.commitWG.Add(1)
+	vt.commitInProgress.Store(true)
+	
+	// Отправляем задачу в очередь
+	select {
+	case vt.commitQueue <- task:
+		// Задача добавлена
+	default:
+		// Очередь заполнена, выполняем синхронно но с параллелизмом
+		vt.commitWG.Done()
+		vt.commitInProgress.Store(false)
+		
+		var err error
+		if vt.parallelConfig != nil && vt.parallelConfig.Enabled {
+			err = vt.recomputeCommitmentsParallel(vt.root)
+		} else {
+			err = vt.recomputeCommitments(vt.root)
+		}
+		
+		if err != nil {
+			return nil, err
+		}
+		return vt.root.Hash(), nil
+	}
+	
+	// Запускаем горутину для обновления финального root
+	go func() {
+		result := <-resultChan
+		
+		vt.mu.Lock()
+		if result.err == nil {
+			vt.root.commitment = result.root
+		}
+		vt.commitInProgress.Store(false)
+		vt.mu.Unlock()
+	}()
+	
+	// Возвращаем временный хеш немедленно
+	return tempRoot, nil
 }
 
 // GetCurrentDepth возвращает текущую глубину дерева

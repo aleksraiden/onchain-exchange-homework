@@ -8,6 +8,7 @@ import (
 	"time"
 	"sync"
 	"strings"
+	"runtime"
 	
 	kzg_bls12381 "github.com/consensys/gnark-crypto/ecc/bls12-381/kzg"
 )
@@ -22,7 +23,6 @@ var (
     testSRS256  *kzg_bls12381.SRS
     testSRS512  *kzg_bls12381.SRS
     testSRS1024 *kzg_bls12381.SRS
-    testSRS2048 *kzg_bls12381.SRS
     srsCache    map[int]*kzg_bls12381.SRS
     srsMutex    sync.RWMutex
 )
@@ -44,19 +44,13 @@ func init() {
     testSRS1024, err = InitSRS(1024)
     if err != nil {
         panic(fmt.Sprintf("Не удалось инициализировать SRS1024: %v", err))
-    }
-    
-    testSRS2048, err = InitSRS(2048)
-    if err != nil {
-        panic(fmt.Sprintf("Не удалось инициализировать SRS2048: %v", err))
-    }
+    }    
     
     // Кэш для динамического получения SRS
     srsCache = map[int]*kzg_bls12381.SRS{
         256:  testSRS256,
         512:  testSRS512,
         1024: testSRS1024,
-        2048: testSRS2048,
     }
 }
 
@@ -68,14 +62,14 @@ func getSRSForWidth(width int) *kzg_bls12381.SRS {
     // Находим ближайший подходящий SRS
     requiredSize := GetRequiredSRSSize(width)
     
-    for size := requiredSize; size <= 2048; size *= 2 {
+    for size := requiredSize; size <= 1024; size *= 2 {
         if srs, exists := srsCache[size]; exists {
             return srs
         }
     }
     
     // Fallback на самый большой
-    return testSRS2048
+    return testSRS1024
 }
 
 // TestUserDataOperations тестирует работу с данными пользователей
@@ -1688,4 +1682,291 @@ func TestOptimalBatchStrategy(t *testing.T) {
 		t.Logf("%-20s | %-15v | %8.0f/s", strategy.name, elapsed, rate)
 	}
 	t.Log(strings.Repeat("=", 70))
+}
+
+
+// BenchmarkOptimizationLevels - сравнение всех уровней оптимизации
+func BenchmarkOptimizationLevels(b *testing.B) {
+	itemCount := 10000
+	width := 128
+	
+	levels := []struct {
+		level OptimizationLevel
+		name  string
+	}{
+		{OptimizationNone, "none"},
+		{OptimizationBasic, "lazy"},
+		{OptimizationParallel, "parallel"},
+		{OptimizationAsync, "async"},
+		{OptimizationMax, "max"},
+	}
+	
+	for _, lvl := range levels {
+		b.Run(lvl.name, func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				b.StopTimer()
+				
+				tree, _ := New(6, width, nil, nil)
+				tree.SetOptimizationLevel(lvl.level)
+				
+				b.StartTimer()
+				
+				// Вставляем данные батчами
+				batchSize := 1000
+				for j := 0; j < itemCount; j += batchSize {
+					batch := tree.BeginBatch()
+					
+					end := j + batchSize
+					if end > itemCount {
+						end = itemCount
+					}
+					
+					for k := j; k < end; k++ {
+						userData := &UserData{
+							Balances: map[string]float64{"USD": float64(k)},
+						}
+						batch.AddUserData(fmt.Sprintf("user_%d", k), userData)
+					}
+					
+					tree.CommitBatch(batch)
+				}
+				
+				// Для async режимов - ждем завершения
+				if lvl.level == OptimizationAsync || lvl.level == OptimizationMax {
+					tree.WaitForCommit()
+				}
+			}
+		})
+	}
+}
+
+// TestAllOptimizations - тест что все оптимизации работают вместе
+func TestAllOptimizations(t *testing.T) {
+	itemCount := 5000
+	width := 128
+	
+	levels := []OptimizationLevel{
+		OptimizationNone,
+		OptimizationBasic,
+		OptimizationParallel,
+		OptimizationAsync,
+		OptimizationMax,
+	}
+	
+	levelNames := map[OptimizationLevel]string{
+		OptimizationNone:     "None",
+		OptimizationBasic:    "Basic (lazy)",
+		OptimizationParallel: "Parallel",
+		OptimizationAsync:    "Async",
+		OptimizationMax:      "Max (all)",
+	}
+	
+	t.Log("\n" + strings.Repeat("=", 80))
+	t.Log("ТЕСТ ВСЕХ УРОВНЕЙ ОПТИМИЗАЦИИ")
+	t.Log(strings.Repeat("=", 80))
+	t.Logf("%-20s | %-15s | %-12s | %s", "Level", "Time", "Rate", "Speedup")
+	t.Log(strings.Repeat("-", 80))
+	
+	var baselineTime time.Duration
+	
+	for _, level := range levels {
+		tree, _ := New(6, width, nil, nil)
+		tree.SetOptimizationLevel(level)
+		
+		// Логируем включенные оптимизации
+		info := tree.GetOptimizationInfo()
+		t.Logf("\n%s:", levelNames[level])
+		t.Logf("  lazy_commit: %v", info["lazy_commit"])
+		t.Logf("  parallel: %v (workers: %v)", info["parallel_enabled"], info["parallel_workers"])
+		t.Logf("  async: %v", info["async_mode"])
+		
+		startTime := time.Now()
+		
+		// Вставляем данные
+		batchSize := 1000
+		for i := 0; i < itemCount; i += batchSize {
+			batch := tree.BeginBatch()
+			
+			end := i + batchSize
+			if end > itemCount {
+				end = itemCount
+			}
+			
+			for j := i; j < end; j++ {
+				userData := &UserData{
+					Balances: map[string]float64{"USD": float64(j)},
+				}
+				if err := batch.AddUserData(fmt.Sprintf("user_%d", j), userData); err != nil {
+					t.Fatal(err)
+				}
+			}
+			
+			if _, err := tree.CommitBatch(batch); err != nil {
+				t.Fatal(err)
+			}
+		}
+		
+		// Для async - ждем завершения
+		if level == OptimizationAsync || level == OptimizationMax {
+			tree.WaitForCommit()
+		}
+		
+		elapsed := time.Since(startTime)
+		rate := float64(itemCount) / elapsed.Seconds()
+		
+		if level == OptimizationNone {
+			baselineTime = elapsed
+		}
+		
+		speedup := float64(baselineTime) / float64(elapsed)
+		
+		t.Logf("%-20s | %-15v | %8.0f/s | %.2fx", 
+			levelNames[level], elapsed, rate, speedup)
+		
+		// Проверяем что данные доступны
+		userData, err := tree.GetUserData("user_0")
+		if err != nil {
+			t.Errorf("Ошибка получения данных для %s: %v", levelNames[level], err)
+		}
+		if userData.Balances["USD"] != 0 {
+			t.Errorf("Неверные данные для %s", levelNames[level])
+		}
+		
+		// Cleanup для async режимов
+		if level == OptimizationAsync || level == OptimizationMax {
+			tree.DisableAsyncCommit()
+		}
+	}
+	
+	t.Log(strings.Repeat("=", 80))
+}
+
+// BenchmarkParallelCommits - сравнение последовательных и параллельных коммитментов
+func BenchmarkParallelCommits(b *testing.B) {
+	itemCount := 10000
+	width := 128
+	
+	b.Run("sequential", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			b.StopTimer()
+			tree, _ := New(6, width, nil, nil)
+			tree.DisableParallelCommits() // ОТКЛЮЧАЕМ
+			b.StartTimer()
+			
+			batch := tree.BeginBatch()
+			for j := 0; j < itemCount; j++ {
+				userData := &UserData{
+					Balances: map[string]float64{"USD": float64(j)},
+				}
+				batch.AddUserData(fmt.Sprintf("user_%d", j), userData)
+			}
+			tree.CommitBatch(batch)
+		}
+	})
+	
+	b.Run("parallel", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			b.StopTimer()
+			tree, _ := New(6, width, nil, nil)
+			tree.EnableParallelCommits(runtime.NumCPU()) // ВКЛЮЧАЕМ
+			b.StartTimer()
+			
+			batch := tree.BeginBatch()
+			for j := 0; j < itemCount; j++ {
+				userData := &UserData{
+					Balances: map[string]float64{"USD": float64(j)},
+				}
+				batch.AddUserData(fmt.Sprintf("user_%d", j), userData)
+			}
+			tree.CommitBatch(batch)
+		}
+	})
+}
+
+// TestParallelScaling - тест масштабируемости
+func TestParallelScaling(t *testing.T) {
+	width := 128
+	itemCount := 20000
+	
+	workerCounts := []int{1, 2, 4, 8, 16, 20}
+	
+	t.Log("\n" + strings.Repeat("=", 70))
+	t.Log("ТЕСТ МАСШТАБИРУЕМОСТИ ПАРАЛЛЕЛИЗМА")
+	t.Log(strings.Repeat("=", 70))
+	t.Logf("%-10s | %-15s | %-12s | %s", "Workers", "Time", "Rate", "Speedup")
+	t.Log(strings.Repeat("-", 70))
+	
+	var baselineTime time.Duration
+	
+	for _, workers := range workerCounts {
+		tree, _ := New(6, width, nil, nil)
+		tree.EnableParallelCommits(workers)
+		
+		startTime := time.Now()
+		
+		// Вставляем данные батчами
+		batchSize := 1000
+		for i := 0; i < itemCount; i += batchSize {
+			batch := tree.BeginBatch()
+			
+			end := i + batchSize
+			if end > itemCount {
+				end = itemCount
+			}
+			
+			for j := i; j < end; j++ {
+				userData := &UserData{
+					Balances: map[string]float64{"USD": float64(j)},
+				}
+				batch.AddUserData(fmt.Sprintf("user_%d", j), userData)
+			}
+			
+			tree.CommitBatch(batch)
+		}
+		
+		elapsed := time.Since(startTime)
+		rate := float64(itemCount) / elapsed.Seconds()
+		
+		if workers == 1 {
+			baselineTime = elapsed
+		}
+		
+		speedup := float64(baselineTime) / float64(elapsed)
+		
+		t.Logf("%-10d | %-15v | %8.0f/s | %.2fx", 
+			workers, elapsed, rate, speedup)
+	}
+	t.Log(strings.Repeat("=", 70))
+}
+
+// BenchmarkParallelProofs - бенчмарк параллельной генерации пруфов
+func BenchmarkParallelProofs(b *testing.B) {
+	tree, _ := New(6, 128, testSRS, nil)
+	
+	// Подготовка данных
+	userIDs := make([]string, 1000)
+	batch := tree.BeginBatch()
+	for i := 0; i < 1000; i++ {
+		userID := fmt.Sprintf("user_%d", i)
+		userIDs[i] = userID
+		userData := &UserData{
+			Balances: map[string]float64{"USD": float64(i)},
+		}
+		batch.AddUserData(userID, userData)
+	}
+	tree.CommitBatch(batch)
+	
+	b.Run("sequential_proofs", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			for j := 0; j < 100; j++ {
+				tree.GenerateProof(userIDs[j])
+			}
+		}
+	})
+	
+	b.Run("parallel_proofs", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			tree.GenerateMultiProofParallel(userIDs[:100])
+		}
+	})
 }
