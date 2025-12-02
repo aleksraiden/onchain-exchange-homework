@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 	"sync"
+	"strings"
 	
 	kzg_bls12381 "github.com/consensys/gnark-crypto/ecc/bls12-381/kzg"
 )
@@ -1218,44 +1219,77 @@ func BenchmarkOptimalWidth(b *testing.B) {
 }
 
 // Сравнение характеристик
+// TestWidthCharacteristics - упрощенная версия с прогрессом
 func TestWidthCharacteristics(t *testing.T) {
-    widths := []int{32, 64, 128, 256}
-    userCount := 50000
+    widths := []int{64, 128, 256}  // Убрали 32, оставили главные
+    userCount := 10000  // УМЕНЬШИЛИ с 50000 до 10000
     
     results := make(map[int]map[string]interface{})
     
     for _, width := range widths {
+        t.Logf("\n>>> Тестирование width=%d", width)
+        
         srs := getSRSForWidth(width)
         tree, _ := New(6, width, srs, nil)
         
         // Вставляем данные
+        t.Logf("  Вставка %d элементов...", userCount)
         startTime := time.Now()
-        for i := 0; i < userCount; i += 1000 {
-            batch := tree.BeginBatch()
-            for j := 0; j < 1000 && i+j < userCount; j++ {
-                userID := fmt.Sprintf("user_%d", i+j)
-                userData := &UserData{
-                    Balances: map[string]float64{"USD": float64(i + j)},
-                }
-                batch.AddUserData(userID, userData)
+        
+        batchSize := 1000
+        for i := 0; i < userCount; i += batchSize {
+            if i%(batchSize*5) == 0 {
+                t.Logf("    Прогресс: %d/%d", i, userCount)
             }
-            tree.CommitBatch(batch)
+            
+            batch := tree.BeginBatch()
+            
+            end := i + batchSize
+            if end > userCount {
+                end = userCount
+            }
+            
+            for j := i; j < end; j++ {
+                userID := fmt.Sprintf("user_%d", j)
+                userData := &UserData{
+                    Balances: map[string]float64{"USD": float64(j)},
+                }
+                
+                if err := batch.AddUserData(userID, userData); err != nil {
+                    t.Fatalf("Ошибка добавления: %v", err)
+                }
+            }
+            
+            if _, err := tree.CommitBatch(batch); err != nil {
+                t.Fatalf("Ошибка коммита: %v", err)
+            }
         }
         insertTime := time.Since(startTime)
+        t.Logf("  ✓ Вставка завершена за %v", insertTime)
         
         // Измеряем чтение
+        t.Logf("  Измерение чтения (100 операций)...")
         startTime = time.Now()
-        for i := 0; i < 1000; i++ {
-            tree.GetUserData(fmt.Sprintf("user_%d", rand.Intn(userCount)))
+        for i := 0; i < 100; i++ {  // УМЕНЬШИЛИ с 1000 до 100
+            _, err := tree.GetUserData(fmt.Sprintf("user_%d", rand.Intn(userCount)))
+            if err != nil {
+                t.Logf("  Предупреждение: ошибка чтения %v", err)
+            }
         }
         readTime := time.Since(startTime)
+        t.Logf("  ✓ Чтение завершено за %v", readTime)
         
         // Измеряем proof
+        t.Logf("  Генерация proof (10 операций)...")
         startTime = time.Now()
-        for i := 0; i < 100; i++ {
-            tree.GenerateProof(fmt.Sprintf("user_%d", rand.Intn(userCount)))
+        for i := 0; i < 10; i++ {  // УМЕНЬШИЛИ с 100 до 10
+            _, err := tree.GenerateProof(fmt.Sprintf("user_%d", rand.Intn(userCount)))
+            if err != nil {
+                t.Logf("  Предупреждение: ошибка proof %v", err)
+            }
         }
         proofTime := time.Since(startTime)
+        t.Logf("  ✓ Proof завершен за %v", proofTime)
         
         stats := tree.GetTreeStats()
         
@@ -1265,37 +1299,44 @@ func TestWidthCharacteristics(t *testing.T) {
             "proof_time":    proofTime,
             "depth":         stats["depth"],
             "node_count":    stats["node_count"],
-            "avg_insert_ms": float64(insertTime.Milliseconds()) / float64(userCount),
         }
         
-        t.Logf("\n=== Width %d ===", width)
+        t.Logf("\n=== Результаты для Width %d ===", width)
         t.Logf("Вставка %d элементов: %v (%.3f мс/элемент)", 
             userCount, insertTime, 
-            float64(insertTime.Microseconds())/float64(userCount)/1000.0)
-        t.Logf("Чтение 1000 элементов: %v (%.3f мкс/элемент)", 
-            readTime, float64(readTime.Microseconds())/1000.0)
-        t.Logf("Генерация 100 proof: %v (%.3f мс/proof)", 
-            proofTime, float64(proofTime.Milliseconds())/100.0)
+            float64(insertTime.Milliseconds())/float64(userCount))
+        t.Logf("Чтение 100 элементов: %v (%.1f мкс/элемент)", 
+            readTime, float64(readTime.Microseconds())/100.0)
+        t.Logf("Генерация 10 proof: %v (%.1f мс/proof)", 
+            proofTime, float64(proofTime.Milliseconds())/10.0)
         t.Logf("Глубина дерева: %d", stats["depth"])
         t.Logf("Количество узлов: %d", stats["node_count"])
     }
     
     // Находим оптимальную ширину
-    t.Log("\n=== СРАВНЕНИЕ ===")
+    t.Log("\n" + strings.Repeat("=", 50))
+    t.Log("ИТОГОВОЕ СРАВНЕНИЕ")
+    t.Log(strings.Repeat("=", 50))
+    
     var bestWidth int
-    var bestScore float64 = 999999
+    var bestScore float64 = 999999999
     
     for width, result := range results {
-        // Простая формула оценки (можно настроить веса)
+        // Веса для разных операций
         insertWeight := 0.5
         readWeight := 0.3
         proofWeight := 0.2
         
-        score := float64(result["insert_time"].(time.Duration).Milliseconds())*insertWeight +
-            float64(result["read_time"].(time.Duration).Microseconds())/1000.0*readWeight +
-            float64(result["proof_time"].(time.Duration).Milliseconds())*proofWeight
+        insertMs := float64(result["insert_time"].(time.Duration).Milliseconds())
+        readUs := float64(result["read_time"].(time.Duration).Microseconds())
+        proofMs := float64(result["proof_time"].(time.Duration).Milliseconds())
         
-        t.Logf("Width %d: общий score = %.2f", width, score)
+        score := insertMs*insertWeight + 
+                 (readUs/1000.0)*readWeight + 
+                 proofMs*proofWeight
+        
+        t.Logf("Width %4d: score = %8.2f (insert: %6.0fms, read: %6.0fμs, proof: %6.0fms)", 
+            width, score, insertMs, readUs, proofMs)
         
         if score < bestScore {
             bestScore = score
@@ -1303,5 +1344,348 @@ func TestWidthCharacteristics(t *testing.T) {
         }
     }
     
-    t.Logf("\n🏆 ОПТИМАЛЬНАЯ ШИРИНА: %d (score: %.2f)", bestWidth, bestScore)
+    t.Log(strings.Repeat("=", 50))
+    t.Logf("🏆 ОПТИМАЛЬНАЯ ШИРИНА: %d (score: %.2f)", bestWidth, bestScore)
+    t.Log(strings.Repeat("=", 50))
+}
+
+// TestWidthCharacteristicsFast - быстрая версия без KZG
+func TestWidthCharacteristicsFast(t *testing.T) {
+    widths := []int{32, 64, 128, 256}
+    userCount := 50000
+    
+    t.Log("Быстрый тест производительности (без KZG)")
+    
+    for _, width := range widths {
+        t.Logf("\n>>> Width=%d", width)
+        
+        // БЕЗ SRS = только Blake3, очень быстро
+        tree, _ := New(6, width, nil, nil)
+        
+        startTime := time.Now()
+        
+        // Вставка батчами
+        for i := 0; i < userCount; i += 5000 {
+            batch := tree.BeginBatch()
+            
+            end := i + 5000
+            if end > userCount {
+                end = userCount
+            }
+            
+            for j := i; j < end; j++ {
+                userID := fmt.Sprintf("user_%d", j)
+                userData := &UserData{
+                    Balances: map[string]float64{"USD": float64(j)},
+                }
+                batch.AddUserData(userID, userData)
+            }
+            
+            tree.CommitBatch(batch)
+            
+            if i > 0 && i%10000 == 0 {
+                elapsed := time.Since(startTime)
+                rate := float64(i) / elapsed.Seconds()
+                t.Logf("  %d/%d (%.0f items/sec)", i, userCount, rate)
+            }
+        }
+        
+        totalTime := time.Since(startTime)
+        stats := tree.GetTreeStats()
+        
+        t.Logf("✓ Завершено за %v", totalTime)
+        t.Logf("  Скорость: %.0f items/sec", float64(userCount)/totalTime.Seconds())
+        t.Logf("  Глубина: %d, Узлов: %d", stats["depth"], stats["node_count"])
+    }
+}
+
+// TestQuickComparison - очень быстрое сравнение
+func TestQuickComparison(t *testing.T) {
+    widths := []int{64, 128, 256}
+    iterations := 1000
+    
+    t.Log("\nБыстрое сравнение (1000 вставок, без KZG)")
+    t.Log(strings.Repeat("-", 60))
+    t.Logf("%-10s | %-15s | %-10s | %s", "Width", "Time", "Rate", "Stats")
+    t.Log(strings.Repeat("-", 60))
+    
+    for _, width := range widths {
+        tree, _ := New(4, width, nil, nil)
+        
+        startTime := time.Now()
+        
+        batch := tree.BeginBatch()
+        for i := 0; i < iterations; i++ {
+            userData := &UserData{
+                Balances: map[string]float64{"USD": float64(i)},
+            }
+            batch.AddUserData(fmt.Sprintf("user_%d", i), userData)
+        }
+        tree.CommitBatch(batch)
+        
+        elapsed := time.Since(startTime)
+        rate := float64(iterations) / elapsed.Seconds()
+        stats := tree.GetTreeStats()
+        
+        t.Logf("%-10d | %-15v | %8.0f/s | depth=%d nodes=%d", 
+            width, elapsed, rate, stats["depth"], stats["node_count"])
+    }
+    t.Log(strings.Repeat("-", 60))
+}
+
+// TestBatchSizeImpact - влияние размера батча на производительность
+func TestBatchSizeImpact(t *testing.T) {
+	widths := []int{64, 128, 256}
+	
+	// Разные размеры батчей относительно ширины
+	batchMultipliers := []float64{0.25, 0.5, 1.0, 2.0, 4.0, 8.0}
+	
+	totalItems := 10000
+	
+	t.Log("\n" + strings.Repeat("=", 80))
+	t.Log("ТЕСТ ВЛИЯНИЯ РАЗМЕРА БАТЧА НА ПРОИЗВОДИТЕЛЬНОСТЬ")
+	t.Log(strings.Repeat("=", 80))
+	
+	for _, width := range widths {
+		t.Logf("\n>>> NodeWidth = %d", width)
+		t.Log(strings.Repeat("-", 80))
+		t.Logf("%-12s | %-15s | %-12s | %-15s | %s", 
+			"BatchSize", "Time", "Rate", "Batches", "ms/batch")
+		t.Log(strings.Repeat("-", 80))
+		
+		for _, multiplier := range batchMultipliers {
+			batchSize := int(float64(width) * multiplier)
+			if batchSize < 1 {
+				batchSize = 1
+			}
+			
+			// Создаем новое дерево для каждого теста
+			tree, _ := New(6, width, nil, nil) // Без KZG для скорости
+			
+			startTime := time.Now()
+			batchCount := 0
+			
+			for i := 0; i < totalItems; i += batchSize {
+				batch := tree.BeginBatch()
+				
+				end := i + batchSize
+				if end > totalItems {
+					end = totalItems
+				}
+				
+				for j := i; j < end; j++ {
+					userID := fmt.Sprintf("user_%d_%d", width, j)
+					userData := &UserData{
+						Balances: map[string]float64{"USD": float64(j)},
+					}
+					batch.AddUserData(userID, userData)
+				}
+				
+				tree.CommitBatch(batch)
+				batchCount++
+			}
+			
+			elapsed := time.Since(startTime)
+			rate := float64(totalItems) / elapsed.Seconds()
+			msPerBatch := float64(elapsed.Milliseconds()) / float64(batchCount)
+			
+			label := fmt.Sprintf("%d (%.2fx)", batchSize, multiplier)
+			t.Logf("%-12s | %-15v | %8.0f/s | %6d       | %8.2f", 
+				label, elapsed, rate, batchCount, msPerBatch)
+		}
+		t.Log(strings.Repeat("-", 80))
+	}
+}
+
+// BenchmarkBatchSizeOptimization - бенчмарк для точных измерений
+func BenchmarkBatchSizeOptimization(b *testing.B) {
+	width := 128
+	
+	type testCase struct {
+		batchSize int
+		name      string
+	}
+	
+	testCases := []testCase{
+		{16, "tiny"},
+		{32, "quarter"},
+		{64, "half"},
+		{128, "equal"},
+		{256, "double"},
+		{512, "quad"},
+		{1024, "large"},
+	}
+	
+	for _, tc := range testCases {
+		b.Run(fmt.Sprintf("batch_%s_%d", tc.name, tc.batchSize), func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				b.StopTimer()
+				tree, _ := New(6, width, nil, nil)
+				itemCount := 10000
+				b.StartTimer()
+				
+				for j := 0; j < itemCount; j += tc.batchSize {
+					batch := tree.BeginBatch()
+					
+					end := j + tc.batchSize
+					if end > itemCount {
+						end = itemCount
+					}
+					
+					for k := j; k < end; k++ {
+						userData := &UserData{
+							Balances: map[string]float64{"USD": float64(k)},
+						}
+						batch.AddUserData(fmt.Sprintf("user_%d", k), userData)
+					}
+					
+					tree.CommitBatch(batch)
+				}
+			}
+		})
+	}
+}
+
+// TestBatchSizeWithKZG - тест с реальным KZG
+func TestBatchSizeWithKZG(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Пропускаем медленный тест в short режиме")
+	}
+	
+	width := 128
+	srs := getSRSForWidth(width)
+	
+	batchSizes := []int{32, 64, 128, 256, 512}
+	totalItems := 5000 // Меньше для KZG
+	
+	t.Log("\n" + strings.Repeat("=", 70))
+	t.Log("ТЕСТ РАЗМЕРА БАТЧА С KZG (Width=128)")
+	t.Log(strings.Repeat("=", 70))
+	t.Logf("%-12s | %-15s | %-12s | %-12s", 
+		"BatchSize", "Time", "Rate", "ms/item")
+	t.Log(strings.Repeat("-", 70))
+	
+	for _, batchSize := range batchSizes {
+		tree, _ := New(6, width, srs, nil)
+		
+		startTime := time.Now()
+		
+		for i := 0; i < totalItems; i += batchSize {
+			batch := tree.BeginBatch()
+			
+			end := i + batchSize
+			if end > totalItems {
+				end = totalItems
+			}
+			
+			for j := i; j < end; j++ {
+				userData := &UserData{
+					Balances: map[string]float64{"USD": float64(j)},
+				}
+				batch.AddUserData(fmt.Sprintf("user_%d", j), userData)
+			}
+			
+			tree.CommitBatch(batch)
+			
+			// Показываем прогресс каждые 1000 элементов
+			if i > 0 && i%1000 == 0 {
+				elapsed := time.Since(startTime)
+				currentRate := float64(i) / elapsed.Seconds()
+				t.Logf("  [batch=%d] %d/%d (%.0f items/s)", 
+					batchSize, i, totalItems, currentRate)
+			}
+		}
+		
+		elapsed := time.Since(startTime)
+		rate := float64(totalItems) / elapsed.Seconds()
+		msPerItem := float64(elapsed.Milliseconds()) / float64(totalItems)
+		
+		t.Logf("%-12d | %-15v | %8.0f/s | %8.2f", 
+			batchSize, elapsed, rate, msPerItem)
+	}
+	t.Log(strings.Repeat("=", 70))
+}
+
+// TestOptimalBatchStrategy - поиск оптимальной стратегии
+func TestOptimalBatchStrategy(t *testing.T) {
+	width := 128
+	totalItems := 10000
+	
+	strategies := []struct {
+		name        string
+		getBatchSize func(iteration, width int) int
+	}{
+		{
+			name: "fixed_small",
+			getBatchSize: func(i, w int) int { return w / 2 },
+		},
+		{
+			name: "fixed_equal",
+			getBatchSize: func(i, w int) int { return w },
+		},
+		{
+			name: "fixed_double",
+			getBatchSize: func(i, w int) int { return w * 2 },
+		},
+		{
+			name: "adaptive_growing",
+			getBatchSize: func(i, w int) int {
+				// Начинаем с маленьких батчей, увеличиваем
+				base := w / 4
+				return base * (1 + i/1000)
+			},
+		},
+		{
+			name: "adaptive_shrinking",
+			getBatchSize: func(i, w int) int {
+				// Начинаем с больших батчей, уменьшаем
+				maxSize := w * 4
+				reduction := i / 1000
+				size := maxSize - (reduction * w / 2)
+				if size < w/2 {
+					size = w / 2
+				}
+				return size
+			},
+		},
+	}
+	
+	t.Log("\n" + strings.Repeat("=", 70))
+	t.Log("ТЕСТ СТРАТЕГИЙ БАТЧИНГА")
+	t.Log(strings.Repeat("=", 70))
+	t.Logf("%-20s | %-15s | %-12s", "Strategy", "Time", "Rate")
+	t.Log(strings.Repeat("-", 70))
+	
+	for _, strategy := range strategies {
+		tree, _ := New(6, width, nil, nil)
+		
+		startTime := time.Now()
+		i := 0
+		
+		for i < totalItems {
+			batchSize := strategy.getBatchSize(i, width)
+			batch := tree.BeginBatch()
+			
+			end := i + batchSize
+			if end > totalItems {
+				end = totalItems
+			}
+			
+			for j := i; j < end; j++ {
+				userData := &UserData{
+					Balances: map[string]float64{"USD": float64(j)},
+				}
+				batch.AddUserData(fmt.Sprintf("user_%d", j), userData)
+			}
+			
+			tree.CommitBatch(batch)
+			i = end
+		}
+		
+		elapsed := time.Since(startTime)
+		rate := float64(totalItems) / elapsed.Seconds()
+		
+		t.Logf("%-20s | %-15v | %8.0f/s", strategy.name, elapsed, rate)
+	}
+	t.Log(strings.Repeat("=", 70))
 }
