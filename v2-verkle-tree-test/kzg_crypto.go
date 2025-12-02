@@ -44,16 +44,45 @@ func putFrElementSlice(slice []fr.Element) {
 
 // InitSRS инициализирует Structured Reference String для KZG
 // size - размер SRS (должен быть >= максимальной степени полинома)
+// Для production использовать церемонию trusted setup или загрузить готовый SRS
 func InitSRS(size int) (*kzg_bls12381.SRS, error) {
-	// Генерируем новый SRS для тестирования
-	// ВАЖНО: В production использовать церемонию trusted setup!
-	
-	srs, err := kzg_bls12381.NewSRS(uint64(size), new(big.Int).SetInt64(42))
-	if err != nil {
-		return nil, fmt.Errorf("ошибка генерации SRS: %w", err)
-	}
-	
-	return srs, nil
+    // Округляем до ближайшей степени двойки для оптимизации
+    srsSize := nextPowerOfTwo(size)
+    
+    // Генерируем новый SRS для тестирования
+    // ВАЖНО: В production использовать церемонию trusted setup!
+    
+    srs, err := kzg_bls12381.NewSRS(uint64(srsSize), new(big.Int).SetInt64(42))
+    if err != nil {
+        return nil, fmt.Errorf("ошибка генерации SRS: %w", err)
+    }
+    
+    return srs, nil
+}
+
+// nextPowerOfTwo возвращает следующую степень двойки >= n
+func nextPowerOfTwo(n int) int {
+    if n <= 0 {
+        return 1
+    }
+    
+    // Проверяем является ли уже степенью двойки
+    if n&(n-1) == 0 {
+        return n
+    }
+    
+    power := 1
+    for power < n {
+        power *= 2
+    }
+    return power
+}
+
+// GetRequiredSRSSize возвращает необходимый размер SRS для NodeWidth
+func GetRequiredSRSSize(nodeWidth int) int {
+    // SRS должен быть как минимум равен NodeWidth
+    // Добавляем небольшой запас (1.5x) для безопасности
+    return nextPowerOfTwo(nodeWidth * 3 / 2)
 }
 
 // commitPolynomial создает KZG коммитмент для полинома

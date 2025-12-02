@@ -6,8 +6,9 @@ import (
 	"math/rand" 
 	"testing"
 	"time"
+	"sync"
 	
-	//kzg_bls12381 "github.com/consensys/gnark-crypto/ecc/bls12-381/kzg"
+	kzg_bls12381 "github.com/consensys/gnark-crypto/ecc/bls12-381/kzg"
 )
 
 // Глобальный SRS для тестов
@@ -15,14 +16,66 @@ import (
 
 var testSRS, _ = InitSRS(256)
 
-/*
+// Глобальные SRS для разных размеров
+var (
+    testSRS256  *kzg_bls12381.SRS
+    testSRS512  *kzg_bls12381.SRS
+    testSRS1024 *kzg_bls12381.SRS
+    testSRS2048 *kzg_bls12381.SRS
+    srsCache    map[int]*kzg_bls12381.SRS
+    srsMutex    sync.RWMutex
+)
+
 func init() {
-	// Инициализируем SRS для тестов
-	testSRS, err := InitSRS(256) 
-	if err != nil {
-		panic(fmt.Sprintf("Не удалось инициализировать SRS: %v", err))
-	}
-}*/
+    var err error
+    
+    // Инициализируем базовые SRS
+    testSRS256, err = InitSRS(256)
+    if err != nil {
+        panic(fmt.Sprintf("Не удалось инициализировать SRS256: %v", err))
+    }
+    
+    testSRS512, err = InitSRS(512)
+    if err != nil {
+        panic(fmt.Sprintf("Не удалось инициализировать SRS512: %v", err))
+    }
+    
+    testSRS1024, err = InitSRS(1024)
+    if err != nil {
+        panic(fmt.Sprintf("Не удалось инициализировать SRS1024: %v", err))
+    }
+    
+    testSRS2048, err = InitSRS(2048)
+    if err != nil {
+        panic(fmt.Sprintf("Не удалось инициализировать SRS2048: %v", err))
+    }
+    
+    // Кэш для динамического получения SRS
+    srsCache = map[int]*kzg_bls12381.SRS{
+        256:  testSRS256,
+        512:  testSRS512,
+        1024: testSRS1024,
+        2048: testSRS2048,
+    }
+}
+
+// getSRSForWidth возвращает подходящий SRS для заданной ширины узла
+func getSRSForWidth(width int) *kzg_bls12381.SRS {
+    srsMutex.RLock()
+    defer srsMutex.RUnlock()
+    
+    // Находим ближайший подходящий SRS
+    requiredSize := GetRequiredSRSSize(width)
+    
+    for size := requiredSize; size <= 2048; size *= 2 {
+        if srs, exists := srsCache[size]; exists {
+            return srs
+        }
+    }
+    
+    // Fallback на самый большой
+    return testSRS2048
+}
 
 // TestUserDataOperations тестирует работу с данными пользователей
 func TestUserDataOperations(t *testing.T) {
@@ -775,10 +828,9 @@ func TestDifferentNodeWidths(t *testing.T) {
     }
 }
 
-
 // BenchmarkNodeWidthComparison сравнивает производительность для разных NodeWidth
 func BenchmarkNodeWidthComparison(b *testing.B) {
-    widths := []int{8, 16, 32, 64, 128, 256, 512, 1024}
+    widths := []int{8, 16, 32, 64, 128, 256}
     userCount := 100000
     
     for _, width := range widths {
@@ -786,15 +838,20 @@ func BenchmarkNodeWidthComparison(b *testing.B) {
             for i := 0; i < b.N; i++ {
                 b.StopTimer()
                 
-                // Создаем дерево с конкретной шириной
-                tree, err := New(6, width, testSRS, nil) // 6 уровней для 100k элементов
+                // Начинаем с малой глубины, дерево само расширится
+                initialLevels := 3
+                if width <= 16 {
+                    initialLevels = 4  // Для узких узлов нужно больше уровней
+                }
+                
+                tree, err := New(initialLevels, width, testSRS, nil)
                 if err != nil {
                     b.Fatal(err)
                 }
                 
                 b.StartTimer()
                 
-                // Вставляем 100k пользователей батчами по 5000
+                // Вставляем 100k пользователей
                 batchSize := 5000
                 for batchStart := 0; batchStart < userCount; batchStart += batchSize {
                     batch := tree.BeginBatch()
@@ -826,15 +883,16 @@ func BenchmarkNodeWidthComparison(b *testing.B) {
                 
                 b.StopTimer()
                 
-                // Логируем статистику
-                if i == 0 { // Только для первой итерации
-                    b.Logf("Width=%d: nodes=%d, root=%x", 
-                        width, tree.GetNodeCount(), tree.GetRoot()[:8])
+                if i == 0 {
+                    stats := tree.GetTreeStats()
+                    b.Logf("Width=%d: depth=%d, nodes=%d", 
+                        width, stats["depth"], stats["node_count"])
                 }
             }
         })
     }
 }
+
 
 // BenchmarkNodeWidthOperations детальные операции для разных ширин
 func BenchmarkNodeWidthOperations(b *testing.B) {
@@ -1038,4 +1096,212 @@ func BenchmarkNodeWidthDepth(b *testing.B) {
             }
         })
     }
+}
+
+func TestAutoDepthExpansion(t *testing.T) {
+    // Создаем дерево с малой начальной глубиной
+    tree, err := New(2, 8, testSRS, nil)  // Только 2 уровня, ширина 8
+    if err != nil {
+        t.Fatalf("Ошибка создания дерева: %v", err)
+    }
+    
+    initialDepth := tree.GetCurrentDepth()
+    t.Logf("Начальная глубина: %d", initialDepth)
+    
+    // Вставляем много данных, чтобы вызвать расширение
+    for i := 0; i < 1000; i++ {
+        batch := tree.BeginBatch()
+        
+        for j := 0; j < 10; j++ {
+            userID := fmt.Sprintf("user_%d_%d", i, j)
+            userData := &UserData{
+                Balances: map[string]float64{
+                    "USD": float64(i * j),
+                },
+            }
+            
+            if err := batch.AddUserData(userID, userData); err != nil {
+                t.Fatalf("Ошибка добавления: %v", err)
+            }
+        }
+        
+        _, err := tree.CommitBatch(batch)
+        if err != nil {
+            t.Fatalf("Ошибка коммита на итерации %d: %v", i, err)
+        }
+        
+        // Проверяем расширение каждые 100 итераций
+        if i%100 == 0 {
+            stats := tree.GetTreeStats()
+            t.Logf("Итерация %d: глубина=%d, узлов=%d", 
+                i, stats["depth"], stats["node_count"])
+        }
+    }
+    
+    finalDepth := tree.GetCurrentDepth()
+    t.Logf("Финальная глубина: %d (было %d)", finalDepth, initialDepth)
+    
+    if finalDepth <= initialDepth {
+        t.Error("Дерево не расширилось автоматически")
+    }
+    
+    // Проверяем что данные доступны
+    userData, err := tree.GetUserData("user_0_0")
+    if err != nil {
+        t.Fatalf("Ошибка получения данных: %v", err)
+    }
+    
+    if userData.Balances["USD"] != 0 {
+        t.Errorf("Неверные данные после расширения")
+    }
+    
+    t.Logf("✓ Автоматическое расширение работает корректно")
+}
+
+func BenchmarkOptimalWidth(b *testing.B) {
+    widths := []int{64, 128, 256}
+    operations := []struct {
+        name string
+        fn   func(*VerkleTree, []string)
+    }{
+        {"insert_10k", func(tree *VerkleTree, ids []string) {
+            for i := 0; i < 10000; i++ {
+                batch := tree.BeginBatch()
+                userData := &UserData{
+                    Balances: map[string]float64{"USD": float64(i)},
+                }
+                batch.AddUserData(fmt.Sprintf("user_%d", i), userData)
+                tree.CommitBatch(batch)
+            }
+        }},
+        {"read_random", func(tree *VerkleTree, ids []string) {
+            for i := 0; i < 1000; i++ {
+                tree.GetUserData(ids[rand.Intn(len(ids))])
+            }
+        }},
+        {"generate_proof", func(tree *VerkleTree, ids []string) {
+            for i := 0; i < 100; i++ {
+                tree.GenerateProof(ids[rand.Intn(len(ids))])
+            }
+        }},
+    }
+    
+    for _, width := range widths {
+        for _, op := range operations {
+            b.Run(fmt.Sprintf("%s_w%d", op.name, width), func(b *testing.B) {
+                // Подготовка
+                srs := getSRSForWidth(width)
+                tree, _ := New(6, width, srs, nil)
+                
+                // Заполняем тестовыми данными
+                userIDs := make([]string, 10000)
+                for i := 0; i < 10000; i++ {
+                    batch := tree.BeginBatch()
+                    userID := fmt.Sprintf("prep_user_%d", i)
+                    userIDs[i] = userID
+                    userData := &UserData{
+                        Balances: map[string]float64{"USD": float64(i)},
+                    }
+                    batch.AddUserData(userID, userData)
+                    tree.CommitBatch(batch)
+                }
+                
+                b.ResetTimer()
+                
+                // Измеряем операцию
+                for i := 0; i < b.N; i++ {
+                    op.fn(tree, userIDs)
+                }
+            })
+        }
+    }
+}
+
+// Сравнение характеристик
+func TestWidthCharacteristics(t *testing.T) {
+    widths := []int{32, 64, 128, 256}
+    userCount := 50000
+    
+    results := make(map[int]map[string]interface{})
+    
+    for _, width := range widths {
+        srs := getSRSForWidth(width)
+        tree, _ := New(6, width, srs, nil)
+        
+        // Вставляем данные
+        startTime := time.Now()
+        for i := 0; i < userCount; i += 1000 {
+            batch := tree.BeginBatch()
+            for j := 0; j < 1000 && i+j < userCount; j++ {
+                userID := fmt.Sprintf("user_%d", i+j)
+                userData := &UserData{
+                    Balances: map[string]float64{"USD": float64(i + j)},
+                }
+                batch.AddUserData(userID, userData)
+            }
+            tree.CommitBatch(batch)
+        }
+        insertTime := time.Since(startTime)
+        
+        // Измеряем чтение
+        startTime = time.Now()
+        for i := 0; i < 1000; i++ {
+            tree.GetUserData(fmt.Sprintf("user_%d", rand.Intn(userCount)))
+        }
+        readTime := time.Since(startTime)
+        
+        // Измеряем proof
+        startTime = time.Now()
+        for i := 0; i < 100; i++ {
+            tree.GenerateProof(fmt.Sprintf("user_%d", rand.Intn(userCount)))
+        }
+        proofTime := time.Since(startTime)
+        
+        stats := tree.GetTreeStats()
+        
+        results[width] = map[string]interface{}{
+            "insert_time":   insertTime,
+            "read_time":     readTime,
+            "proof_time":    proofTime,
+            "depth":         stats["depth"],
+            "node_count":    stats["node_count"],
+            "avg_insert_ms": float64(insertTime.Milliseconds()) / float64(userCount),
+        }
+        
+        t.Logf("\n=== Width %d ===", width)
+        t.Logf("Вставка %d элементов: %v (%.3f мс/элемент)", 
+            userCount, insertTime, 
+            float64(insertTime.Microseconds())/float64(userCount)/1000.0)
+        t.Logf("Чтение 1000 элементов: %v (%.3f мкс/элемент)", 
+            readTime, float64(readTime.Microseconds())/1000.0)
+        t.Logf("Генерация 100 proof: %v (%.3f мс/proof)", 
+            proofTime, float64(proofTime.Milliseconds())/100.0)
+        t.Logf("Глубина дерева: %d", stats["depth"])
+        t.Logf("Количество узлов: %d", stats["node_count"])
+    }
+    
+    // Находим оптимальную ширину
+    t.Log("\n=== СРАВНЕНИЕ ===")
+    var bestWidth int
+    var bestScore float64 = 999999
+    
+    for width, result := range results {
+        // Простая формула оценки (можно настроить веса)
+        insertWeight := 0.5
+        readWeight := 0.3
+        proofWeight := 0.2
+        
+        score := float64(result["insert_time"].(time.Duration).Milliseconds())*insertWeight +
+            float64(result["read_time"].(time.Duration).Microseconds())/1000.0*readWeight +
+            float64(result["proof_time"].(time.Duration).Milliseconds())*proofWeight
+        
+        t.Logf("Width %d: общий score = %.2f", width, score)
+        
+        if score < bestScore {
+            bestScore = score
+            bestWidth = width
+        }
+    }
+    
+    t.Logf("\n🏆 ОПТИМАЛЬНАЯ ШИРИНА: %d (score: %.2f)", bestWidth, bestScore)
 }

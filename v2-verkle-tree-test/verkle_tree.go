@@ -57,13 +57,13 @@ type UserData struct {
 
 // validateNodeWidth проверяет что NodeWidth - степень двойки
 func validateNodeWidth(width int) error {
-    validWidths := []int{8, 16, 32, 64, 128, 256, 512, 1024}
+    validWidths := []int{8, 16, 32, 64, 128, 256}
     for _, valid := range validWidths {
         if width == valid {
             return nil
         }
     }
-    return fmt.Errorf("NodeWidth должен быть одним из: 8, 16, 32, 64, 128, 256, 512, 1024")
+    return fmt.Errorf("NodeWidth должен быть одним из: 8, 16, 32, 64, 128, 256")
 }
 
 // getNodeIndex возвращает индекс узла с учетом NodeWidth
@@ -123,6 +123,12 @@ type Config struct {
 	
 	// Использовать KZG для внутренних узлов (по умолчанию false)
 	UseKZGForInternal bool 
+	
+	// Автоматически увеличивать глубину
+	AutoGrowDepth     bool  
+	
+	// Максимальная глубина (ограничение)
+    MaxLevels         int   
 }
 
 // VerkleTree - основная структура Verkle дерева
@@ -157,6 +163,9 @@ type VerkleTree struct {
     commitWG        sync.WaitGroup     // Ожидание завершения коммитов
     pendingRoot     []byte             // Временный root пока идет коммит
     commitInProgress atomic.Bool       // Флаг активного коммита
+	
+	// Текущая глубина дерева
+	currentDepth      int   
 }
 
 // commitTask - задача на асинхронный коммит
@@ -256,6 +265,8 @@ func NewConfig(levels, nodeWidth int, srs *kzg_bls12381.SRS) *Config {
         NodeWidth:         nodeWidth,
         KZGConfig:         srs,
         UseKZGForInternal: false,
+		AutoGrowDepth:     true,  
+        MaxLevels:         32,    // Максимум 32 уровней
     }
 }
 
@@ -281,9 +292,83 @@ func New(levels, nodeWidth int, srs *kzg_bls12381.SRS, dataStore Storage) (*Verk
 		lazyCommit: true,
 		asyncMode:  false,  // По умолчанию выключено
         commitQueue: make(chan *commitTask, 10),  // Буфер на 10 задач
+		currentDepth: levels,
 	}
 	
 	return tree, nil
+}
+
+// needsDepthExpansion проверяет нужно ли увеличить глубину дерева
+func (vt *VerkleTree) needsDepthExpansion() bool {
+    if !vt.config.AutoGrowDepth {
+        return false
+    }
+    
+    if vt.currentDepth >= vt.config.MaxLevels {
+        return false
+    }
+    
+    // Проверяем заполненность корня
+    occupiedCount := 0
+    for _, child := range vt.root.children {
+        if child != nil {
+            occupiedCount++
+        }
+    }
+    
+    // Если корень заполнен более чем на 80%, увеличиваем глубину
+    threshold := (vt.config.NodeWidth * 80) / 100
+    return occupiedCount >= threshold
+}
+
+// expandDepth увеличивает глубину дерева на один уровень
+func (vt *VerkleTree) expandDepth() error {
+    vt.mu.Lock()
+    defer vt.mu.Unlock()
+    
+    if vt.currentDepth >= vt.config.MaxLevels {
+        return fmt.Errorf("достигнута максимальная глубина дерева: %d", vt.config.MaxLevels)
+    }
+    
+    // Создаём новый корень
+    newRoot := &InternalNode{
+        children: make([]VerkleNode, vt.config.NodeWidth),
+        depth:    0,
+        dirty:    true,
+    }
+    
+    // Старый корень становится дочерним узлом нового корня
+    // Помещаем его в первую позицию (индекс 0)
+    newRoot.children[0] = vt.root
+    
+    // Обновляем глубину всех узлов старого дерева
+    vt.updateNodeDepths(vt.root, 1)
+    
+    // Обновляем корень
+    vt.root = newRoot
+    vt.currentDepth++
+    vt.config.Levels = vt.currentDepth
+    
+    return nil
+}
+
+// updateNodeDepths рекурсивно обновляет глубину узлов
+func (vt *VerkleTree) updateNodeDepths(node *InternalNode, newDepth int) {
+    if node == nil {
+        return
+    }
+    
+    node.depth = newDepth
+    
+    for _, child := range node.children {
+        if child == nil {
+            continue
+        }
+        
+        if internalChild, ok := child.(*InternalNode); ok {
+            vt.updateNodeDepths(internalChild, newDepth+1)
+        }
+    }
 }
 
 // EnableAsyncCommit включает асинхронный режим коммитментов
@@ -397,9 +482,15 @@ func (vt *VerkleTree) CommitBatch(b *Batch) ([]byte, error) {
     updates := b.updates
     b.mu.Unlock()
     
-    // Сохраняем предыдущий корень
     if vt.root.commitment != nil {
         vt.previousRoot = vt.root.Hash()
+    }
+    
+    // ДОБАВИТЬ: Проверяем нужно ли расширение перед вставкой
+    if vt.needsDepthExpansion() {
+        if err := vt.expandDepth(); err != nil {
+            return nil, fmt.Errorf("ошибка расширения глубины: %w", err)
+        }
     }
     
     // Применяем все обновления из батча
@@ -423,12 +514,32 @@ func (vt *VerkleTree) CommitBatch(b *Batch) ([]byte, error) {
         return vt.commitBatchAsync()
     }
     
-    // Синхронный коммит (как раньше)
     if err := vt.recomputeCommitments(vt.root); err != nil {
         return nil, fmt.Errorf("ошибка пересчета коммитментов: %w", err)
     }
     
     return vt.root.Hash(), nil
+}
+
+// GetCurrentDepth возвращает текущую глубину дерева
+func (vt *VerkleTree) GetCurrentDepth() int {
+    vt.mu.RLock()
+    defer vt.mu.RUnlock()
+    return vt.currentDepth
+}
+
+// GetTreeStats возвращает статистику дерева
+func (vt *VerkleTree) GetTreeStats() map[string]interface{} {
+    vt.mu.RLock()
+    defer vt.mu.RUnlock()
+    
+    return map[string]interface{}{
+        "depth":       vt.currentDepth,
+        "node_width":  vt.config.NodeWidth,
+        "node_count":  len(vt.nodeIndex),
+        "max_depth":   vt.config.MaxLevels,
+        "auto_grow":   vt.config.AutoGrowDepth,
+    }
 }
 
 // commitBatchAsync - асинхронный коммит
@@ -638,12 +749,23 @@ func (vt *VerkleTree) expandLeaf(parentNode *InternalNode, leafIndex int, oldLea
         dirty:    true,
     }
     
-    // Вычисляем новый индекс для старого листа
-    if newInternal.depth >= vt.config.Levels {
-        // Достигли максимальной глубины, не можем расширять
-        return errors.New("достигнута максимальная глубина дерева")
+    // Проверяем глубину
+    if newInternal.depth >= vt.currentDepth {
+        // Вместо ошибки, пытаемся расширить дерево
+        if vt.config.AutoGrowDepth && vt.currentDepth < vt.config.MaxLevels {
+            if err := vt.expandDepth(); err != nil {
+                return err
+            }
+            // После расширения пробуем снова
+            newInternal.depth = parentNode.depth + 1
+        } else {
+            // Если расширение невозможно, используем множественные листья в одном узле
+            // Это fallback стратегия
+            return nil
+        }
     }
     
+    // Вычисляем новый индекс для старого листа
     newLeafIndex := getNodeIndex(oldLeaf.stem[newInternal.depth], vt.config.NodeWidth)
     
     // Перемещаем старый лист в новый узел
@@ -655,6 +777,7 @@ func (vt *VerkleTree) expandLeaf(parentNode *InternalNode, leafIndex int, oldLea
     
     return nil
 }
+
 
 
 // markDirtyPath помечает все узлы на пути к ключу как требующие обновления
