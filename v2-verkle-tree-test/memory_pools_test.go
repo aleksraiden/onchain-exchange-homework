@@ -1,143 +1,185 @@
-// Создайте файл memory_pools_test.go
+// memory_pools_bench_test.go (ИСПРАВЛЕННАЯ ВЕРСИЯ)
 
 package verkletree
 
 import (
-	"runtime"
+	"sync"
 	"testing"
-	"strings"
-	"time"
 	
 	"github.com/consensys/gnark-crypto/ecc/bls12-381/fr"
+	kzg_bls12381 "github.com/consensys/gnark-crypto/ecc/bls12-381/kzg"
 )
 
-// TestMemoryPoolsImpact - измерение влияния memory pools
-func TestMemoryPoolsImpact(t *testing.T) {
-	operations := 10000
+// ==========================================
+// ГЛОБАЛЬНЫЙ SRS - создаем ОДИН РАЗ
+// ==========================================
+
+var (
+	globalTestSRS     *kzg_bls12381.SRS  // ✅ Правильный тип
+	globalTestSRSOnce sync.Once
+)
+
+// getTestSRS возвращает переиспользуемый SRS
+func getTestSRS() *kzg_bls12381.SRS {  // ✅ Правильный тип
+	globalTestSRSOnce.Do(func() {
+		var err error
+		globalTestSRS, err = InitSRS(256)
+		if err != nil {
+			panic(err)
+		}
+	})
+	return globalTestSRS
+}
+
+// Глобальные переменные для результатов
+var (
+	benchResultPoolsTest []fr.Element
+	benchBufPoolsTest    []byte
+)
+
+// ==========================================
+// БЫСТРЫЕ БЕНЧМАРКИ
+// ==========================================
+
+// BenchmarkMemoryPoolsWithout - бенчмарк без пулов
+func BenchmarkMemoryPoolsWithout(b *testing.B) {
+	var elements []fr.Element
+	var buf []byte
 	
-	t.Log("\n" + strings.Repeat("=", 100))
-	t.Log("ВЛИЯНИЕ MEMORY POOLS НА ПРОИЗВОДИТЕЛЬНОСТЬ")
-	t.Log(strings.Repeat("=", 100))
+	b.ResetTimer()
 	
-	// === БЕЗ POOLS (baseline) ===
-	t.Log("\n1️⃣  БЕЗ Memory Pools (baseline)")
-	
-	runtime.GC() // Принудительный GC для чистоты эксперимента
-	var m1 runtime.MemStats
-	runtime.ReadMemStats(&m1)
-	
-	start := time.Now()
-	
-	// Симулируем аллокации без пулов
-	for i := 0; i < operations; i++ {
-		// Типичные аллокации в commitPolynomial
-		_ = make([]fr.Element, 256)
-		_ = make([]byte, 1024)
-		_ = make([]byte, 32)
-	}
-	
-	withoutPoolsTime := time.Since(start)
-	
-	var m2 runtime.MemStats
-	runtime.ReadMemStats(&m2)
-	
-	allocsWithout := m2.Mallocs - m1.Mallocs
-	bytesAllocWithout := m2.TotalAlloc - m1.TotalAlloc
-	
-	t.Logf("   Время: %v", withoutPoolsTime)
-	t.Logf("   Аллокаций: %d", allocsWithout)
-	t.Logf("   Память: %d MB", bytesAllocWithout/(1024*1024))
-	
-	// === С POOLS ===
-	t.Log("\n2️⃣  С Memory Pools")
-	
-	runtime.GC()
-	var m3 runtime.MemStats
-	runtime.ReadMemStats(&m3)
-	
-	start = time.Now()
-	
-	// Те же операции но с пулами
-	for i := 0; i < operations; i++ {
-		// Берем из пулов
-		elements := getFrElementSlice(256)
-		buf1 := getByteBuffer(1024)
-		buf2 := getHashBuffer()
+	for i := 0; i < b.N; i++ {
+		elements = make([]fr.Element, 128)
+		buf = make([]byte, 1024)
 		
-		// Возвращаем в пулы
-		putFrElementSlice(elements)
-		putByteBuffer(buf1)
-		putHashBuffer(buf2)
+		elements[0].SetUint64(uint64(i))
+		buf[0] = byte(i)
 	}
 	
-	withPoolsTime := time.Since(start)
-	
-	var m4 runtime.MemStats
-	runtime.ReadMemStats(&m4)
-	
-	allocsWith := m4.Mallocs - m3.Mallocs
-	bytesAllocWith := m4.TotalAlloc - m3.TotalAlloc
-	
-	t.Logf("   Время: %v", withPoolsTime)
-	t.Logf("   Аллокаций: %d", allocsWith)
-	t.Logf("   Память: %d MB", bytesAllocWith/(1024*1024))
-	
-	// === СРАВНЕНИЕ ===
-	t.Log("\n📊 РЕЗУЛЬТАТ:")
-	
-	timeSpeedup := float64(withoutPoolsTime) / float64(withPoolsTime)
-	allocReduction := float64(allocsWithout-allocsWith) / float64(allocsWithout) * 100
-	memReduction := float64(bytesAllocWithout-bytesAllocWith) / float64(bytesAllocWithout) * 100
-	
-	t.Logf("   Ускорение: %.2fx", timeSpeedup)
-	t.Logf("   Снижение аллокаций: %.1f%%", allocReduction)
-	t.Logf("   Снижение памяти: %.1f%%", memReduction)
-	
-	// === ЭКСТРАПОЛЯЦИЯ НА ВАШ СЦЕНАРИЙ ===
-	t.Log("\n🎯 ВЛИЯНИЕ НА ВАШ СЦЕНАРИЙ (50K операций, 300ms budget):")
-	
-	// В вашем случае каждая операция делает ~2-3 commit
-	commitsPerOp := 2.5
-	totalCommits := 50000 * commitsPerOp
-	
-	timePerCommit := float64(withoutPoolsTime.Microseconds()) / float64(operations)
-	totalTimeWithout := timePerCommit * totalCommits / 1000 // в миллисекундах
-	
-	timePerCommitWith := float64(withPoolsTime.Microseconds()) / float64(operations)
-	totalTimeWith := timePerCommitWith * totalCommits / 1000
-	
-	savings := totalTimeWithout - totalTimeWith
-	
-	t.Logf("   Без pools: ~%.0f ms", totalTimeWithout)
-	t.Logf("   С pools:   ~%.0f ms", totalTimeWith)
-	t.Logf("   Экономия:  ~%.0f ms (%.1f%% от 300ms budget)", 
-		savings, savings/300*100)
-	
-	if savings > 10 {
-		t.Log("\n✅ РЕКОМЕНДАЦИЯ: Используйте memory pools - значительный эффект!")
-	} else if savings > 5 {
-		t.Log("\n✅ РЕКОМЕНДАЦИЯ: Используйте memory pools - умеренный эффект")
-	} else {
-		t.Log("\n⚠️  Memory pools дают небольшой эффект в этом сценарии")
-	}
-	
-	t.Log("\n" + strings.Repeat("=", 100))
+	benchResultPoolsTest = elements
+	benchBufPoolsTest = buf
 }
 
-// BenchmarkWithoutPools - бенчмарк без пулов
-func BenchmarkWithoutPools(b *testing.B) {
+// BenchmarkMemoryPoolsWith - бенчмарк с пулами
+func BenchmarkMemoryPoolsWith(b *testing.B) {
+	var elements []fr.Element
+	var buf []byte
+	
+	b.ResetTimer()
+	
 	for i := 0; i < b.N; i++ {
-		_ = make([]fr.Element, 256)
-		_ = make([]byte, 1024)
-	}
-}
-
-// BenchmarkWithPools - бенчмарк с пулами
-func BenchmarkWithPools(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		elements := getFrElementSlice(256)
-		buf := getByteBuffer(1024)
+		elements = getFrElementSlice(128)
+		buf = getByteBuffer(1024)
+		
+		elements[0].SetUint64(uint64(i))
+		buf[0] = byte(i)
+		
 		putFrElementSlice(elements)
 		putByteBuffer(buf)
 	}
+	
+	benchResultPoolsTest = elements
+	benchBufPoolsTest = buf
+}
+
+// BenchmarkMemoryPoolsCommit - симуляция commit
+func BenchmarkMemoryPoolsCommit(b *testing.B) {
+	b.Run("WithoutPools", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			values := make([]fr.Element, 128)
+			
+			for j := 0; j < 128; j++ {
+				values[j].SetUint64(uint64(j))
+			}
+			
+			_ = values[0].Bytes()
+		}
+	})
+	
+	b.Run("WithPools", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			values := getFrElementSlice(128)
+			
+			for j := 0; j < 128; j++ {
+				values[j].SetUint64(uint64(j))
+			}
+			
+			_ = values[0].Bytes()
+			putFrElementSlice(values)
+		}
+	})
+}
+
+// ==========================================
+// ИНТЕГРАЦИОННЫЕ ТЕСТЫ (с деревом)
+// ==========================================
+
+// BenchmarkMemoryPoolsInsertShort - быстрая версия (10 операций)
+func BenchmarkMemoryPoolsInsertShort(b *testing.B) {
+	if testing.Short() {
+		b.Skip("Skipping in short mode")
+	}
+	
+	// Используем ГЛОБАЛЬНЫЙ SRS
+	srs := getTestSRS()
+	tree, _ := New(8, 128, srs, nil)
+	tree.SetOptimizationLevel(OptimizationMax)
+	
+	b.ResetTimer()
+	
+	for i := 0; i < b.N; i++ {
+		batch := tree.BeginBatch()
+		
+		// Только 10 вставок вместо 1000
+		for j := 0; j < 10; j++ {
+			userData := &UserData{
+				Balances: map[string]float64{"USD": float64(j * 100)},
+			}
+			batch.AddUserData(poolsTestUserID(i*10+j), userData)
+		}
+		
+		tree.CommitBatch(batch)
+	}
+}
+
+// BenchmarkMemoryPoolsProofShort - быстрая версия генерации proof
+func BenchmarkMemoryPoolsProofShort(b *testing.B) {
+	if testing.Short() {
+		b.Skip("Skipping in short mode")
+	}
+	
+	// Используем ГЛОБАЛЬНЫЙ SRS
+	srs := getTestSRS()
+	tree, _ := New(8, 128, srs, nil)
+	
+	// Только 100 пользователей вместо 1000
+	batch := tree.BeginBatch()
+	for i := 0; i < 100; i++ {
+		userData := &UserData{
+			Balances: map[string]float64{"USD": float64(i * 100)},
+		}
+		batch.AddUserData(poolsTestUserID(i), userData)
+	}
+	tree.CommitBatch(batch)
+	tree.WaitForCommit()
+	
+	b.ResetTimer()
+	
+	for i := 0; i < b.N; i++ {
+		tree.GenerateProof(poolsTestUserID(i % 100))
+	}
+}
+
+// poolsTestUserID генерирует ID пользователя
+func poolsTestUserID(i int) string {
+	return "pooluser_" + 
+	       string(rune('0'+(i/1000000)%10)) +
+	       string(rune('0'+(i/100000)%10)) +
+	       string(rune('0'+(i/10000)%10)) +
+	       string(rune('0'+(i/1000)%10)) +
+	       string(rune('0'+(i/100)%10)) + 
+	       string(rune('0'+(i/10)%10)) + 
+	       string(rune('0'+i%10))
 }
