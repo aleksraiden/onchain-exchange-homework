@@ -67,12 +67,9 @@ func validateNodeWidth(width int) error {
     return fmt.Errorf("NodeWidth должен быть одним из: 8, 16, 32, 64, 128, 256")
 }
 
-// getNodeIndex возвращает индекс узла с учетом NodeWidth
-func getNodeIndex(byteValue byte, nodeWidth int) int {
-    // Используем битовую маску для получения индекса в пределах nodeWidth
-    // Например: для nodeWidth=64 (0b1000000), маска = 63 (0b111111)
-    mask := nodeWidth - 1
-    return int(byteValue) & mask
+// getNodeIndex возвращает индекс узла с использованием предвычисленной маски
+func (vt *VerkleTree) getNodeIndex(byteValue byte) int {
+    return int(byteValue) & vt.config.NodeMask
 }
 
 // Serialize сериализует UserData в JSON байты
@@ -129,7 +126,10 @@ type Config struct {
 	AutoGrowDepth     bool  
 	
 	// Максимальная глубина (ограничение)
-    MaxLevels         int   
+    MaxLevels         int
+
+	// NodeMask - предвычисленная маска для getNodeIndex (NodeWidth - 1)
+    NodeMask int	
 }
 
 // VerkleTree - основная структура Verkle дерева
@@ -344,7 +344,8 @@ func NewConfig(levels, nodeWidth int, srs *kzg_bls12381.SRS) *Config {
         KZGConfig:         srs,
         UseKZGForInternal: false,
 		AutoGrowDepth:     true,  
-        MaxLevels:         32,    // Максимум 32 уровней
+        MaxLevels:         8,    // Максимум 8 уровней
+		NodeMask:          nodeWidth - 1,
     }
 }
 
@@ -449,7 +450,6 @@ func (vt *VerkleTree) GenerateMultiProofParallel(userIDs []string) ([]*Proof, er
 	
 	return proofs, nil
 }
-
 
 // needsDepthExpansion проверяет нужно ли увеличить глубину дерева
 func (vt *VerkleTree) needsDepthExpansion() bool {
@@ -853,7 +853,7 @@ func (vt *VerkleTree) insert(userIDHash []byte, data []byte) error {
     
     for depth := 0; depth < vt.config.Levels-1; depth++ {
         // Вычисляем индекс с учетом NodeWidth
-        index := getNodeIndex(stem[depth], vt.config.NodeWidth)
+        index := getNodeIndex(stem[depth])
         
         if node.children[index] == nil {
             // Создаем новый внутренний узел
@@ -880,7 +880,7 @@ func (vt *VerkleTree) insert(userIDHash []byte, data []byte) error {
             }
             
             // Перемещаем старый лист в новый узел
-            oldLeafIndex := getNodeIndex(oldLeaf.stem[depth+1], vt.config.NodeWidth)
+            oldLeafIndex := getNodeIndex(oldLeaf.stem[depth+1])
             newInternal.children[oldLeafIndex] = oldLeaf
             
             // Заменяем лист на внутренний узел
@@ -890,7 +890,7 @@ func (vt *VerkleTree) insert(userIDHash []byte, data []byte) error {
     }
     
     // Вычисляем индекс для листа
-    leafIndex := getNodeIndex(stem[vt.config.Levels-1], vt.config.NodeWidth)
+    leafIndex := getNodeIndex(stem[vt.config.Levels-1])
     
     // Проверяем автоматическое расширение листа
     if node.children[leafIndex] != nil {
@@ -989,7 +989,7 @@ func (vt *VerkleTree) expandLeaf(parentNode *InternalNode, leafIndex int, oldLea
     }
     
     // Вычисляем новый индекс для старого листа
-    newLeafIndex := getNodeIndex(oldLeaf.stem[newInternal.depth], vt.config.NodeWidth)
+    newLeafIndex := getNodeIndex(oldLeaf.stem[newInternal.depth])
     
     // Перемещаем старый лист в новый узел
     newInternal.children[newLeafIndex] = oldLeaf
@@ -1009,7 +1009,7 @@ func (vt *VerkleTree) markDirtyPath(userIDHash []byte) {
     node.dirty = true
     
     for depth := 0; depth < vt.config.Levels-1; depth++ {
-        index := getNodeIndex(userIDHash[depth], vt.config.NodeWidth)
+        index := getNodeIndex(userIDHash[depth])
         if node.children[index] != nil {
             if internalNode, ok := node.children[index].(*InternalNode); ok {
                 internalNode.dirty = true
@@ -1076,6 +1076,40 @@ func (vt *VerkleTree) recomputeCommitments(node *InternalNode) error {
     
     return nil
 }
+
+/***
+func (vt *VerkleTree) recomputeCommitmentsBatch() {
+    // Группируем dirty узлы по уровням
+    dirtyByLevel := make(map[int][]*InternalNode)
+    
+    vt.visitDirtyNodes(func(node *InternalNode, depth int) {
+        dirtyByLevel[depth] = append(dirtyByLevel[depth], node)
+    })
+    
+    // Обрабатываем каждый уровень batch'ем (от листьев к корню)
+    for level := vt.config.Levels - 1; level >= 0; level-- {
+        nodes := dirtyByLevel[level]
+        if len(nodes) == 0 {
+            continue
+        }
+        
+        // Подготавливаем данные для batch hash
+        data := make([][]byte, len(nodes))
+        for i, node := range nodes {
+            data[i] = node.serializeChildren()
+        }
+        
+        // BATCH HASH!
+        hashes := hashBatchParallel(data)
+        
+        // Применяем результаты
+        for i, node := range nodes {
+            node.commitment = hashes[i]
+            node.dirty = false
+        }
+    }
+}
+***/
 
 // Добавьте функцию параллельных коммитментов
 func (vt *VerkleTree) parallelLeafCommit(leaves []*LeafNode) error {
@@ -1482,7 +1516,7 @@ func (vt *VerkleTree) collectProofPath(userIDHash []byte, proof *Proof) error {
     }
     
     for depth := 0; depth < vt.config.Levels-1; depth++ {
-        index := getNodeIndex(stem[depth], vt.config.NodeWidth)
+        index := getNodeIndex(stem[depth])
         
         // Собираем хеши соседних узлов
         for i, child := range node.children {
