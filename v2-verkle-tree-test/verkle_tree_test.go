@@ -703,3 +703,28 @@ func BenchmarkBatchInsertWithKZG(b *testing.B) {
         tree.CommitBatch(batch)
     }
 }
+
+func BenchmarkAsyncCommit(b *testing.B) {
+    tree, _ := New(4, 64, testSRS, nil)
+    tree.EnableAsyncCommit(2)
+    defer tree.DisableAsyncCommit()
+    
+    b.ResetTimer()
+    
+    for i := 0; i < b.N; i++ {
+        batch := tree.BeginBatch()
+        
+        for j := 0; j < 1000; j++ {
+            userID := fmt.Sprintf("user%d_%d", i, j)
+            userData := &UserData{
+                Balances: map[string]float64{"USD": float64(j)},
+            }
+            batch.AddUserData(userID, userData)
+        }
+        
+        tree.CommitBatch(batch)
+    }
+    
+    b.StopTimer()
+    tree.WaitForCommit()  // Ждем завершения всех коммитов
+}

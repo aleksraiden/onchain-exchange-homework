@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/consensys/gnark-crypto/ecc/bls12-381/fr"
 	kzg_bls12381 "github.com/consensys/gnark-crypto/ecc/bls12-381/kzg"
@@ -129,7 +130,25 @@ type VerkleTree struct {
 	nodeIndex map[string]*LeafNode
 	
 	// Флаг отложенных коммитментов
-	lazyCommit   bool  
+	lazyCommit   bool 
+	
+	// Асинхронные коммитменты
+    asyncMode       bool              // Включен ли асинхронный режим
+    commitQueue     chan *commitTask   // Очередь задач на коммит
+    commitWG        sync.WaitGroup     // Ожидание завершения коммитов
+    pendingRoot     []byte             // Временный root пока идет коммит
+    commitInProgress atomic.Bool       // Флаг активного коммита
+}
+
+// commitTask - задача на асинхронный коммит
+type commitTask struct {
+    node       *InternalNode
+    resultChan chan commitResult
+}
+
+type commitResult struct {
+    root []byte
+    err  error
 }
 
 // InternalNode - внутренний узел дерева
@@ -236,9 +255,65 @@ func New(levels, nodeWidth int, srs *kzg_bls12381.SRS, dataStore Storage) (*Verk
 		dataStore: dataStore,
 		nodeIndex: make(map[string]*LeafNode),
 		lazyCommit: true,
+		asyncMode:  false,  // По умолчанию выключено
+        commitQueue: make(chan *commitTask, 10),  // Буфер на 10 задач
 	}
 	
 	return tree, nil
+}
+
+// EnableAsyncCommit включает асинхронный режим коммитментов
+// workers - количество фоновых воркеров (рекомендуется 1-2)
+func (vt *VerkleTree) EnableAsyncCommit(workers int) {
+    vt.mu.Lock()
+    defer vt.mu.Unlock()
+    
+    if vt.asyncMode {
+        return // Уже включен
+    }
+    
+    vt.asyncMode = true
+    
+    // Запускаем воркеры для обработки коммитментов
+    for i := 0; i < workers; i++ {
+        go vt.commitWorker()
+    }
+}
+
+// DisableAsyncCommit выключает асинхронный режим и ждет завершения всех коммитов
+func (vt *VerkleTree) DisableAsyncCommit() {
+    vt.mu.Lock()
+    if !vt.asyncMode {
+        vt.mu.Unlock()
+        return
+    }
+    vt.asyncMode = false
+    vt.mu.Unlock()
+    
+    // Закрываем очередь и ждем завершения
+    close(vt.commitQueue)
+    vt.commitWG.Wait()
+}
+
+// commitWorker - фоновый воркер для обработки коммитментов
+func (vt *VerkleTree) commitWorker() {
+    for task := range vt.commitQueue {
+        // Выполняем коммит
+        err := vt.recomputeCommitments(task.node)
+        
+        var root []byte
+        if err == nil {
+            root = task.node.Hash()
+        }
+        
+        // Отправляем результат
+        task.resultChan <- commitResult{
+            root: root,
+            err:  err,
+        }
+        
+        vt.commitWG.Done()
+    }
 }
 
 // BeginBatch начинает новый батч для групповых обновлений
@@ -298,23 +373,15 @@ func (vt *VerkleTree) CommitBatch(b *Batch) ([]byte, error) {
     updates := b.updates
     b.mu.Unlock()
     
+    // Сохраняем предыдущий корень
     if vt.root.commitment != nil {
         vt.previousRoot = vt.root.Hash()
     }
     
-    // Группируем обновления по путям для лучшей локальности
-    pathGroups := make(map[byte][][]byte)
-    
+    // Применяем все обновления из батча
     for userIDHashStr, data := range updates {
         userIDHash := []byte(userIDHashStr)
-        firstByte := userIDHash[0]
         
-        if pathGroups[firstByte] == nil {
-            pathGroups[firstByte] = make([][]byte, 0)
-        }
-        pathGroups[firstByte] = append(pathGroups[firstByte], userIDHash)
-        
-        // Сохраняем в Pebble
         if vt.dataStore != nil {
             dataKey := "data:" + fmt.Sprintf("%x", userIDHash)
             if err := vt.dataStore.Put([]byte(dataKey), data); err != nil {
@@ -322,18 +389,96 @@ func (vt *VerkleTree) CommitBatch(b *Batch) ([]byte, error) {
             }
         }
         
-        // Вставляем в дерево
         if err := vt.insert(userIDHash, data); err != nil {
             return nil, fmt.Errorf("ошибка вставки узла: %w", err)
         }
     }
     
-    // Пересчитываем коммитменты (только для измененных узлов)
+    // Если асинхронный режим включен
+    if vt.asyncMode {
+        return vt.commitBatchAsync()
+    }
+    
+    // Синхронный коммит (как раньше)
     if err := vt.recomputeCommitments(vt.root); err != nil {
         return nil, fmt.Errorf("ошибка пересчета коммитментов: %w", err)
     }
     
     return vt.root.Hash(), nil
+}
+
+// commitBatchAsync - асинхронный коммит
+func (vt *VerkleTree) commitBatchAsync() ([]byte, error) {
+    // Генерируем временный хеш (быстрый Blake3)
+    hasher := blake3.New()
+    for _, child := range vt.root.children {
+        if child != nil {
+            hasher.Write(child.Hash())
+        }
+    }
+    tempRoot := hasher.Sum(nil)
+    vt.pendingRoot = tempRoot
+    
+    // Ставим задачу в очередь на асинхронный коммит
+    resultChan := make(chan commitResult, 1)
+    task := &commitTask{
+        node:       vt.root,
+        resultChan: resultChan,
+    }
+    
+    vt.commitWG.Add(1)
+    vt.commitInProgress.Store(true)
+    
+    // Отправляем задачу в очередь (неблокирующая отправка)
+    select {
+    case vt.commitQueue <- task:
+        // Задача добавлена
+    default:
+        // Очередь заполнена, выполняем синхронно
+        vt.commitWG.Done()
+        vt.commitInProgress.Store(false)
+        if err := vt.recomputeCommitments(vt.root); err != nil {
+            return nil, err
+        }
+        return vt.root.Hash(), nil
+    }
+    
+    // Запускаем горутину для обновления финального root
+    go func() {
+        result := <-resultChan
+        
+        vt.mu.Lock()
+        if result.err == nil {
+            vt.root.commitment = result.root
+        }
+        vt.commitInProgress.Store(false)
+        vt.mu.Unlock()
+    }()
+    
+    // Возвращаем временный хеш немедленно
+    return tempRoot, nil
+}
+
+// WaitForCommit ждет завершения всех асинхронных коммитментов
+func (vt *VerkleTree) WaitForCommit() {
+    vt.commitWG.Wait()
+}
+
+// GetFinalRoot возвращает финальный root (ждет если коммит в процессе)
+func (vt *VerkleTree) GetFinalRoot() []byte {
+    // Если коммит в процессе - ждем
+    if vt.commitInProgress.Load() {
+        vt.WaitForCommit()
+    }
+    
+    vt.mu.RLock()
+    defer vt.mu.RUnlock()
+    
+    if vt.root.commitment == nil {
+        return nil
+    }
+    
+    return vt.root.Hash()
 }
 
 // insert выполняет вставку узла с данными пользователя в дерево
