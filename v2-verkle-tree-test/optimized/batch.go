@@ -58,54 +58,97 @@ func (b *Batch) AddUserData(userID string, userData *UserData) error {
 	return b.Add(userID, data)
 }
 
-// CommitBatch — оптимизированная версия
+//OLD CommitBatch - ПРОСТАЯ версия
+func (vt *VerkleTree) CommitBatchOLD(batch *Batch) ([]byte, error) {
+    if batch == nil || len(batch.entries) == 0 {
+        return vt.root.Blake3Hash(), nil
+    }
+    
+    // Один простой lock
+    vt.treeMu.Lock()
+    defer vt.treeMu.Unlock()
+    
+    // Вставляем все элементы
+    for _, entry := range batch.entries {
+        //userIDHash := HashUserID(entry.UserID)  // Исправлено: UserID с большой буквы
+        if err := vt.insert(entry.userIDHash, entry.data); err != nil {
+            return nil, err
+        }
+    }
+    
+    vt.root.SetDirty(true)
+    
+    // Async commit (если включен)
+    if vt.config.AsyncMode {
+        select {
+        case vt.commitQueue <- &commitTask{node: vt.root, resultChan: make(chan []byte, 1)}:
+            // Async запущен
+        default:
+            // Queue переполнена - синхронный commit
+            if !vt.config.HashOnly {
+                vt.mu.Lock()
+                vt.computeKZGForRoot()
+                vt.mu.Unlock()
+            }
+        }
+    } else if !vt.config.HashOnly {
+        // Синхронный KZG commit
+        vt.mu.Lock()
+        defer vt.mu.Unlock()
+        if err := vt.computeKZGForRoot(); err != nil {
+            return nil, err
+        }
+        return vt.root.commitment, nil
+    }
+    
+    return vt.root.Blake3Hash(), nil
+}
+
 func (vt *VerkleTree) CommitBatch(batch *Batch) ([]byte, error) {
-	batch.mu.Lock()
-	if batch.closed {
-		batch.mu.Unlock()
-		vt.mu.RLock()
-		root := vt.root.Hash()
-		vt.mu.RUnlock()
-		return root, nil
-	}
-	batch.closed = true
-	entries := batch.entries // ← ПРЯМО slice!
-	batch.mu.Unlock()
+    if batch == nil || len(batch.entries) == 0 {
+        return vt.root.Blake3Hash(), nil
+    }
 
-	if len(entries) == 0 {
-		vt.mu.RLock()
-		root := vt.root.Hash()
-		vt.mu.RUnlock()
-		return root, nil
-	}
+    vt.treeMu.Lock()
+    defer vt.treeMu.Unlock()
 
-	// ✅ ПАРАЛЛЕЛЬНАЯ вставка (если большой batch)
-	if vt.config.Workers >= 4 && len(entries) >= 100 {
-		if err := vt.parallelBatchInsert(entries); err != nil { // ← entries вместо updates!
-			return nil, err
-		}
-	} else {
-		// ✅ Последовательная вставка — ОДНА блокировка!
-		vt.treeMu.Lock()
-		for _, entry := range entries {
-			if err := vt.insert(entry.userIDHash, entry.data); err != nil {
-				vt.treeMu.Unlock()
-				return nil, err
-			}
-		}
-		vt.treeMu.Unlock()
-	}
+    for _, entry := range batch.entries {
+        if err := vt.insert(entry.userIDHash, entry.data); err != nil {
+            return nil, err
+        }
+    }
 
-	// Async commit (если включен)
-	if vt.config.AsyncMode {
-		return vt.asyncCommit()
-	}
+    vt.root.SetDirty(true)
 
-	// Синхронный Blake3 root (KZG lazy)
-	vt.mu.RLock()
-	root := vt.root.Hash()
-	vt.mu.RUnlock()
-	return root, nil
+    // ✅ Async commit с правильным WaitGroup
+    if vt.config.AsyncMode {
+        vt.commitWG.Add(1) // ✅ ДОБАВИТЬ ЭТУ СТРОКУ
+        select {
+        case vt.commitQueue <- &commitTask{
+            node:       vt.root,
+            resultChan: make(chan []byte, 1),
+        }:
+            // Async запущен
+        default:
+            // Queue переполнена - синхронный fallback
+            vt.commitWG.Done() // ✅ Отменяем Add
+            if !vt.config.HashOnly {
+                vt.mu.Lock()
+                vt.computeKZGForRoot()
+                vt.mu.Unlock()
+            }
+        }
+    } else if !vt.config.HashOnly {
+        // Синхронный KZG
+        vt.mu.Lock()
+        defer vt.mu.Unlock()
+        if err := vt.computeKZGForRoot(); err != nil {
+            return nil, err
+        }
+        return vt.root.commitment, nil
+    }
+
+    return vt.root.Blake3Hash(), nil
 }
 
 // parallelBatchInsert — оптимизированная версия (entries вместо map!)

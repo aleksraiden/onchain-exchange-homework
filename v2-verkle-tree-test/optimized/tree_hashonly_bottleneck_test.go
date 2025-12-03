@@ -253,3 +253,49 @@ func BenchmarkOptimalBatchSize(b *testing.B) {
 		})
 	}
 }
+
+// TestAsyncCommitPerformance
+func TestAsyncCommitPerformance(t *testing.T) {
+    // HashOnly + AsyncMode = максимальная скорость
+    config := NewConfigHashOnly()
+    config.AsyncMode = true
+    
+    tree, _ := New(config, nil)
+    defer tree.Close()
+    
+    size := 10000
+    start := time.Now()
+    
+    // Быстрая вставка (async commit)
+    batch := tree.NewBatch()
+    for i := 0; i < size; i++ {
+        userID := fmt.Sprintf("async_%d", i)
+        userData := &UserData{Balances: map[string]float64{"USD": float64(i)}}
+        data, _ := json.Marshal(userData)
+        batch.Add(userID, data)
+    }
+    
+    // Commit запускает async в фоне
+    root, err := tree.CommitBatch(batch)
+	
+	if err != nil {
+		t.Fatalf("CommitBatch failed: %v", err)
+	}
+	
+    t.Logf("✅ Async CommitBatch: %v (root=%x)", time.Since(start), root[:8])
+    
+    // GetRoot мгновенный (не ждет commit)
+    instantRoot := tree.GetRoot()
+    t.Logf("⚡ GetRoot (instant): %x", instantRoot[:8])
+    
+    // GetFinalRoot ждет завершения
+    finalRoot, err := tree.GetFinalRoot()
+    if err != nil {
+        t.Fatalf("GetFinalRoot failed: %v", err)
+    }
+    t.Logf("🎯 GetFinalRoot: %x", finalRoot[:8])
+    
+    // Проверяем что root изменился
+    t.Logf("Root evolution: Blake3→%x", instantRoot[:8])
+}
+

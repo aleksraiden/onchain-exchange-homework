@@ -37,8 +37,11 @@ type VerkleTree struct {
 	// Мьютекс для потокобезопасности дерева
 	mu sync.RWMutex
 	
-	// ✅ Отдельный мьютекс для модификации структуры дерева
+	//Old global lock - мьютекс для модификации структуры дерева (Granular locks снижает производительность!)
 	treeMu sync.Mutex
+    
+    // Batch pooling для переиспользования
+	// batchPool sync.Pool
 }
 
 // commitTask - задача на асинхронный commit
@@ -80,30 +83,52 @@ func (vt *VerkleTree) getNodeIndex(byteValue byte) int {
 	return int(byteValue) & vt.config.NodeMask
 }
 
-// Insert вставляет данные пользователя в дерево
+// Insert - ПРОСТАЯ версия
 func (vt *VerkleTree) Insert(userID string, data []byte) error {
-	if len(data) > MaxValueSize {
-		return ErrValueTooLarge
-	}
-	
-	// Hash user ID
-	userIDHash := HashUserID(userID)
-	
-	// Сохраняем в Pebble DB если есть (можно параллельно)
-	if vt.dataStore != nil {
-		dataKey := fmt.Sprintf("data:%x", userIDHash)
-		if err := vt.dataStore.Put([]byte(dataKey), data); err != nil {
-			return fmt.Errorf("failed to save to storage: %w", err)
-		}
-	}
-	
-	// ✅ Лочим только на время модификации дерева
-	vt.treeMu.Lock()
-	err := vt.insert(userIDHash, data)
-	vt.treeMu.Unlock()
-	
-	return err
+    if len(data) > MaxValueSize {
+        return ErrValueTooLarge
+    }
+
+    userIDHash := HashUserID(userID)
+
+    if vt.dataStore != nil {
+        dataKey := fmt.Sprintf("data:%x", userIDHash)
+        if err := vt.dataStore.Put([]byte(dataKey), data); err != nil {
+            return fmt.Errorf("failed to save to storage: %w", err)
+        }
+    }
+
+    vt.treeMu.Lock()
+    err := vt.insert(userIDHash, data)
+    vt.treeMu.Unlock()
+
+    if err != nil {
+        return err
+    }
+
+    // ✅ Async commit с правильным WaitGroup
+    if vt.config.AsyncMode {
+        vt.commitWG.Add(1) // ✅ ДОБАВИТЬ
+        select {
+        case vt.commitQueue <- &commitTask{
+            node:       vt.root,
+            resultChan: make(chan []byte, 1),
+        }:
+            // Async запущен
+        default:
+            // Fallback
+            vt.commitWG.Done() // ✅ Отменяем Add
+            if !vt.config.HashOnly {
+                vt.mu.Lock()
+                vt.computeKZGForRoot()
+                vt.mu.Unlock()
+            }
+        }
+    }
+
+    return nil
 }
+
 
 // insert - внутренняя функция вставки (требует treeMu.Lock())
 func (vt *VerkleTree) insert(userIDHash [32]byte, data []byte) error {

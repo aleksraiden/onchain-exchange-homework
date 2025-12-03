@@ -1,98 +1,98 @@
 {
   "Batch128": {
-    "ns_per_op": 9009158,
-    "bytes_per_op": 1794592,
-    "allocs_per_op": 3097,
-    "ops_per_sec": 110.9981643123586
+    "ns_per_op": 97288789,
+    "bytes_per_op": 3025994,
+    "allocs_per_op": 40606,
+    "ops_per_sec": 10.27867661092996
   },
   "Batch16": {
-    "ns_per_op": 2952307,
-    "bytes_per_op": 272414,
-    "allocs_per_op": 574,
-    "ops_per_sec": 338.7181617629874
+    "ns_per_op": 22892525,
+    "bytes_per_op": 554171,
+    "allocs_per_op": 9211,
+    "ops_per_sec": 43.68238103922569
   },
   "Batch32": {
-    "ns_per_op": 4363995,
-    "bytes_per_op": 497282,
-    "allocs_per_op": 944,
-    "ops_per_sec": 229.1478335790944
+    "ns_per_op": 24911221,
+    "bytes_per_op": 820517,
+    "allocs_per_op": 10673,
+    "ops_per_sec": 40.14255262718756
   },
   "Batch64": {
-    "ns_per_op": 4165711,
-    "bytes_per_op": 923302,
-    "allocs_per_op": 1659,
-    "ops_per_sec": 240.05505902833875
+    "ns_per_op": 49162812,
+    "bytes_per_op": 1569740,
+    "allocs_per_op": 20811,
+    "ops_per_sec": 20.340577752143226
   },
   "Batch8": {
-    "ns_per_op": 1829981,
-    "bytes_per_op": 159302,
-    "allocs_per_op": 387,
-    "ops_per_sec": 546.4537609953327
+    "ns_per_op": 21316305,
+    "bytes_per_op": 423443,
+    "allocs_per_op": 8572,
+    "ops_per_sec": 46.91244566072778
   },
   "Bundled10": {
-    "ns_per_op": 5497325,
-    "bytes_per_op": 579069,
+    "ns_per_op": 5533581,
+    "bytes_per_op": 579047,
     "allocs_per_op": 10865,
-    "ops_per_sec": 181.9066546001919
+    "ops_per_sec": 180.71480294586814
   },
   "Bundled100": {
-    "ns_per_op": 50060269,
-    "bytes_per_op": 4190192,
+    "ns_per_op": 49172701,
+    "bytes_per_op": 4190133,
     "allocs_per_op": 79952,
-    "ops_per_sec": 19.975921423834137
+    "ops_per_sec": 20.336487108975366
   },
   "Bundled50": {
-    "ns_per_op": 25171846,
-    "bytes_per_op": 2480756,
+    "ns_per_op": 24731881,
+    "bytes_per_op": 2480673,
     "allocs_per_op": 46901,
-    "ops_per_sec": 39.72692348427684
+    "ops_per_sec": 40.43364109668812
   },
   "FullWorkflow": {
-    "ns_per_op": 9271460,
-    "bytes_per_op": 299277,
-    "allocs_per_op": 1835,
-    "ops_per_sec": 107.85787783153894
+    "ns_per_op": 4061989,
+    "bytes_per_op": 299054,
+    "allocs_per_op": 1837,
+    "ops_per_sec": 246.1848124157894
   },
   "Get": {
-    "ns_per_op": 184,
+    "ns_per_op": 186,
     "bytes_per_op": 64,
     "allocs_per_op": 2,
-    "ops_per_sec": 5434782.608695652
+    "ops_per_sec": 5376344.086021505
   },
   "GetCold": {
-    "ns_per_op": 429,
+    "ns_per_op": 435,
     "bytes_per_op": 143,
     "allocs_per_op": 3,
-    "ops_per_sec": 2331002.331002331
+    "ops_per_sec": 2298850.574712644
   },
   "Insert": {
-    "ns_per_op": 4533,
-    "bytes_per_op": 12131,
-    "allocs_per_op": 18,
-    "ops_per_sec": 220604.45621001543
+    "ns_per_op": 1116432,
+    "bytes_per_op": 58490,
+    "allocs_per_op": 227,
+    "ops_per_sec": 895.7106209782593
   },
   "ProofGen": {
-    "ns_per_op": 66542412,
-    "bytes_per_op": 925099,
-    "allocs_per_op": 25745,
-    "ops_per_sec": 15.028009504675003
+    "ns_per_op": 66900823,
+    "bytes_per_op": 925433,
+    "allocs_per_op": 25743,
+    "ops_per_sec": 14.947499225831645
   },
   "ProofGenPar": {
-    "ns_per_op": 7456373,
-    "bytes_per_op": 929473,
-    "allocs_per_op": 25812,
-    "ops_per_sec": 134.11346240323547
+    "ns_per_op": 8859992,
+    "bytes_per_op": 928654,
+    "allocs_per_op": 25801,
+    "ops_per_sec": 112.86691906719554
   },
   "VerifyBundled": {
-    "ns_per_op": 35057012,
-    "bytes_per_op": 454405,
+    "ns_per_op": 56140698,
+    "bytes_per_op": 454401,
     "allocs_per_op": 14200,
-    "ops_per_sec": 28.524963850313313
+    "ops_per_sec": 17.812389863766924
   },
   "VerifySingle": {
-    "ns_per_op": 5459877,
-    "bytes_per_op": 89014,
-    "allocs_per_op": 331,
-    "ops_per_sec": 183.1543091538509
+    "ns_per_op": 2676971,
+    "bytes_per_op": 88988,
+    "allocs_per_op": 330,
+    "ops_per_sec": 373.5565308701514
   }
 }
