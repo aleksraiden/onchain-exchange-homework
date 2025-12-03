@@ -42,6 +42,10 @@ type Config struct {
 	
 	// Async mode (всегда true)
 	AsyncMode bool
+	
+	// HashOnly - использовать только Blake3, без KZG
+	// Это быстрее, но не позволяет генерировать криптографические proof'ы
+	HashOnly bool
 }
 
 // NewConfig создает оптимизированную конфигурацию
@@ -58,5 +62,24 @@ func NewConfig(srs *kzg_bls12381.SRS) *Config {
 		CacheSize:  DefaultCacheSize,
 		LazyCommit: true,
 		AsyncMode:  true,
+		HashOnly:   false, // KZG включен по умолчанию
+	}
+}
+
+// TODO: убрать, рефактор NewConfigHashOnly создает конфигурацию БЕЗ KZG (быстрее)
+func NewConfigHashOnly() *Config {
+	workers := runtime.GOMAXPROCS(0)
+	if workers < MinWorkers {
+		workers = MinWorkers
+	}
+
+	return &Config{
+		KZGConfig:  nil, // KZG отключен
+		NodeMask:   NodeWidth - 1,
+		Workers:    workers,
+		CacheSize:  DefaultCacheSize,
+		LazyCommit: true,
+		AsyncMode:  true,
+		HashOnly:   true, // ✅ Только Blake3
 	}
 }

@@ -277,6 +277,11 @@ func (vt *VerkleTree) GetFinalRoot() ([]byte, error) {
 	vt.mu.RLock()
 	defer vt.mu.RUnlock()
 	
+	// Если HashOnly - возвращаем Blake3 hash
+	if vt.config.HashOnly {
+		return vt.root.Blake3Hash(), nil
+	}
+	
 	// Вычисляем KZG commitment для root (Lazy KZG)
 	if vt.root.IsDirty() {
 		vt.mu.RUnlock()
@@ -297,6 +302,11 @@ func (vt *VerkleTree) GetFinalRoot() ([]byte, error) {
 
 // computeKZGForRoot вычисляет KZG commitment только для root
 func (vt *VerkleTree) computeKZGForRoot() error {
+	if vt.config.HashOnly || vt.config.KZGConfig == nil {
+		vt.root.SetDirty(false)
+		return nil
+	}
+	
 	// Используем memory pool для fr.Element
 	values := GetFrElementSlice()
 	defer PutFrElementSlice(values)

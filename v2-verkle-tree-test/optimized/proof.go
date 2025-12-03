@@ -49,6 +49,11 @@ type ProofPath struct {
 
 // GenerateProof создает proof для одного пользователя (Single Proof)
 func (vt *VerkleTree) GenerateProof(userID string) (*Proof, error) {
+	// Проверка режима
+	if vt.config.HashOnly {
+		return nil, fmt.Errorf("proof generation disabled in HashOnly mode")
+	}
+	
 	vt.mu.RLock()
 	defer vt.mu.RUnlock()
 	
@@ -256,6 +261,11 @@ func (vt *VerkleTree) generateKZGProof(userIDHash [32]byte) (openingProofBytes [
 
 // GenerateMultiProof создает Bundled Multi-Proof для нескольких пользователей
 func (vt *VerkleTree) GenerateMultiProof(userIDs []string) (*Proof, error) {
+	// Проверка режима
+	if vt.config.HashOnly {
+		return nil, fmt.Errorf("proof generation disabled in HashOnly mode")
+	}
+	
 	if len(userIDs) == 0 {
 		return nil, fmt.Errorf("empty user IDs list")
 	}
