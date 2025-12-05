@@ -76,10 +76,8 @@ func getSlotFromPool() *Slot {
 }
 
 func putSlotToPool(s *Slot) {
-	// Возвращаем все ордера в пул
-	for _, order := range s.Orders {
-		putOrderToPool(order)
-	}
+	// ИСПРАВЛЕНИЕ: НЕ возвращаем ордера в пул здесь!
+	// Они управляются через OrderIndex и возвращаются при Cancel
 	s.Orders = s.Orders[:0]
 	s.Volume = 0
 	slotPool.Put(s)
@@ -88,7 +86,7 @@ func putSlotToPool(s *Slot) {
 func getPriceLevelFromPool() *PriceLevel {
 	pl := priceLevelPool.Get().(*PriceLevel)
 	
-	// ИСПРАВЛЕНИЕ: Инициализируем слоты если они nil
+	// Инициализируем слоты если они nil
 	for i := 0; i < VERKLE_WIDTH; i++ {
 		if pl.Slots[i] == nil {
 			pl.Slots[i] = getSlotFromPool()
@@ -99,11 +97,10 @@ func getPriceLevelFromPool() *PriceLevel {
 }
 
 func putPriceLevelToPool(pl *PriceLevel) {
-	// Возвращаем слоты в пул, но НЕ устанавливаем в nil
+	// Возвращаем слоты в пул
 	for i := 0; i < VERKLE_WIDTH; i++ {
 		if pl.Slots[i] != nil {
 			putSlotToPool(pl.Slots[i])
-			// НЕ устанавливаем в nil - переиспользуем при следующем Get
 		}
 	}
 	pl.Price = 0
@@ -285,10 +282,10 @@ func (ob *OrderBook) AddLimitOrder(traderID uint32, price uint64, size uint64, s
 	// Индексируем ордер
 	ob.OrderIndex[order.ID] = order
 	atomic.AddUint64(&ob.stats.TotalOrders, 1)
-	
+/*	
 	fmt.Printf("✓ Ордер #%d: %s %.2f размер %.2f трейдер %d слот %d\n",
 		order.ID, side, float64(price)/PRICE_DECIMALS, float64(size)/PRICE_DECIMALS,
-		traderID, order.Slot)
+		traderID, order.Slot) */
 	
 	// Проверяем возможность матчинга (без lock, т.к. уже под lock)
 	ob.tryMatchUnsafe(order)
@@ -329,10 +326,10 @@ func (ob *OrderBook) tryMatchUnsafe(order *Order) {
 		}
 		
 		if canMatch {
-			level := oppositeLevels[price]
+/*			level := oppositeLevels[price]
 			fmt.Printf("⚡ МАТЧ: Ордер #%d (%s %.2f) <-> уровень %.2f (объем %.2f)\n",
 				order.ID, order.Side, float64(order.Price)/PRICE_DECIMALS,
-				float64(price)/PRICE_DECIMALS, float64(level.TotalVolume)/PRICE_DECIMALS)
+				float64(price)/PRICE_DECIMALS, float64(level.TotalVolume)/PRICE_DECIMALS) */
 			atomic.AddUint64(&ob.stats.TotalMatches, 1)
 			// Хеш будет посчитан по таймеру, а не здесь
 		}
@@ -354,15 +351,28 @@ func (ob *OrderBook) CancelOrder(orderID uint64) bool {
 		levels = ob.SellLevels
 	}
 	
-	level := levels[order.Price]
+	// ИСПРАВЛЕНИЕ: Проверяем что уровень еще существует
+	level, levelExists := levels[order.Price]
+	if !levelExists {
+		// Уровень был удален, но ордер остался в индексе
+		// Просто удаляем из индекса и возвращаем в пул
+		delete(ob.OrderIndex, orderID)
+		putOrderToPool(order)
+		atomic.AddUint64(&ob.stats.TotalCancels, 1)
+//		fmt.Printf("✗ Отменен ордер #%d (уровень уже удален)\n", orderID)
+		return true
+	}
+	
 	slot := level.Slots[order.Slot]
 	
 	// Удаляем ордер из слота
+	found := false
 	for i, o := range slot.Orders {
 		if o.ID == orderID {
 			slot.Orders = append(slot.Orders[:i], slot.Orders[i+1:]...)
 			slot.Volume -= order.Size
 			level.TotalVolume -= order.Size
+			found = true
 			break
 		}
 	}
@@ -370,18 +380,23 @@ func (ob *OrderBook) CancelOrder(orderID uint64) bool {
 	// Удаляем из индекса
 	delete(ob.OrderIndex, orderID)
 	
+	// Возвращаем ордер в пул
+	putOrderToPool(order)
+	
 	// Если уровень пустой, удаляем его и возвращаем в пул
 	if level.TotalVolume == 0 {
-		delete(levels, order.Price)
+		delete(levels, level.Price)
 		putPriceLevelToPool(level)
 	}
 	
-	// ИСПРАВЛЕНИЕ: НЕ возвращаем ордер в пул здесь!
-	// Он возвращается в putSlotToPool когда возвращаем весь уровень
-	// или просто оставляем в слайсе (он будет переиспользован)
-	
 	atomic.AddUint64(&ob.stats.TotalCancels, 1)
-	fmt.Printf("✗ Отменен ордер #%d\n", orderID)
+	
+	if found {
+//		fmt.Printf("✗ Отменен ордер #%d\n", orderID)
+	} else {
+		fmt.Printf("✗ Отменен ордер #%d (не найден в слоте)\n", orderID)
+	}
+	
 	return true
 }
 
@@ -404,7 +419,7 @@ func (ob *OrderBook) CancelAllByTrader(traderID uint32) int {
 		}
 	}
 	
-	fmt.Printf("✗ Отменено %d ордеров трейдера %d\n", count, traderID)
+//	fmt.Printf("✗ Отменено %d ордеров трейдера %d\n", count, traderID)
 	return count
 }
 
@@ -434,7 +449,13 @@ func (ob *OrderBook) ModifyOrder(orderID uint64, newPrice *uint64, newSize *uint
 		levels = ob.SellLevels
 	}
 	
-	oldLevel := levels[order.Price]
+	// ИСПРАВЛЕНИЕ: Проверяем что уровень существует
+	oldLevel, levelExists := levels[order.Price]
+	if !levelExists {
+		// Уровень был удален - не можем модифицировать
+		return false
+	}
+	
 	oldSlot := oldLevel.Slots[order.Slot]
 	
 	// Случай 1: Меняется только объем - остаемся в том же узле
@@ -466,13 +487,13 @@ func (ob *OrderBook) ModifyOrder(orderID uint64, newPrice *uint64, newSize *uint
 			targetSlot.Orders = append(targetSlot.Orders, order)
 			targetSlot.Volume += newSizeVal
 			
-			fmt.Printf("↻ Изменен ордер #%d: новый объем %.2f, перемещен в слот %d\n",
-				orderID, float64(newSizeVal)/PRICE_DECIMALS, newSlot)
+/*			fmt.Printf("↻ Изменен ордер #%d: новый объем %.2f, перемещен в слот %d\n",
+				orderID, float64(newSizeVal)/PRICE_DECIMALS, newSlot) */
 		} else {
 			// Остаемся в том же слоте
 			oldSlot.Volume += newSizeVal
-			fmt.Printf("↻ Изменен ордер #%d: новый объем %.2f (слот %d)\n",
-				orderID, float64(newSizeVal)/PRICE_DECIMALS, order.Slot)
+/*			fmt.Printf("↻ Изменен ордер #%d: новый объем %.2f (слот %d)\n",
+				orderID, float64(newSizeVal)/PRICE_DECIMALS, order.Slot) */
 		}
 		
 		oldLevel.TotalVolume += newSizeVal
@@ -505,7 +526,7 @@ func (ob *OrderBook) ModifyOrder(orderID uint64, newPrice *uint64, newSize *uint
 		}
 		
 		// Обновляем ордер
-		oldPrice := order.Price
+//		oldPrice := order.Price
 		order.Price = newPriceVal
 		order.Size = newSizeVal
 		order.Slot = ob.determineSlot(order)
@@ -524,11 +545,11 @@ func (ob *OrderBook) ModifyOrder(orderID uint64, newPrice *uint64, newSize *uint
 		newSlot.Orders = append(newSlot.Orders, order)
 		newSlot.Volume += newSizeVal
 		newLevel.TotalVolume += newSizeVal
-		
+/*		
 		fmt.Printf("↻ Изменен ордер #%d: цена %.2f→%.2f, объем %.2f, слот %d\n",
 			orderID, float64(oldPrice)/PRICE_DECIMALS, float64(newPriceVal)/PRICE_DECIMALS,
 			float64(newSizeVal)/PRICE_DECIMALS, order.Slot)
-		
+*/		
 		atomic.AddUint64(&ob.stats.TotalModifies, 1)
 		
 		// Проверяем матчинг с новой ценой
@@ -672,7 +693,7 @@ func main() {
 	basePrice := uint64(6500000) // $65000
 	
 	// Симулируем высокую нагрузку
-	numOperations := 200
+	numOperations := 10000
 	operationTypes := []string{"add", "cancel", "modify"}
 	
 	addedOrders := make([]uint64, 0)
@@ -732,13 +753,13 @@ func main() {
 			}
 		}
 		
-		// Статистика каждые 50 операций
-		if (i+1)%50 == 0 {
+		// Статистика каждые 1000 операций
+		if (i+1)%1000 == 0 {
 			ob.PrintStats()
 		}
 		
 		// Небольшая задержка для демонстрации
-		time.Sleep(10 * time.Millisecond)
+		//time.Sleep(10 * time.Millisecond)
 	}
 	
 	elapsed := time.Since(startTime)
