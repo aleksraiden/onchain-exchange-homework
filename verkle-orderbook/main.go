@@ -168,6 +168,8 @@ type OrderBook struct {
 	stopChan     chan struct{}            // Канал для остановки хеширования
 	
 	stats        Stats                    // Статистика для мониторинга
+	
+	hashRequest chan struct{}  			  // Канал для запроса хеша
 }
 
 // Stats - статистика ордербука
@@ -191,10 +193,13 @@ func NewOrderBook(symbol string) *OrderBook {
 		Root:        &VerkleNode{IsLeaf: false},
 		hashTicker:  time.NewTicker(HASH_INTERVAL),
 		stopChan:    make(chan struct{}),
+		hashRequest: make(chan struct{}, 1),  // Буферизованный
 	}
 	
 	// Запускаем горутину для периодического хеширования
 	go ob.periodicHasher()
+	
+	go ob.hashWorker()  // Новая горутина
 	
 	return ob
 }
@@ -206,10 +211,47 @@ func (ob *OrderBook) Stop() {
 }
 
 // periodicHasher - горутина для периодического пересчета хеша
+/**
 func (ob *OrderBook) periodicHasher() {
 	for {
 		select {
 		case <-ob.hashTicker.C:
+			ob.mu.RLock()
+			ob.rebuildTree()
+			ob.computeRootHash()
+			atomic.AddUint64(&ob.stats.HashCount, 1)
+			ob.stats.LastHashTime = time.Now()
+			rootHash := ob.LastRootHash
+			ob.mu.RUnlock()
+			
+			fmt.Printf("⏱  Периодический хеш [%s]: %x...\n", 
+				time.Now().Format("15:04:05.000"), rootHash[:8])
+		case <-ob.stopChan:
+			return
+		}
+	}
+}
+**/
+func (ob *OrderBook) periodicHasher() {
+	for {
+		select {
+		case <-ob.hashTicker.C:
+			// Неблокирующая отправка запроса
+			select {
+			case ob.hashRequest <- struct{}{}:
+			default:
+				// Канал занят - пропускаем
+			}
+		case <-ob.stopChan:
+			return
+		}
+	}
+}
+
+func (ob *OrderBook) hashWorker() {
+	for {
+		select {
+		case <-ob.hashRequest:
 			ob.mu.RLock()
 			ob.rebuildTree()
 			ob.computeRootHash()
@@ -366,13 +408,13 @@ func (ob *OrderBook) CancelOrder(orderID uint64) bool {
 	slot := level.Slots[order.Slot]
 	
 	// Удаляем ордер из слота
-	found := false
+//	found := false
 	for i, o := range slot.Orders {
 		if o.ID == orderID {
 			slot.Orders = append(slot.Orders[:i], slot.Orders[i+1:]...)
 			slot.Volume -= order.Size
 			level.TotalVolume -= order.Size
-			found = true
+//			found = true
 			break
 		}
 	}
@@ -390,13 +432,13 @@ func (ob *OrderBook) CancelOrder(orderID uint64) bool {
 	}
 	
 	atomic.AddUint64(&ob.stats.TotalCancels, 1)
-	
+/*	
 	if found {
-//		fmt.Printf("✗ Отменен ордер #%d\n", orderID)
+		fmt.Printf("✗ Отменен ордер #%d\n", orderID)
 	} else {
 		fmt.Printf("✗ Отменен ордер #%d (не найден в слоте)\n", orderID)
 	}
-	
+*/	
 	return true
 }
 
@@ -654,6 +696,7 @@ func (ob *OrderBook) hashPriceLevel(level *PriceLevel) [32]byte {
 }
 
 // PrintStats выводит статистику ордербука
+/**
 func (ob *OrderBook) PrintStats() {
 	ob.mu.RLock()
 	defer ob.mu.RUnlock()
@@ -675,6 +718,36 @@ func (ob *OrderBook) PrintStats() {
 	fmt.Printf("  • SELL уровней: %d\n", len(ob.SellLevels))
 	fmt.Printf("  • Хешей посчитано: %d\n", hashCount)
 	fmt.Printf("  • Root hash: %x...\n", ob.LastRootHash[:16])
+	fmt.Printf("═══════════════════════════════════════════\n\n")
+}
+**/
+func (ob *OrderBook) PrintStats() {
+	ob.mu.Lock()  // НЕ RLock, а Lock для записи
+	
+	// Принудительно пересчитываем хеш перед выводом статистики
+	ob.rebuildTree()
+	ob.computeRootHash()
+	
+	totalOrders := atomic.LoadUint64(&ob.stats.TotalOrders)
+	totalMatches := atomic.LoadUint64(&ob.stats.TotalMatches)
+	totalCancels := atomic.LoadUint64(&ob.stats.TotalCancels)
+	totalModifies := atomic.LoadUint64(&ob.stats.TotalModifies)
+	hashCount := atomic.LoadUint64(&ob.stats.HashCount)
+	rootHash := ob.LastRootHash  // Копируем после вычисления
+	
+	ob.mu.Unlock()
+	
+	fmt.Printf("\n═══════════════════════════════════════════\n")
+	fmt.Printf("Статистика %s:\n", ob.Symbol)
+	fmt.Printf("  • Активных ордеров: %d\n", len(ob.OrderIndex))
+	fmt.Printf("  • Всего добавлено: %d\n", totalOrders)
+	fmt.Printf("  • Матчей: %d\n", totalMatches)
+	fmt.Printf("  • Отмен: %d\n", totalCancels)
+	fmt.Printf("  • Изменений: %d\n", totalModifies)
+	fmt.Printf("  • BUY уровней: %d\n", len(ob.BuyLevels))
+	fmt.Printf("  • SELL уровней: %d\n", len(ob.SellLevels))
+	fmt.Printf("  • Хешей посчитано: %d\n", hashCount)
+	fmt.Printf("  • Root hash: %x...\n", rootHash[:16])
 	fmt.Printf("═══════════════════════════════════════════\n\n")
 }
 
