@@ -46,12 +46,7 @@ var (
 	
 	priceLevelPool = sync.Pool{
 		New: func() interface{} {
-			pl := &PriceLevel{}
-			// Инициализируем все слоты из пула
-			for i := 0; i < VERKLE_WIDTH; i++ {
-				pl.Slots[i] = getSlotFromPool()
-			}
-			return pl
+			return &PriceLevel{}
 		},
 	}
 	
@@ -81,21 +76,34 @@ func getSlotFromPool() *Slot {
 }
 
 func putSlotToPool(s *Slot) {
+	// Возвращаем все ордера в пул
+	for _, order := range s.Orders {
+		putOrderToPool(order)
+	}
 	s.Orders = s.Orders[:0]
 	s.Volume = 0
 	slotPool.Put(s)
 }
 
 func getPriceLevelFromPool() *PriceLevel {
-	return priceLevelPool.Get().(*PriceLevel)
+	pl := priceLevelPool.Get().(*PriceLevel)
+	
+	// ИСПРАВЛЕНИЕ: Инициализируем слоты если они nil
+	for i := 0; i < VERKLE_WIDTH; i++ {
+		if pl.Slots[i] == nil {
+			pl.Slots[i] = getSlotFromPool()
+		}
+	}
+	
+	return pl
 }
 
 func putPriceLevelToPool(pl *PriceLevel) {
-	// Возвращаем слоты в пул
+	// Возвращаем слоты в пул, но НЕ устанавливаем в nil
 	for i := 0; i < VERKLE_WIDTH; i++ {
 		if pl.Slots[i] != nil {
 			putSlotToPool(pl.Slots[i])
-			pl.Slots[i] = nil
+			// НЕ устанавливаем в nil - переиспользуем при следующем Get
 		}
 	}
 	pl.Price = 0
@@ -368,8 +376,9 @@ func (ob *OrderBook) CancelOrder(orderID uint64) bool {
 		putPriceLevelToPool(level)
 	}
 	
-	// Возвращаем ордер в пул
-	putOrderToPool(order)
+	// ИСПРАВЛЕНИЕ: НЕ возвращаем ордер в пул здесь!
+	// Он возвращается в putSlotToPool когда возвращаем весь уровень
+	// или просто оставляем в слайсе (он будет переиспользован)
 	
 	atomic.AddUint64(&ob.stats.TotalCancels, 1)
 	fmt.Printf("✗ Отменен ордер #%d\n", orderID)
@@ -496,6 +505,7 @@ func (ob *OrderBook) ModifyOrder(orderID uint64, newPrice *uint64, newSize *uint
 		}
 		
 		// Обновляем ордер
+		oldPrice := order.Price
 		order.Price = newPriceVal
 		order.Size = newSizeVal
 		order.Slot = ob.determineSlot(order)
@@ -516,7 +526,7 @@ func (ob *OrderBook) ModifyOrder(orderID uint64, newPrice *uint64, newSize *uint
 		newLevel.TotalVolume += newSizeVal
 		
 		fmt.Printf("↻ Изменен ордер #%d: цена %.2f→%.2f, объем %.2f, слот %d\n",
-			orderID, float64(order.Price)/PRICE_DECIMALS, float64(newPriceVal)/PRICE_DECIMALS,
+			orderID, float64(oldPrice)/PRICE_DECIMALS, float64(newPriceVal)/PRICE_DECIMALS,
 			float64(newSizeVal)/PRICE_DECIMALS, order.Slot)
 		
 		atomic.AddUint64(&ob.stats.TotalModifies, 1)
