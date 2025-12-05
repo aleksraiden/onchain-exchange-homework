@@ -163,6 +163,9 @@ type OrderBook struct {
 	Root         *VerkleNode              // Корень Verkle дерева
 	LastRootHash [32]byte                 // Последний вычисленный root hash
 	
+	BestBid  	 uint64  // Лучшая цена покупки (максимальная)
+	BestAsk  	 uint64
+	
 	mu           sync.RWMutex             // Mutex для защиты структур данных
 	hashTicker   *time.Ticker             // Ticker для периодического хеширования
 	stopChan     chan struct{}            // Канал для остановки хеширования
@@ -191,6 +194,8 @@ func NewOrderBook(symbol string) *OrderBook {
 		nextOrderID: 0,
 		BuyLevels:   make(map[uint64]*PriceLevel),
 		SellLevels:  make(map[uint64]*PriceLevel),
+		BestBid:  	 0,  // Лучшая цена покупки (максимальная)
+		BestAsk:  	 0,  // Лучшая цена продажи (минимальная)
 		OrderIndex:  make(map[uint64]*Order),
 		Root:        &VerkleNode{IsLeaf: false},
 		hashTicker:  time.NewTicker(HASH_INTERVAL),
@@ -304,8 +309,10 @@ func (ob *OrderBook) AddLimitOrder(traderID uint32, price uint64, size uint64, s
 	levels := ob.BuyLevels
 	if side == SELL {
 		levels = ob.SellLevels
+	} else if side == BUY {  // <- ДОБАВЬТЕ else if вместо просто if
+		levels = ob.BuyLevels
 	}
-	
+
 	// Получаем или создаем уровень цены
 	level, exists := levels[price]
 	if !exists {
@@ -313,6 +320,17 @@ func (ob *OrderBook) AddLimitOrder(traderID uint32, price uint64, size uint64, s
 		level.Price = price
 		level.TotalVolume = 0
 		levels[price] = level
+		
+		// ОБНОВЛЯЕМ BestBid/BestAsk ТОЛЬКО при создании НОВОГО уровня
+		if side == SELL {
+			if ob.BestAsk == 0 || price < ob.BestAsk {
+				ob.BestAsk = price
+			}
+		} else if side == BUY {
+			if ob.BestBid == 0 || price > ob.BestBid {
+				ob.BestBid = price
+			}
+		}
 	}
 	
 	// Добавляем ордер в соответствующий слот
@@ -324,6 +342,7 @@ func (ob *OrderBook) AddLimitOrder(traderID uint32, price uint64, size uint64, s
 	// Индексируем ордер
 	ob.OrderIndex[order.ID] = order
 	atomic.AddUint64(&ob.stats.TotalOrders, 1)	
+	atomic.AddUint64(&ob.stats.TotalOperations, 1)
 	
 /*	
 	fmt.Printf("✓ Ордер #%d: %s %.2f размер %.2f трейдер %d слот %d\n",
@@ -336,7 +355,27 @@ func (ob *OrderBook) AddLimitOrder(traderID uint32, price uint64, size uint64, s
 	return order
 }
 
+// updateBestPrices пересчитывает BestBid/BestAsk (вызывать под lock)
+func (ob *OrderBook) updateBestPrices() {
+    ob.BestBid = 0
+    ob.BestAsk = 0
+    
+    for price := range ob.BuyLevels {
+        if price > ob.BestBid {
+            ob.BestBid = price
+        }
+    }
+    
+    for price := range ob.SellLevels {
+        if ob.BestAsk == 0 || price < ob.BestAsk {
+            ob.BestAsk = price
+        }
+    }
+}
+
+
 // tryMatchUnsafe пытается совместить ордер (вызывается под lock)
+/**
 func (ob *OrderBook) tryMatchUnsafe(order *Order) {
 	oppositeLevels := ob.SellLevels
 	if order.Side == SELL {
@@ -369,14 +408,82 @@ func (ob *OrderBook) tryMatchUnsafe(order *Order) {
 		}
 		
 		if canMatch {
-/*			level := oppositeLevels[price]
+			level := oppositeLevels[price]
 			fmt.Printf("⚡ МАТЧ: Ордер #%d (%s %.2f) <-> уровень %.2f (объем %.2f)\n",
 				order.ID, order.Side, float64(order.Price)/PRICE_DECIMALS,
-				float64(price)/PRICE_DECIMALS, float64(level.TotalVolume)/PRICE_DECIMALS) */
+				float64(price)/PRICE_DECIMALS, float64(level.TotalVolume)/PRICE_DECIMALS) 
 			atomic.AddUint64(&ob.stats.TotalMatches, 1)
 			// Хеш будет посчитан по таймеру, а не здесь
 		}
 	}
+	
+	// Проверяем только ЛУЧШУЮ цену для матчинга
+	bestPrice := prices[0]
+	canMatch := false
+
+	if order.Side == BUY && bestPrice <= order.Price {
+		canMatch = true
+	} else if order.Side == SELL && bestPrice >= order.Price {
+		canMatch = true
+	}
+
+	if canMatch {
+		level := oppositeLevels[bestPrice]
+		fmt.Printf("⚡ МАТЧ: Ордер #%d (%s %.2f) <-> уровень %.2f (объем %.2f)\n",
+			order.ID, order.Side, float64(order.Price)/PRICE_DECIMALS,
+			float64(bestPrice)/PRICE_DECIMALS, float64(level.TotalVolume)/PRICE_DECIMALS)  
+		atomic.AddUint64(&ob.stats.TotalMatches, 1)  // Считаем ОДИН раз
+	}
+	
+	
+} ***/
+
+func (ob *OrderBook) tryMatchUnsafe_v2(order *Order) {
+    var bestPrice uint64
+    var canMatch bool
+    
+    if order.Side == BUY {
+        bestPrice = ob.BestAsk
+        canMatch = ob.BestAsk > 0 && bestPrice <= order.Price
+    } else {
+        bestPrice = ob.BestBid
+        canMatch = ob.BestBid > 0 && bestPrice >= order.Price
+    }
+    
+    if canMatch {
+        ///oppositeLevels := ob.SellLevels
+        ///if order.Side == SELL {
+        ///   oppositeLevels = ob.BuyLevels
+        ///}
+ /*       
+        level := oppositeLevels[bestPrice]
+        fmt.Printf("⚡ МАТЧ: Ордер #%d (%s %.2f) <-> уровень %.2f (объем %.2f)\n",
+            order.ID, order.Side, float64(order.Price)/PRICE_DECIMALS,
+            float64(bestPrice)/PRICE_DECIMALS, float64(level.TotalVolume)/PRICE_DECIMALS) */
+        atomic.AddUint64(&ob.stats.TotalMatches, 1)
+    }
+}
+
+// tryMatchUnsafe пытается совместить ордер (вызывается под lock)
+func (ob *OrderBook) tryMatchUnsafe(order *Order) {
+    var bestPrice uint64
+    var canMatch bool
+    
+    if order.Side == BUY {
+        bestPrice = ob.BestAsk
+        canMatch = ob.BestAsk > 0 && bestPrice <= order.Price
+    } else {
+        bestPrice = ob.BestBid
+        canMatch = ob.BestBid > 0 && bestPrice >= order.Price
+    }
+    
+    if canMatch {
+        // Можно закомментировать вывод для еще большей скорости
+        // fmt.Printf("⚡ МАТЧ: Ордер #%d (%s %.2f) <-> уровень %.2f\n",
+        //     order.ID, order.Side, float64(order.Price)/PRICE_DECIMALS,
+        //     float64(bestPrice)/PRICE_DECIMALS)
+        atomic.AddUint64(&ob.stats.TotalMatches, 1)
+    }
 }
 
 // CancelOrder отменяет ордер по ID
@@ -393,8 +500,6 @@ func (ob *OrderBook) CancelOrder(orderID uint64) bool {
 	if order.Side == SELL {
 		levels = ob.SellLevels
 	}
-	
-	atomic.AddUint64(&ob.stats.TotalOperations, 1)
 	
 	// ИСПРАВЛЕНИЕ: Проверяем что уровень еще существует
 	level, levelExists := levels[order.Price]
@@ -429,9 +534,30 @@ func (ob *OrderBook) CancelOrder(orderID uint64) bool {
 	putOrderToPool(order)
 	
 	// Если уровень пустой, удаляем его и возвращаем в пул
+	// Если уровень пустой, удаляем его и возвращаем в пул
 	if level.TotalVolume == 0 {
+		deletedPrice := level.Price
 		delete(levels, level.Price)
 		putPriceLevelToPool(level)
+		
+		// Обновляем BestBid/BestAsk ТОЛЬКО если удалили именно best уровень
+		if order.Side == BUY && deletedPrice == ob.BestBid {
+			// Ищем новый BestBid
+			ob.BestBid = 0
+			for price := range ob.BuyLevels {
+				if price > ob.BestBid {
+					ob.BestBid = price
+				}
+			}
+		} else if order.Side == SELL && deletedPrice == ob.BestAsk {
+			// Ищем новый BestAsk
+			ob.BestAsk = 0
+			for price := range ob.SellLevels {
+				if ob.BestAsk == 0 || price < ob.BestAsk {
+					ob.BestAsk = price
+				}
+			}
+		}
 	}
 	
 	atomic.AddUint64(&ob.stats.TotalOperations, 1)
@@ -504,8 +630,6 @@ func (ob *OrderBook) ModifyOrder(orderID uint64, newPrice *uint64, newSize *uint
 	
 	oldSlot := oldLevel.Slots[order.Slot]
 	
-	atomic.AddUint64(&ob.stats.TotalOperations, 1)
-	
 	// Случай 1: Меняется только объем - остаемся в том же узле
 	if !priceChanged && sizeChanged {
 		newSizeVal := *newSize
@@ -568,10 +692,31 @@ func (ob *OrderBook) ModifyOrder(orderID uint64, newPrice *uint64, newSize *uint
 		}
 		
 		// Если старый уровень стал пустым, удаляем его
-		if oldLevel.TotalVolume == 0 {
-			delete(levels, order.Price)
-			putPriceLevelToPool(oldLevel)
-		}
+		// Если уровень пустой, удаляем его и возвращаем в пул
+if oldLevel.TotalVolume == 0 {
+    deletedPrice := oldLevel.Price
+    delete(levels, order.Price)
+    putPriceLevelToPool(oldLevel)
+    
+    // Обновляем BestBid/BestAsk ТОЛЬКО если удалили именно best уровень
+    if order.Side == BUY && deletedPrice == ob.BestBid {
+        // Ищем новый BestBid
+        ob.BestBid = 0
+        for price := range ob.BuyLevels {
+            if price > ob.BestBid {
+                ob.BestBid = price
+            }
+        }
+    } else if order.Side == SELL && deletedPrice == ob.BestAsk {
+        // Ищем новый BestAsk
+        ob.BestAsk = 0
+        for price := range ob.SellLevels {
+            if ob.BestAsk == 0 || price < ob.BestAsk {
+                ob.BestAsk = price
+            }
+        }
+    }
+}
 		
 		// Обновляем ордер
 //		oldPrice := order.Price
@@ -775,11 +920,12 @@ func (ob *OrderBook) PrintStats() {
 }
 **/
 func (ob *OrderBook) PrintStats() {
-	ob.mu.Lock()  // НЕ RLock, а Lock для записи
+	ob.mu.Lock()
 	
 	// Принудительно пересчитываем хеш перед выводом статистики
 	ob.rebuildTree()
 	ob.computeRootHash()
+	atomic.AddUint64(&ob.stats.HashCount, 1)
 	
 	totalOperations := atomic.LoadUint64(&ob.stats.TotalOperations)
 	totalOrders := atomic.LoadUint64(&ob.stats.TotalOrders)
@@ -788,25 +934,31 @@ func (ob *OrderBook) PrintStats() {
 	totalModifies := atomic.LoadUint64(&ob.stats.TotalModifies)
 	totalMarketOrders := atomic.LoadUint64(&ob.stats.TotalMarketOrders)
 	hashCount := atomic.LoadUint64(&ob.stats.HashCount)
-	rootHash := ob.LastRootHash  // Копируем после вычисления
+	rootHash := ob.LastRootHash
+	
+	// ИСПРАВЛЕНИЕ: Считываем длины ПОД lock
+	activeOrders := len(ob.OrderIndex)
+	buyLevels := len(ob.BuyLevels)
+	sellLevels := len(ob.SellLevels)
 	
 	ob.mu.Unlock()
 	
 	fmt.Printf("\n═══════════════════════════════════════════\n")
 	fmt.Printf("Статистика %s:\n", ob.Symbol)
-	fmt.Printf("  • Активных ордеров: %d\n", len(ob.OrderIndex))
+	fmt.Printf("  • Активных ордеров: %d\n", activeOrders)
 	fmt.Printf("  • Всего добавлено: %d\n", totalOrders)
 	fmt.Printf("  • Маркет-ордеров: %d\n", totalMarketOrders)
 	fmt.Printf("  • Матчей: %d\n", totalMatches)
 	fmt.Printf("  • Отмен: %d\n", totalCancels)
 	fmt.Printf("  • Изменений: %d\n", totalModifies)
-	fmt.Printf("  • BUY уровней: %d\n", len(ob.BuyLevels))
-	fmt.Printf("  • SELL уровней: %d\n", len(ob.SellLevels))
+	fmt.Printf("  • BUY уровней: %d\n", buyLevels)
+	fmt.Printf("  • SELL уровней: %d\n", sellLevels)
 	fmt.Printf("  • Всего операций (Tx): %d\n", totalOperations)
 	fmt.Printf("  • Хешей посчитано: %d\n", hashCount)
 	fmt.Printf("  • Root hash: %x...\n", rootHash[:16])
 	fmt.Printf("═══════════════════════════════════════════\n\n")
 }
+
 
 // Симулятор с высокой нагрузкой
 func main() {
@@ -903,8 +1055,8 @@ func main() {
 		
 		r := rand.Float32()
 		
-		if r < 0.25 {
-			// МАРКЕТ ОРДЕР (25%)
+		if r < 0.15 {
+			// МАРКЕТ ОРДЕР (15%)
 			traderID := uint32(rand.Intn(MAX_TRADERS) + 1)
 			size := uint64(rand.Intn(10000) + 100)
 			side := BUY
