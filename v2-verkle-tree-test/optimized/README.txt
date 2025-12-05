@@ -9,3 +9,6 @@ go test -run "Test(Basic|Batch|Bundled)" -v
 
 //Стресс-тесты
 go test -v -count=1 -timeout 15m -run Stress
+
+//Почти все тесты и бенчи сразу 
+go test -v
