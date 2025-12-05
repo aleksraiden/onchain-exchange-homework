@@ -174,6 +174,7 @@ type OrderBook struct {
 
 // Stats - статистика ордербука
 type Stats struct {
+	TotalOperations  uint64
 	TotalOrders      uint64
 	TotalMatches     uint64
 	TotalCancels     uint64
@@ -225,8 +226,7 @@ func (ob *OrderBook) periodicHasher() {
 			rootHash := ob.LastRootHash
 			ob.mu.RUnlock()
 			
-			fmt.Printf("⏱  Периодический хеш [%s]: %x...\n", 
-				time.Now().Format("15:04:05.000"), rootHash[:8])
+			//fmt.Printf("⏱  Периодический хеш [%s]: %x...\n", time.Now().Format("15:04:05.000"), rootHash[:8]) 
 		case <-ob.stopChan:
 			return
 		}
@@ -258,11 +258,10 @@ func (ob *OrderBook) hashWorker() {
 			ob.computeRootHash()
 			atomic.AddUint64(&ob.stats.HashCount, 1)
 			ob.stats.LastHashTime = time.Now()
-			rootHash := ob.LastRootHash
+			//rootHash := ob.LastRootHash
 			ob.mu.RUnlock()
 			
-			fmt.Printf("⏱  Периодический хеш [%s]: %x...\n", 
-				time.Now().Format("15:04:05.000"), rootHash[:8])
+			//fmt.Printf("⏱  Периодический хеш [%s]: %x...\n", time.Now().Format("15:04:05.000"), rootHash[:8])
 		case <-ob.stopChan:
 			return
 		}
@@ -324,7 +323,8 @@ func (ob *OrderBook) AddLimitOrder(traderID uint32, price uint64, size uint64, s
 	
 	// Индексируем ордер
 	ob.OrderIndex[order.ID] = order
-	atomic.AddUint64(&ob.stats.TotalOrders, 1)
+	atomic.AddUint64(&ob.stats.TotalOrders, 1)	
+	
 /*	
 	fmt.Printf("✓ Ордер #%d: %s %.2f размер %.2f трейдер %d слот %d\n",
 		order.ID, side, float64(price)/PRICE_DECIMALS, float64(size)/PRICE_DECIMALS,
@@ -394,6 +394,8 @@ func (ob *OrderBook) CancelOrder(orderID uint64) bool {
 		levels = ob.SellLevels
 	}
 	
+	atomic.AddUint64(&ob.stats.TotalOperations, 1)
+	
 	// ИСПРАВЛЕНИЕ: Проверяем что уровень еще существует
 	level, levelExists := levels[order.Price]
 	if !levelExists {
@@ -432,6 +434,7 @@ func (ob *OrderBook) CancelOrder(orderID uint64) bool {
 		putPriceLevelToPool(level)
 	}
 	
+	atomic.AddUint64(&ob.stats.TotalOperations, 1)
 	atomic.AddUint64(&ob.stats.TotalCancels, 1)
 /*	
 	if found {
@@ -500,6 +503,8 @@ func (ob *OrderBook) ModifyOrder(orderID uint64, newPrice *uint64, newSize *uint
 	}
 	
 	oldSlot := oldLevel.Slots[order.Slot]
+	
+	atomic.AddUint64(&ob.stats.TotalOperations, 1)
 	
 	// Случай 1: Меняется только объем - остаемся в том же узле
 	if !priceChanged && sizeChanged {
@@ -701,6 +706,7 @@ func (ob *OrderBook) ExecuteMarketOrder(traderID uint32, size uint64, side Side)
 	
 	atomic.AddUint64(&ob.stats.TotalMatches, 1)
 	atomic.AddUint64(&ob.stats.TotalMarketOrders, 1)
+	atomic.AddUint64(&ob.stats.TotalOperations, 1)
 	return true
 }
 
@@ -746,6 +752,7 @@ func (ob *OrderBook) PrintStats() {
 	ob.mu.RLock()
 	defer ob.mu.RUnlock()
 	
+	totalOperations := atomic.LoadUint64(&ob.stats.TotalOperations)
 	totalOrders := atomic.LoadUint64(&ob.stats.TotalOrders)
 	totalMatches := atomic.LoadUint64(&ob.stats.TotalMatches)
 	totalCancels := atomic.LoadUint64(&ob.stats.TotalCancels)
@@ -761,6 +768,7 @@ func (ob *OrderBook) PrintStats() {
 	fmt.Printf("  • Изменений: %d\n", totalModifies)
 	fmt.Printf("  • BUY уровней: %d\n", len(ob.BuyLevels))
 	fmt.Printf("  • SELL уровней: %d\n", len(ob.SellLevels))
+	fmt.Printf("  • Всего операций (Tx): %d\n", totalOperations)
 	fmt.Printf("  • Хешей посчитано: %d\n", hashCount)
 	fmt.Printf("  • Root hash: %x...\n", ob.LastRootHash[:16])
 	fmt.Printf("═══════════════════════════════════════════\n\n")
@@ -773,6 +781,7 @@ func (ob *OrderBook) PrintStats() {
 	ob.rebuildTree()
 	ob.computeRootHash()
 	
+	totalOperations := atomic.LoadUint64(&ob.stats.TotalOperations)
 	totalOrders := atomic.LoadUint64(&ob.stats.TotalOrders)
 	totalMatches := atomic.LoadUint64(&ob.stats.TotalMatches)
 	totalCancels := atomic.LoadUint64(&ob.stats.TotalCancels)
@@ -793,6 +802,7 @@ func (ob *OrderBook) PrintStats() {
 	fmt.Printf("  • Изменений: %d\n", totalModifies)
 	fmt.Printf("  • BUY уровней: %d\n", len(ob.BuyLevels))
 	fmt.Printf("  • SELL уровней: %d\n", len(ob.SellLevels))
+	fmt.Printf("  • Всего операций (Tx): %d\n", totalOperations)
 	fmt.Printf("  • Хешей посчитано: %d\n", hashCount)
 	fmt.Printf("  • Root hash: %x...\n", rootHash[:16])
 	fmt.Printf("═══════════════════════════════════════════\n\n")
@@ -813,7 +823,7 @@ func main() {
 	basePrice := uint64(6500000) // $65000
 	
 	// Симулируем высокую нагрузку
-	numOperations := 10000
+	numOperations := 200_000
 	//operationTypes := []string{"add", "cancel", "modify"}
 	
 	addedOrders := make([]uint64, 0)
@@ -952,8 +962,8 @@ func main() {
 			}
 		}
 		
-		// Статистика каждые 5000 операций
-		if (i+1)%5000 == 0 {
+		// Статистика каждые N операций
+		if (i+1)%50_000 == 0 {
 			ob.PrintStats()
 		}
 	}
