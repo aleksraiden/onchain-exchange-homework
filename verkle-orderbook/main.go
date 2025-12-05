@@ -178,6 +178,7 @@ type Stats struct {
 	TotalMatches     uint64
 	TotalCancels     uint64
 	TotalModifies    uint64
+	TotalMarketOrders uint64
 	LastHashTime     time.Time
 	HashCount        uint64
 }
@@ -660,6 +661,50 @@ func (ob *OrderBook) hashNode(node *VerkleNode) [32]byte {
 	return result
 }
 
+// ExecuteMarketOrder исполняет рыночный ордер (не добавляется в книгу)
+func (ob *OrderBook) ExecuteMarketOrder(traderID uint32, size uint64, side Side) bool {
+	ob.mu.Lock()
+	defer ob.mu.Unlock()
+	
+	oppositeLevels := ob.SellLevels
+	if side == BUY {
+		oppositeLevels = ob.SellLevels
+	} else {
+		oppositeLevels = ob.BuyLevels
+	}
+	
+	if len(oppositeLevels) == 0 {
+		// Нет ликвидности для исполнения
+		return false
+	}
+	
+	// Получаем отсортированные цены
+	prices := make([]uint64, 0, len(oppositeLevels))
+	for price := range oppositeLevels {
+		prices = append(prices, price)
+	}
+	
+	// Сортируем: для BUY берем самый дешевый SELL, для SELL - самый дорогой BUY
+	if side == BUY {
+		sort.Slice(prices, func(i, j int) bool { return prices[i] < prices[j] })
+	} else {
+		sort.Slice(prices, func(i, j int) bool { return prices[i] > prices[j] })
+	}
+/*	
+	bestPrice := prices[0]
+	level := oppositeLevels[bestPrice]
+	
+	// Исполняем по лучшей цене (в реальности здесь будет логика частичного заполнения)
+	fmt.Printf("💥 МАРКЕТ: %s размер %.2f исполнен по цене %.2f (доступно %.2f)\n",
+		side, float64(size)/PRICE_DECIMALS, float64(bestPrice)/PRICE_DECIMALS,
+		float64(level.TotalVolume)/PRICE_DECIMALS) */
+	
+	atomic.AddUint64(&ob.stats.TotalMatches, 1)
+	atomic.AddUint64(&ob.stats.TotalMarketOrders, 1)
+	return true
+}
+
+
 // hashPriceLevel вычисляет хеш ценового уровня
 func (ob *OrderBook) hashPriceLevel(level *PriceLevel) [32]byte {
 	hasher := blake3.New()
@@ -732,6 +777,7 @@ func (ob *OrderBook) PrintStats() {
 	totalMatches := atomic.LoadUint64(&ob.stats.TotalMatches)
 	totalCancels := atomic.LoadUint64(&ob.stats.TotalCancels)
 	totalModifies := atomic.LoadUint64(&ob.stats.TotalModifies)
+	totalMarketOrders := atomic.LoadUint64(&ob.stats.TotalMarketOrders)
 	hashCount := atomic.LoadUint64(&ob.stats.HashCount)
 	rootHash := ob.LastRootHash  // Копируем после вычисления
 	
@@ -741,6 +787,7 @@ func (ob *OrderBook) PrintStats() {
 	fmt.Printf("Статистика %s:\n", ob.Symbol)
 	fmt.Printf("  • Активных ордеров: %d\n", len(ob.OrderIndex))
 	fmt.Printf("  • Всего добавлено: %d\n", totalOrders)
+	fmt.Printf("  • Маркет-ордеров: %d\n", totalMarketOrders)
 	fmt.Printf("  • Матчей: %d\n", totalMatches)
 	fmt.Printf("  • Отмен: %d\n", totalCancels)
 	fmt.Printf("  • Изменений: %d\n", totalModifies)
@@ -767,12 +814,13 @@ func main() {
 	
 	// Симулируем высокую нагрузку
 	numOperations := 10000
-	operationTypes := []string{"add", "cancel", "modify"}
+	//operationTypes := []string{"add", "cancel", "modify"}
 	
 	addedOrders := make([]uint64, 0)
 	
 	startTime := time.Now()
-	
+
+/**	
 	for i := 0; i < numOperations; i++ {
 		opType := operationTypes[rand.Intn(len(operationTypes))]
 		
@@ -833,6 +881,81 @@ func main() {
 		
 		// Небольшая задержка для демонстрации
 		//time.Sleep(10 * time.Millisecond)
+	}
+*/
+
+	for i := 0; i < numOperations; i++ {
+		// Распределение операций:
+		// 25% - маркет ордера
+		// 25% - лимитные добавления
+		// 25% - отмены
+		// 25% - изменения
+		
+		r := rand.Float32()
+		
+		if r < 0.25 {
+			// МАРКЕТ ОРДЕР (25%)
+			traderID := uint32(rand.Intn(MAX_TRADERS) + 1)
+			size := uint64(rand.Intn(10000) + 100)
+			side := BUY
+			if rand.Float32() < 0.5 {
+				side = SELL
+			}
+			ob.ExecuteMarketOrder(traderID, size, side)
+			
+		} else if r < 0.50 {
+			// ЛИМИТНЫЙ ОРДЕР (25%)
+			traderID := uint32(rand.Intn(MAX_TRADERS) + 1)
+			priceOffset := uint64(rand.Intn(20000) - 10000)
+			price := basePrice + priceOffset
+			size := uint64(rand.Intn(10000) + 100)
+			side := BUY
+			if rand.Float32() < 0.5 {
+				side = SELL
+			}
+			
+			order := ob.AddLimitOrder(traderID, price, size, side)
+			addedOrders = append(addedOrders, order.ID)
+			
+		} else if r < 0.75 {
+			// ОТМЕНА (25%)
+			if len(addedOrders) > 0 {
+				idx := rand.Intn(len(addedOrders))
+				orderID := addedOrders[idx]
+				if ob.CancelOrder(orderID) {
+					addedOrders = append(addedOrders[:idx], addedOrders[idx+1:]...)
+				}
+			}
+			
+		} else {
+			// ИЗМЕНЕНИЕ (25%)
+			if len(addedOrders) > 0 {
+				orderID := addedOrders[rand.Intn(len(addedOrders))]
+				
+				modType := rand.Intn(3)
+				switch modType {
+				case 0: // Только объем
+					newSize := uint64(rand.Intn(10000) + 100)
+					ob.ModifyOrder(orderID, nil, &newSize)
+					
+				case 1: // Только цена
+					priceOffset := uint64(rand.Intn(20000) - 10000)
+					newPrice := basePrice + priceOffset
+					ob.ModifyOrder(orderID, &newPrice, nil)
+					
+				case 2: // Цена и объем
+					priceOffset := uint64(rand.Intn(20000) - 10000)
+					newPrice := basePrice + priceOffset
+					newSize := uint64(rand.Intn(10000) + 100)
+					ob.ModifyOrder(orderID, &newPrice, &newSize)
+				}
+			}
+		}
+		
+		// Статистика каждые 5000 операций
+		if (i+1)%5000 == 0 {
+			ob.PrintStats()
+		}
 	}
 	
 	elapsed := time.Since(startTime)
