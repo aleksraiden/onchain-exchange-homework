@@ -8,6 +8,10 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	
+	"encoding/hex"
+	"encoding/json"
+	"os"
 
 	"github.com/zeebo/blake3"
 )
@@ -186,6 +190,306 @@ type Stats struct {
 	LastHashTime     time.Time
 	HashCount        uint64
 }
+
+//=== JSON 
+// Структуры для JSON экспорта
+type OrderJSON struct {
+	ID       uint64  `json:"id"`
+	TraderID uint32  `json:"trader_id"`
+	Price    float64 `json:"price"`
+	Size     float64 `json:"size"`
+	Side     string  `json:"side"`
+}
+
+type SlotJSON struct {
+	SlotIndex int          `json:"slot_index"`
+	Volume    float64      `json:"volume"`
+	Orders    []OrderJSON  `json:"orders"`
+}
+
+type PriceLevelJSON struct {
+	Price       float64    `json:"price"`
+	TotalVolume float64    `json:"total_volume"`
+	Slots       []SlotJSON `json:"slots"`
+	Hash        string     `json:"hash"`
+}
+
+type VerkleNodeJSON struct {
+	Hash     string              `json:"hash"`
+	IsLeaf   bool                `json:"is_leaf"`
+	Children []interface{}       `json:"children"` // PriceLevelJSON или VerkleNodeJSON
+}
+
+type OrderBookStateJSON struct {
+	Symbol          string             `json:"symbol"`
+	RootHash        string             `json:"root_hash"`
+	ActiveOrders    int                `json:"active_orders"`
+	BuyLevelsCount  int                `json:"buy_levels_count"`
+	SellLevelsCount int                `json:"sell_levels_count"`
+	BestBid         float64            `json:"best_bid"`
+	BestAsk         float64            `json:"best_ask"`
+	Stats           StatsJSON          `json:"stats"`
+	Tree            VerkleNodeJSON     `json:"tree"`
+	BuyLevels       []PriceLevelJSON   `json:"buy_levels"`
+	SellLevels      []PriceLevelJSON   `json:"sell_levels"`
+}
+
+type StatsJSON struct {
+	TotalOperations  uint64 `json:"total_operations"`
+	TotalOrders      uint64 `json:"total_orders"`
+	TotalMatches     uint64 `json:"total_matches"`
+	TotalCancels     uint64 `json:"total_cancels"`
+	TotalModifies    uint64 `json:"total_modifies"`
+	TotalMarketOrders uint64 `json:"total_market_orders"`
+	HashCount        uint64 `json:"hash_count"`
+}
+
+// ExportToJSON экспортирует состояние ордербука в JSON файл
+func (ob *OrderBook) ExportToJSON(filename string) error {
+	ob.mu.RLock()
+	defer ob.mu.RUnlock()
+	
+	// Пересчитываем дерево и хеш
+	ob.rebuildTree()
+	ob.computeRootHash()
+	
+	// Собираем данные
+	state := OrderBookStateJSON{
+		Symbol:          ob.Symbol,
+		RootHash:        hex.EncodeToString(ob.LastRootHash[:]),
+		ActiveOrders:    len(ob.OrderIndex),
+		BuyLevelsCount:  len(ob.BuyLevels),
+		SellLevelsCount: len(ob.SellLevels),
+		BestBid:         float64(ob.BestBid) / PRICE_DECIMALS,
+		BestAsk:         float64(ob.BestAsk) / PRICE_DECIMALS,
+		Stats: StatsJSON{
+			TotalOperations:   ob.stats.TotalOperations,
+			TotalOrders:       ob.stats.TotalOrders,
+			TotalMatches:      ob.stats.TotalMatches,
+			TotalCancels:      ob.stats.TotalCancels,
+			TotalModifies:     ob.stats.TotalModifies,
+			TotalMarketOrders: ob.stats.TotalMarketOrders,
+			HashCount:         ob.stats.HashCount,
+		},
+		Tree:       ob.serializeVerkleNode(ob.Root),
+		BuyLevels:  ob.serializeLevels(ob.BuyLevels),
+		SellLevels: ob.serializeLevels(ob.SellLevels),
+	}
+	
+	// Конвертируем в JSON с отступами
+	jsonData, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return fmt.Errorf("ошибка сериализации JSON: %w", err)
+	}
+	
+	// Записываем в файл
+	err = os.WriteFile(filename, jsonData, 0644)
+	if err != nil {
+		return fmt.Errorf("ошибка записи файла: %w", err)
+	}
+	
+	fmt.Printf("✓ Состояние дерева экспортировано в %s (%.2f KB)\n", 
+		filename, float64(len(jsonData))/1024)
+	
+	return nil
+}
+
+// serializeVerkleNode рекурсивно сериализует узел Verkle дерева
+func (ob *OrderBook) serializeVerkleNode(node *VerkleNode) VerkleNodeJSON {
+	result := VerkleNodeJSON{
+		Hash:     hex.EncodeToString(node.Hash[:]),
+		IsLeaf:   node.IsLeaf,
+		Children: make([]interface{}, 0),
+	}
+	
+	for i := 0; i < VERKLE_WIDTH; i++ {
+		switch child := node.Children[i].(type) {
+		case *VerkleNode:
+			result.Children = append(result.Children, ob.serializeVerkleNode(child))
+		case *PriceLevel:
+			result.Children = append(result.Children, ob.serializePriceLevel(child))
+		default:
+			// Пустой узел - пропускаем
+		}
+	}
+	
+	return result
+}
+
+// serializePriceLevel сериализует ценовой уровень
+func (ob *OrderBook) serializePriceLevel(level *PriceLevel) PriceLevelJSON {
+	hash := ob.hashPriceLevel(level)
+	
+	result := PriceLevelJSON{
+		Price:       float64(level.Price) / PRICE_DECIMALS,
+		TotalVolume: float64(level.TotalVolume) / PRICE_DECIMALS,
+		Hash:        hex.EncodeToString(hash[:]),
+		Slots:       make([]SlotJSON, 0),
+	}
+	
+	// Сериализуем только непустые слоты
+	for i := 0; i < VERKLE_WIDTH; i++ {
+		slot := level.Slots[i]
+		if slot.Volume > 0 {
+			slotJSON := SlotJSON{
+				SlotIndex: i,
+				Volume:    float64(slot.Volume) / PRICE_DECIMALS,
+				Orders:    make([]OrderJSON, 0, len(slot.Orders)),
+			}
+			
+			// Ограничиваем количество ордеров для читаемости
+			maxOrders := 10
+			for idx, order := range slot.Orders {
+				if idx >= maxOrders {
+					break
+				}
+				slotJSON.Orders = append(slotJSON.Orders, OrderJSON{
+					ID:       order.ID,
+					TraderID: order.TraderID,
+					Price:    float64(order.Price) / PRICE_DECIMALS,
+					Size:     float64(order.Size) / PRICE_DECIMALS,
+					Side:     order.Side.String(),
+				})
+			}
+			
+			result.Slots = append(result.Slots, slotJSON)
+		}
+	}
+	
+	return result
+}
+
+// serializeLevels сериализует все ценовые уровни
+func (ob *OrderBook) serializeLevels(levels map[uint64]*PriceLevel) []PriceLevelJSON {
+	result := make([]PriceLevelJSON, 0, len(levels))
+	
+	// Ограничиваем количество уровней для читаемости (топ-20)
+	maxLevels := 20
+	count := 0
+	
+	for _, level := range levels {
+		if count >= maxLevels {
+			break
+		}
+		result = append(result, ob.serializePriceLevel(level))
+		count++
+	}
+	
+	return result
+}
+
+// ExportToJSONCompact экспортирует компактную версию (без деталей ордеров)
+func (ob *OrderBook) ExportToJSONCompact(filename string) error {
+	ob.mu.RLock()
+	defer ob.mu.RUnlock()
+	
+	ob.rebuildTree()
+	ob.computeRootHash()
+	
+	// Упрощенная структура только со статистикой и топ уровнями
+	type CompactLevel struct {
+		Price       float64 `json:"price"`
+		TotalVolume float64 `json:"volume"`
+		OrdersCount int     `json:"orders_count"`
+	}
+	
+	type CompactState struct {
+		Symbol          string         `json:"symbol"`
+		RootHash        string         `json:"root_hash"`
+		ActiveOrders    int            `json:"active_orders"`
+		BuyLevelsCount  int            `json:"buy_levels"`
+		SellLevelsCount int            `json:"sell_levels"`
+		BestBid         float64        `json:"best_bid"`
+		BestAsk         float64        `json:"best_ask"`
+		Spread          float64        `json:"spread"`
+		Stats           StatsJSON      `json:"stats"`
+		TopBuyLevels    []CompactLevel `json:"top_buy_levels"`
+		TopSellLevels   []CompactLevel `json:"top_sell_levels"`
+	}
+	
+	spread := 0.0
+	if ob.BestAsk > 0 && ob.BestBid > 0 {
+		spread = float64(ob.BestAsk-ob.BestBid) / PRICE_DECIMALS
+	}
+	
+	state := CompactState{
+		Symbol:          ob.Symbol,
+		RootHash:        hex.EncodeToString(ob.LastRootHash[:]),
+		ActiveOrders:    len(ob.OrderIndex),
+		BuyLevelsCount:  len(ob.BuyLevels),
+		SellLevelsCount: len(ob.SellLevels),
+		BestBid:         float64(ob.BestBid) / PRICE_DECIMALS,
+		BestAsk:         float64(ob.BestAsk) / PRICE_DECIMALS,
+		Spread:          spread,
+		Stats: StatsJSON{
+			TotalOperations:   ob.stats.TotalOperations,
+			TotalOrders:       ob.stats.TotalOrders,
+			TotalMatches:      ob.stats.TotalMatches,
+			TotalCancels:      ob.stats.TotalCancels,
+			TotalModifies:     ob.stats.TotalModifies,
+			TotalMarketOrders: ob.stats.TotalMarketOrders,
+			HashCount:         ob.stats.HashCount,
+		},
+		TopBuyLevels:  make([]CompactLevel, 0),
+		TopSellLevels: make([]CompactLevel, 0),
+	}
+	
+	// Топ-10 buy уровней
+	buyPrices := make([]uint64, 0, len(ob.BuyLevels))
+	for price := range ob.BuyLevels {
+		buyPrices = append(buyPrices, price)
+	}
+	sort.Slice(buyPrices, func(i, j int) bool { return buyPrices[i] > buyPrices[j] })
+	
+	for i := 0; i < len(buyPrices) && i < 10; i++ {
+		level := ob.BuyLevels[buyPrices[i]]
+		ordersCount := 0
+		for _, slot := range level.Slots {
+			ordersCount += len(slot.Orders)
+		}
+		state.TopBuyLevels = append(state.TopBuyLevels, CompactLevel{
+			Price:       float64(level.Price) / PRICE_DECIMALS,
+			TotalVolume: float64(level.TotalVolume) / PRICE_DECIMALS,
+			OrdersCount: ordersCount,
+		})
+	}
+	
+	// Топ-10 sell уровней
+	sellPrices := make([]uint64, 0, len(ob.SellLevels))
+	for price := range ob.SellLevels {
+		sellPrices = append(sellPrices, price)
+	}
+	sort.Slice(sellPrices, func(i, j int) bool { return sellPrices[i] < sellPrices[j] })
+	
+	for i := 0; i < len(sellPrices) && i < 10; i++ {
+		level := ob.SellLevels[sellPrices[i]]
+		ordersCount := 0
+		for _, slot := range level.Slots {
+			ordersCount += len(slot.Orders)
+		}
+		state.TopSellLevels = append(state.TopSellLevels, CompactLevel{
+			Price:       float64(level.Price) / PRICE_DECIMALS,
+			TotalVolume: float64(level.TotalVolume) / PRICE_DECIMALS,
+			OrdersCount: ordersCount,
+		})
+	}
+	
+	jsonData, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return fmt.Errorf("ошибка сериализации JSON: %w", err)
+	}
+	
+	err = os.WriteFile(filename, jsonData, 0644)
+	if err != nil {
+		return fmt.Errorf("ошибка записи файла: %w", err)
+	}
+	
+	fmt.Printf("✓ Компактное состояние экспортировано в %s (%.2f KB)\n", 
+		filename, float64(len(jsonData))/1024)
+	
+	return nil
+}
+//========
 
 // NewOrderBook создает новый ордербук
 func NewOrderBook(symbol string) *OrderBook {
@@ -370,97 +674,6 @@ func (ob *OrderBook) updateBestPrices() {
         if ob.BestAsk == 0 || price < ob.BestAsk {
             ob.BestAsk = price
         }
-    }
-}
-
-
-// tryMatchUnsafe пытается совместить ордер (вызывается под lock)
-/**
-func (ob *OrderBook) tryMatchUnsafe(order *Order) {
-	oppositeLevels := ob.SellLevels
-	if order.Side == SELL {
-		oppositeLevels = ob.BuyLevels
-	}
-	
-	prices := make([]uint64, 0, len(oppositeLevels))
-	for price := range oppositeLevels {
-		prices = append(prices, price)
-	}
-	
-	if len(prices) == 0 {
-		return
-	}
-	
-	// Сортируем
-	if order.Side == BUY {
-		sort.Slice(prices, func(i, j int) bool { return prices[i] < prices[j] })
-	} else {
-		sort.Slice(prices, func(i, j int) bool { return prices[i] > prices[j] })
-	}
-	
-	// Проверяем возможность матчинга
-	for _, price := range prices {
-		canMatch := false
-		if order.Side == BUY && price <= order.Price {
-			canMatch = true
-		} else if order.Side == SELL && price >= order.Price {
-			canMatch = true
-		}
-		
-		if canMatch {
-			level := oppositeLevels[price]
-			fmt.Printf("⚡ МАТЧ: Ордер #%d (%s %.2f) <-> уровень %.2f (объем %.2f)\n",
-				order.ID, order.Side, float64(order.Price)/PRICE_DECIMALS,
-				float64(price)/PRICE_DECIMALS, float64(level.TotalVolume)/PRICE_DECIMALS) 
-			atomic.AddUint64(&ob.stats.TotalMatches, 1)
-			// Хеш будет посчитан по таймеру, а не здесь
-		}
-	}
-	
-	// Проверяем только ЛУЧШУЮ цену для матчинга
-	bestPrice := prices[0]
-	canMatch := false
-
-	if order.Side == BUY && bestPrice <= order.Price {
-		canMatch = true
-	} else if order.Side == SELL && bestPrice >= order.Price {
-		canMatch = true
-	}
-
-	if canMatch {
-		level := oppositeLevels[bestPrice]
-		fmt.Printf("⚡ МАТЧ: Ордер #%d (%s %.2f) <-> уровень %.2f (объем %.2f)\n",
-			order.ID, order.Side, float64(order.Price)/PRICE_DECIMALS,
-			float64(bestPrice)/PRICE_DECIMALS, float64(level.TotalVolume)/PRICE_DECIMALS)  
-		atomic.AddUint64(&ob.stats.TotalMatches, 1)  // Считаем ОДИН раз
-	}
-	
-	
-} ***/
-
-func (ob *OrderBook) tryMatchUnsafe_v2(order *Order) {
-    var bestPrice uint64
-    var canMatch bool
-    
-    if order.Side == BUY {
-        bestPrice = ob.BestAsk
-        canMatch = ob.BestAsk > 0 && bestPrice <= order.Price
-    } else {
-        bestPrice = ob.BestBid
-        canMatch = ob.BestBid > 0 && bestPrice >= order.Price
-    }
-    
-    if canMatch {
-        ///oppositeLevels := ob.SellLevels
-        ///if order.Side == SELL {
-        ///   oppositeLevels = ob.BuyLevels
-        ///}
- /*       
-        level := oppositeLevels[bestPrice]
-        fmt.Printf("⚡ МАТЧ: Ордер #%d (%s %.2f) <-> уровень %.2f (объем %.2f)\n",
-            order.ID, order.Side, float64(order.Price)/PRICE_DECIMALS,
-            float64(bestPrice)/PRICE_DECIMALS, float64(level.TotalVolume)/PRICE_DECIMALS) */
-        atomic.AddUint64(&ob.stats.TotalMatches, 1)
     }
 }
 
@@ -1129,6 +1342,22 @@ func main() {
 	tps := float64(numOperations) / elapsed.Seconds()
 	fmt.Printf("⚡ Производительность: %.0f операций/сек\n", tps)
 	fmt.Printf("⏱  Общее время: %v\n", elapsed)
+	
+	//JSON export 
+	// Экспортируем состояние дерева
+	fmt.Println("\n📁 Экспорт состояния дерева...")
+	
+	// Полный экспорт (может быть большим)
+	err := ob.ExportToJSON("orderbook_full.json")
+	if err != nil {
+		fmt.Printf("Ошибка экспорта: %v\n", err)
+	}
+	
+	// Компактный экспорт
+	err = ob.ExportToJSONCompact("orderbook_compact.json")
+	if err != nil {
+		fmt.Printf("Ошибка экспорта: %v\n", err)
+	}
 	
 	// Ждем последнего хеша
 	time.Sleep(HASH_INTERVAL + 100*time.Millisecond)
