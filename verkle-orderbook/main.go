@@ -550,6 +550,22 @@ func (ob *OrderBook) GetSideHashes() (buyHash [32]byte, sellHash [32]byte) {
 
 // PrintTreeStructure выводит структуру дерева в консоль
 func (ob *OrderBook) PrintTreeStructure() {
+	ob.mu.Lock()
+	
+	// Валидация и исправление
+	fmt.Println("🔍 Проверка консистентности...")
+	for _, level := range ob.BuyLevels {
+		ob.validateAndFixLevelConsistency(level)
+	}
+	for _, level := range ob.SellLevels {
+		ob.validateAndFixLevelConsistency(level)
+	}
+	
+	ob.mu.Unlock()
+	
+	// Опционально: очистка пустых уровней
+	// ob.CleanupEmptyLevels()
+	
 	ob.mu.RLock()
 	defer ob.mu.RUnlock()
 	
@@ -559,9 +575,11 @@ func (ob *OrderBook) PrintTreeStructure() {
 	fmt.Println("\n🌳 СТРУКТУРА VERKLE ДЕРЕВА")
 	fmt.Println("═══════════════════════════════════════════")
 	ob.printNodeRecursive(ob.Root, 0)
-	fmt.Println("═══════════════════════════════════════════\n")
+	fmt.Println("═══════════════════════════════════════════")
+	fmt.Println("Примечание: Пустые кэшированные уровни скрыты\n")
 }
 
+// printNodeRecursive рекурсивно печатает структуру узла
 // printNodeRecursive рекурсивно печатает структуру узла
 func (ob *OrderBook) printNodeRecursive(node interface{}, depth int) {
 	indent := ""
@@ -593,12 +611,60 @@ func (ob *OrderBook) printNodeRecursive(node interface{}, depth int) {
 			ordersCount += len(slot.Orders)
 		}
 		
-		fmt.Printf("%s├─ [PRICE] %.2f (volume: %.2f, orders: %d)\n",
+		// Отображаем статус уровня
+		status := ""
+		if ordersCount == 0 && n.TotalVolume == 0 {
+			status = " [EMPTY - кэшировано]"
+		} else if ordersCount == 0 && n.TotalVolume > 0 {
+			status = " [⚠️  НЕКОРРЕКТНО: volume без ордеров]"
+		}
+		
+		// Пропускаем полностью пустые уровни в выводе
+		if ordersCount == 0 && n.TotalVolume == 0 {
+			return // Не показываем пустые кэшированные уровни
+		}
+		
+		fmt.Printf("%s├─ [PRICE] %.2f (volume: %.2f, orders: %d)%s\n",
 			indent, 
 			float64(n.Price)/PRICE_DECIMALS,
 			float64(n.TotalVolume)/PRICE_DECIMALS,
-			ordersCount)
+			ordersCount,
+			status)
 	}
+}
+
+// CleanupEmptyLevels удаляет пустые уровни из памяти (опционально)
+func (ob *OrderBook) CleanupEmptyLevels() int {
+	ob.mu.Lock()
+	defer ob.mu.Unlock()
+	
+	removed := 0
+	
+	// Очистка BUY уровней
+	for price, level := range ob.BuyLevels {
+		if level.TotalVolume == 0 {
+			delete(ob.BuyLevels, price)
+			putPriceLevelToPool(level)
+			removed++
+		}
+	}
+	
+	// Очистка SELL уровней
+	for price, level := range ob.SellLevels {
+		if level.TotalVolume == 0 {
+			delete(ob.SellLevels, price)
+			putPriceLevelToPool(level)
+			removed++
+		}
+	}
+	
+	// Обновляем BestBid/BestAsk после очистки
+	if removed > 0 {
+		ob.updateBestPrices()
+		fmt.Printf("🧹 Очищено %d пустых ценовых уровней\n", removed)
+	}
+	
+	return removed
 }
 
 // serializeVerkleNode рекурсивно сериализует узел Verkle дерева
@@ -1123,6 +1189,81 @@ func (ob *OrderBook) tryMatchUnsafe(takerOrder *Order) {
 	}
 }
 
+// validateAndFixLevelConsistency проверяет и ИСПРАВЛЯЕТ консистентность
+func (ob *OrderBook) validateAndFixLevelConsistency(level *PriceLevel) {
+	calculatedTotal := uint64(0)
+	hasAnyOrders := false
+	
+	for i := 0; i < VERKLE_WIDTH; i++ {
+		slot := level.Slots[i]
+		
+		// Пересчитываем volume на основе реальных ордеров
+		realVolume := uint64(0)
+		validOrders := make([]*Order, 0, len(slot.Orders))
+		
+		for _, order := range slot.Orders {
+			// Проверка цены
+			if order.Price != level.Price {
+				//fmt.Printf("❌ Ордер #%d с ценой %.2f удален из уровня %.2f\n",
+				//	order.ID, 
+				//	float64(order.Price)/PRICE_DECIMALS,
+				//	float64(level.Price)/PRICE_DECIMALS)
+				continue
+			}
+			
+			// Проверка на переполнение
+			if order.Size > 1000000*PRICE_DECIMALS {
+				//fmt.Printf("❌ Ордер #%d с подозрительным размером %.2f удален\n",
+				//	order.ID, float64(order.Size)/PRICE_DECIMALS)
+				continue
+			}
+			
+			realVolume += order.Size
+			validOrders = append(validOrders, order)
+			hasAnyOrders = true
+		}
+		
+		// Исправляем список ордеров
+		if len(validOrders) != len(slot.Orders) {
+			/*fmt.Printf("⚠️  Слот %d уровня %.2f: удалено %d некорректных ордеров\n",
+				i, float64(level.Price)/PRICE_DECIMALS, len(slot.Orders)-len(validOrders))*/
+			slot.Orders = validOrders
+		}
+		
+		// Исправляем volume слота
+		if slot.Volume != realVolume {
+			/*if slot.Volume > 0 && realVolume == 0 {
+				fmt.Printf("⚠️  Слот %d уровня %.2f: volume %.2f обнулен (нет ордеров)\n",
+					i, float64(level.Price)/PRICE_DECIMALS, float64(slot.Volume)/PRICE_DECIMALS)
+			}*/
+			slot.Volume = realVolume
+		}
+		
+		calculatedTotal += realVolume
+	}
+	
+	// КРИТИЧНО: Если нет ордеров вообще - обнуляем total volume
+	if !hasAnyOrders && level.TotalVolume != 0 {
+		/**
+		fmt.Printf("⚠️  Уровень %.2f: НЕТ ОРДЕРОВ, volume %.2f → 0.00 (уровень сохранен для оптимизации)\n",
+			float64(level.Price)/PRICE_DECIMALS,
+			float64(level.TotalVolume)/PRICE_DECIMALS) */
+		level.TotalVolume = 0
+		calculatedTotal = 0
+	}
+	
+	// Исправляем total volume уровня
+	if level.TotalVolume != calculatedTotal {
+		if level.TotalVolume > 1000000*PRICE_DECIMALS {
+			/**fmt.Printf("⚠️  КРИТИЧНО: Уровень %.2f - total volume %.2f → %.2f\n",
+				float64(level.Price)/PRICE_DECIMALS,
+				float64(level.TotalVolume)/PRICE_DECIMALS,
+				float64(calculatedTotal)/PRICE_DECIMALS) **/
+		}
+		level.TotalVolume = calculatedTotal
+	}
+}
+
 // GetTradesByOrderID возвращает все трейды связанные с ордером
 func (ob *OrderBook) GetTradesByOrderID(orderID uint64) []*Trade {
 	ob.mu.RLock()
@@ -1525,10 +1666,18 @@ func (ob *OrderBook) buildSideTree(levels map[uint64]*PriceLevel, sideType NodeT
 		Metadata: sideType.String(),
 	}
 	
-	// Собираем и сортируем уровни
+	// Собираем ТОЛЬКО непустые уровни
 	sortedLevels := make([]*PriceLevel, 0, len(levels))
 	for _, level := range levels {
-		sortedLevels = append(sortedLevels, level)
+		// ФИЛЬТР: Пропускаем пустые уровни (без ордеров и volume)
+		if level.TotalVolume > 0 {
+			sortedLevels = append(sortedLevels, level)
+		}
+	}
+	
+	// Если нет непустых уровней - возвращаем пустой узел
+	if len(sortedLevels) == 0 {
+		return sideNode
 	}
 	
 	// Сортируем: BUY по убыванию, SELL по возрастанию
@@ -1550,8 +1699,7 @@ func (ob *OrderBook) buildSideTree(levels map[uint64]*PriceLevel, sideType NodeT
 		return sideNode
 	}
 	
-	// Если уровней > 16, создаем промежуточные узлы (группы)
-	// Разбиваем на группы по VERKLE_WIDTH
+	// Если уровней > 16, создаем промежуточные узлы
 	groupSize := (len(sortedLevels) + VERKLE_WIDTH - 1) / VERKLE_WIDTH
 	
 	for groupIdx := 0; groupIdx < VERKLE_WIDTH && groupIdx*groupSize < len(sortedLevels); groupIdx++ {
@@ -1566,7 +1714,6 @@ func (ob *OrderBook) buildSideTree(levels map[uint64]*PriceLevel, sideType NodeT
 			endIdx = len(sortedLevels)
 		}
 		
-		// Размещаем уровни в группе
 		for i := startIdx; i < endIdx && i-startIdx < VERKLE_WIDTH; i++ {
 			groupNode.Children[i-startIdx] = sortedLevels[i]
 		}
@@ -1769,6 +1916,13 @@ func main() {
 	startTime := time.Now()
 
 	for i := 0; i < numOperations; i++ {
+		
+		// Периодическая очистка пустых уровней
+		if (i+1)%1000 == 0 {
+			ob.CleanupEmptyLevels()
+		}
+		
+		
 		// Распределение операций:
 		// 25% - маркет ордера
 		// 25% - лимитные добавления
