@@ -22,7 +22,7 @@ const (
 	VERKLE_WIDTH      = 16      // Ширина Verkle дерева
 	PRICE_DECIMALS    = 100     // Точность цены (2 знака после запятой)
 	MAX_TRADERS       = 1000   // Максимальное количество трейдеров
-	HASH_INTERVAL     = 500 * time.Millisecond // Интервал хеширования
+	HASH_INTERVAL     = 0 //500 * time.Millisecond // Интервал хеширования
 	
 	// Слоты для распределения ордеров с описанием
 	SLOT_MM_LIQUIDATION = 0     // Ликвидации маркет-мейкеров
@@ -81,7 +81,7 @@ var (
 	slotPool = sync.Pool{
 		New: func() interface{} {
 			return &Slot{
-				Orders: make([]*Order, 0, 16), // Предаллокация
+				Orders: make([]*Order, 0, 32), // Предаллокация
 			}
 		},
 	}
@@ -181,7 +181,7 @@ func getPriceLevelFromPool() *PriceLevel {
 		if pl.Slots[i] == nil {
 			pl.Slots[i] = &Slot{
 				Metadata: &SlotMetadataTable[i], // Ссылка на статическую метадату
-				Orders:   make([]*Order, 0, 16),
+				Orders:   make([]*Order, 0, 32),
 				Volume:   0,
 			}
 		} else {
@@ -375,6 +375,9 @@ type Stats struct {
 	TotalMarketOrders uint64
 	LastHashTime     time.Time
 	HashCount        uint64
+	
+	LockWaitTime      int64  // Наносекунды ожидания lock
+    LockAcquisitions  uint64 // Количество захватов
 }
 
 //=== JSON 
@@ -1131,10 +1134,10 @@ func NewOrderBook(symbol string) *OrderBook {
 		BuyLevels:   make(map[uint64]*PriceLevel),
 		SellLevels:  make(map[uint64]*PriceLevel),
 		OrderIndex:  make(map[uint64]*Order),
-		Trades:      make([]*Trade, 0, 10000), // Предаллокация для трейдов
+		Trades:      make([]*Trade, 0, 100_000), // Предаллокация для трейдов
 		Root:        &VerkleNode{IsLeaf: false},
 				
-		hashTicker:  time.NewTicker(HASH_INTERVAL),
+		//hashTicker:  time.NewTicker(HASH_INTERVAL),
 		stopChan:    make(chan struct{}),
 		hashRequest: make(chan struct{}, 1),
 	}
@@ -1159,7 +1162,10 @@ func NewOrderBook(symbol string) *OrderBook {
 // Stop останавливает ордербук и фоновые горутины
 func (ob *OrderBook) Stop() {
 	close(ob.stopChan)
-	ob.hashTicker.Stop()
+	
+	if HASH_INTERVAL > 0 {
+		ob.hashTicker.Stop()
+	}
 }
 
 // periodicHasher - горутина для периодического пересчета хеша
@@ -1287,8 +1293,16 @@ func (ob *OrderBook) AddLimitOrder(traderID uint32, price uint64, size uint64, s
 	order.Side = side
 	order.Slot = ob.determineSlot(order)
 	
-	ob.mu.Lock()
-	defer ob.mu.Unlock()
+	//Perf debug
+	lockStart := time.Now()
+    ob.mu.Lock()
+		lockWait := time.Since(lockStart).Nanoseconds()
+		atomic.AddInt64(&ob.stats.LockWaitTime, lockWait)
+		atomic.AddUint64(&ob.stats.LockAcquisitions, 1)
+    defer ob.mu.Unlock()
+	
+	//ob.mu.Lock()
+	//defer ob.mu.Unlock()
 	
 	// Пытаемся сматчить ордер
 	ob.tryMatchUnsafe(order)
@@ -1341,9 +1355,14 @@ func (ob *OrderBook) AddLimitOrder(traderID uint32, price uint64, size uint64, s
 	return order
 }
 
+// Временная диагностика - добавьте счетчик
+var updateBestPricesCallCount uint64
+
 // updateBestPrices пересчитывает BestBid/BestAsk (вызывать под lock)
 func (ob *OrderBook) updateBestPrices() {
-    newBestBid := uint64(0)
+    atomic.AddUint64(&updateBestPricesCallCount, 1)
+	
+	newBestBid := uint64(0)
     newBestAsk := uint64(0)
     
     for price := range ob.BuyLevels {
@@ -2334,6 +2353,9 @@ func (ob *OrderBook) PrintStats() {
 	ob.computeRootHash()
 	atomic.AddUint64(&ob.stats.HashCount, 1)
 	
+	bestBid := ob.bestBidAtomic.Load()
+    bestAsk := ob.bestAskAtomic.Load()
+	
 	// Получаем хеши сторон
 	buyHash := [32]byte{}
 	sellHash := [32]byte{}
@@ -2377,7 +2399,35 @@ func (ob *OrderBook) PrintStats() {
 	fmt.Printf("  • Root hash:  %x...\n", rootHash[:16])
 	fmt.Printf("  • BUY hash:   %x...\n", buyHash[:16])
 	fmt.Printf("  • SELL hash:  %x...\n", sellHash[:16])
+	
+	// Best Bid/Ask
+    fmt.Println("─────────────────────────────────────────")
+    fmt.Printf("  • Best Bid: %.2f\n", float64(bestBid)/PRICE_DECIMALS)
+    fmt.Printf("  • Best Ask: %.2f\n", float64(bestAsk)/PRICE_DECIMALS)
+    if bestAsk > 0 && bestBid > 0 {
+        spread := float64(bestAsk-bestBid) / PRICE_DECIMALS
+        fmt.Printf("  • Spread: %.2f\n", spread)
+    }
+    
+    fmt.Println("═══════════════════════════════════════════")
 	fmt.Printf("═══════════════════════════════════════════\n\n")
+	fmt.Printf("  • updateBestPrices calls: %d\n", atomic.LoadUint64(&updateBestPricesCallCount))
+	
+	lockAcq := atomic.LoadUint64(&ob.stats.LockAcquisitions)
+    lockWait := atomic.LoadInt64(&ob.stats.LockWaitTime)
+    if lockAcq > 0 {
+        avgWaitMicros := float64(lockWait) / float64(lockAcq) / 1e3 // ← ИЗМЕНЕНО: делим на 1e3 вместо 1e6
+        fmt.Printf("  • Avg lock wait time: %.3f μs\n", avgWaitMicros)  // ← ИЗМЕНЕНО: μs вместо ms
+        fmt.Printf("  • Total lock acquisitions: %d\n", lockAcq)
+        
+        // Также можно добавить процент времени в ожидании:
+        if lockWait > 0 {
+            totalWaitMs := float64(lockWait) / 1e6
+            fmt.Printf("  • Total lock wait time: %.2f ms\n", totalWaitMs)
+        }
+    }
+    
+    fmt.Println("─────────────────────────────────────────")
 }
 
 // ExportTreeToTextFile экспортирует полное дерево в текстовый файл
