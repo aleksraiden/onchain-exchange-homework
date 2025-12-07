@@ -146,14 +146,48 @@ func getPriceMagnet(basePrice uint64) []uint64 {
 	return magnets
 }
 
+// generatePrice генерирует цену для трейдера с учетом профиля
+func generatePrice(basePrice uint64, profile TraderProfile, side Side) uint64 {
+	spread := profile.PriceSpread
+	
+	if side == BUY {
+		// BUY ордера ВСЕГДА НИЖЕ базовой цены
+		var offset int
+		
+		if profile.Type == TRADER_MARKET_MAKER {
+			offset = rand.Intn(50) + 1 // MM очень близко
+		} else {
+			offset = rand.Intn(spread) + 1
+		}
+		
+		price := int64(basePrice) - int64(offset)
+		if price < 100 {
+			price = 100
+		}
+		
+		return uint64(price)
+		
+	} else { // SELL
+		// SELL ордера ВСЕГДА ВЫШЕ базовой цены
+		var offset int
+		
+		if profile.Type == TRADER_MARKET_MAKER {
+			offset = rand.Intn(50) + 1 // MM очень близко
+		} else {
+			offset = rand.Intn(spread) + 1
+		}
+		
+		price := int64(basePrice) + int64(offset)
+		
+		return uint64(price)
+	}
+}
+
 // generatePriceWithMagnetism генерирует цену с "притяжением" к круглым числам
 func generatePriceWithMagnetism(basePrice uint64, profile TraderProfile, side Side) uint64 {
 	// 40% шанс использовать "магнитную" цену
 	if rand.Float32() < 0.4 {
 		magnets := getPriceMagnet(basePrice)
-		
-		// Выбираем магнитную цену в зависимости от стороны
-		var magnetPrice uint64
 		
 		if side == BUY {
 			// Для BUY выбираем магниты НИЖЕ basePrice
@@ -163,11 +197,13 @@ func generatePriceWithMagnetism(basePrice uint64, profile TraderProfile, side Si
 					lowerMagnets = append(lowerMagnets, m)
 				}
 			}
-			if len(lowerMagnets) > 0 {
-				magnetPrice = lowerMagnets[rand.Intn(len(lowerMagnets))]
-			} else {
-				magnetPrice = basePrice - 5000 // Fallback
+			
+			if len(lowerMagnets) == 0 {
+				// Fallback если нет подходящих магнитов
+				return generatePrice(basePrice, profile, BUY)
 			}
+			
+			magnetPrice := lowerMagnets[rand.Intn(len(lowerMagnets))]
 			
 			// Небольшой offset вниз
 			offset := rand.Intn(100)
@@ -185,11 +221,13 @@ func generatePriceWithMagnetism(basePrice uint64, profile TraderProfile, side Si
 					higherMagnets = append(higherMagnets, m)
 				}
 			}
-			if len(higherMagnets) > 0 {
-				magnetPrice = higherMagnets[rand.Intn(len(higherMagnets))]
-			} else {
-				magnetPrice = basePrice + 5000 // Fallback
+			
+			if len(higherMagnets) == 0 {
+				// Fallback если нет подходящих магнитов
+				return generatePrice(basePrice, profile, SELL)
 			}
+			
+			magnetPrice := higherMagnets[rand.Intn(len(higherMagnets))]
 			
 			// Небольшой offset вверх
 			offset := rand.Intn(100)
@@ -201,54 +239,6 @@ func generatePriceWithMagnetism(basePrice uint64, profile TraderProfile, side Si
 	// Иначе используем обычную генерацию
 	return generatePrice(basePrice, profile, side)
 }
-
-
-// generatePrice генерирует цену для трейдера с учетом профиля
-// generatePrice генерирует цену для трейдера с учетом профиля
-func generatePrice(basePrice uint64, profile TraderProfile, side Side) uint64 {
-	spread := profile.PriceSpread
-	
-	if side == BUY {
-		// ═══════════════════════════════════════════════════════════════
-		// BUY ордера ВСЕГДА НИЖЕ базовой цены
-		// ═══════════════════════════════════════════════════════════════
-		var offset int
-		
-		if profile.Type == TRADER_MARKET_MAKER {
-			// MM размещают очень близко к середине рынка
-			offset = rand.Intn(50) + 1 // 0.01 - 0.50 ниже
-		} else {
-			// Обычные трейдеры размещают дальше
-			offset = rand.Intn(spread) + 1 // 1 до spread ниже
-		}
-		
-		price := int64(basePrice) - int64(offset)
-		if price < 100 {
-			price = 100
-		}
-		
-		return uint64(price)
-		
-	} else { // SELL
-		// ═══════════════════════════════════════════════════════════════
-		// SELL ордера ВСЕГДА ВЫШЕ базовой цены
-		// ═══════════════════════════════════════════════════════════════
-		var offset int
-		
-		if profile.Type == TRADER_MARKET_MAKER {
-			// MM размещают очень близко к середине рынка
-			offset = rand.Intn(50) + 1 // 0.01 - 0.50 выше
-		} else {
-			// Обычные трейдеры размещают дальше
-			offset = rand.Intn(spread) + 1 // 1 до spread выше
-		}
-		
-		price := int64(basePrice) + int64(offset)
-		
-		return uint64(price)
-	}
-}
-
 
 // Вспомогательные функции для работы с пулами
 func getOrderFromPool() *Order {
@@ -2671,90 +2661,90 @@ func main() {
 	
 	startTime := time.Now()
 	
-	// Основной цикл симуляции
-	for i := 0; i < numOperations; i++ {
-		// Выбираем случайного трейдера
-		profile := traderProfiles[rand.Intn(len(traderProfiles))]
-		
-		r := rand.Float32()
-		
-		// 25% - маркет ордера
-		if r < 0.25 {
-			size := generateSize(profile)
-			side := BUY
-			if rand.Float32() < 0.5 {
-				side = SELL
-			}
-			ob.ExecuteMarketOrder(profile.ID, size, side)
-			
-		// 35% - лимитные ордера (увеличено с 25%)
-		} else if r < 0.60 {
-			price := generatePriceWithMagnetism(basePrice, profile, BUY)
-			//generatePrice(basePrice, profile, BUY)
-			size := generateSize(profile)
-			side := BUY
-			if rand.Float32() < 0.5 {
-				side = SELL
-				price = generatePriceWithMagnetism(basePrice, profile, SELL)
-			}
-			
-			order := ob.AddLimitOrder(profile.ID, price, size, side)
-			addedOrders = append(addedOrders, order.ID)
-			
-		// 20% - отмены (уменьшено с 25%)
-		} else if r < 0.80 {
-			if len(addedOrders) > 0 {
-				// Выбираем случайный ордер
-				idx := rand.Intn(len(addedOrders))
-				orderID := addedOrders[idx]
-				
-				if ob.CancelOrder(orderID) {
-					// Удаляем из списка
-					addedOrders = append(addedOrders[:idx], addedOrders[idx+1:]...)
-				}
-			}
-			
-		// 20% - модификации (уменьшено с 25%)
-		} else {
-			if len(addedOrders) > 0 {
-				orderID := addedOrders[rand.Intn(len(addedOrders))]
-				
-				modType := rand.Intn(3)
-				switch modType {
-				case 0: // Изменение размера
-					newSize := generateSize(profile)
-					ob.ModifyOrder(orderID, nil, &newSize)
-					
-				case 1: // Изменение цены
-					side := BUY
-					if rand.Float32() < 0.5 {
-						side = SELL
-					}
-					newPrice := generatePriceWithMagnetism(basePrice, profile, side)
-					ob.ModifyOrder(orderID, &newPrice, nil)
-					
-				case 2: // Изменение цены и размера
-					side := BUY
-					if rand.Float32() < 0.5 {
-						side = SELL
-					}
-					newPrice := generatePriceWithMagnetism(basePrice, profile, side)
-					newSize := generateSize(profile)
-					ob.ModifyOrder(orderID, &newPrice, &newSize)
-				}
-			}
-		}
-		
-		// Периодическая очистка и статистика
-		if (i+1)%1000 == 0 {
-			ob.CleanupEmptyLevels()
-		}
-		
-		//if (i+1)%50000 == 0 {
-		//	ob.PrintStats()
-		//}
-	}
-	
+for i := 0; i < numOperations; i++ {
+    profile := traderProfiles[rand.Intn(len(traderProfiles))]
+    r := rand.Float32()
+    
+    // 25% - маркет ордера
+    if r < 0.25 {
+        size := generateSize(profile)
+        side := BUY
+        if rand.Float32() < 0.5 {
+            side = SELL
+        }
+        ob.ExecuteMarketOrder(profile.ID, size, side)
+        
+    // 35% - лимитные ордера (25% → 60%)
+    } else if r < 0.60 {
+        size := generateSize(profile)
+        
+        side := BUY
+        if rand.Float32() < 0.5 {
+            side = SELL
+        }
+        
+        price := generatePriceWithMagnetism(basePrice, profile, side)
+        
+        order := ob.AddLimitOrder(profile.ID, price, size, side)
+        addedOrders = append(addedOrders, order.ID)
+        
+    // 20% - отмена ордеров (60% → 80%)
+    } else if r < 0.80 {
+        if len(addedOrders) == 0 {
+            continue
+        }
+        
+        idx := rand.Intn(len(addedOrders))
+        orderID := addedOrders[idx]
+        
+        if ob.CancelOrder(orderID) {
+            addedOrders = append(addedOrders[:idx], addedOrders[idx+1:]...)
+        }
+        
+    // 20% - модификация ордеров (80% → 100%)
+    } else {
+        if len(addedOrders) == 0 {
+            continue
+        }
+        
+        orderID := addedOrders[rand.Intn(len(addedOrders))]
+        
+        // ПОЛУЧАЕМ СТОРОНУ СУЩЕСТВУЮЩЕГО ОРДЕРА
+        ob.mu.RLock()
+        existingOrder, exists := ob.OrderIndex[orderID]
+        ob.mu.RUnlock()
+        
+        if !exists {
+            continue // Ордер был отменен или исполнен
+        }
+        
+        modType := rand.Intn(3)
+        
+        switch modType {
+        case 0:
+            // Изменение размера
+            newSize := generateSize(profile)
+            ob.ModifyOrder(orderID, nil, &newSize)
+            
+        case 1:
+            // Изменение цены (используем сторону СУЩЕСТВУЮЩЕГО ордера!)
+            newPrice := generatePriceWithMagnetism(basePrice, profile, existingOrder.Side)
+            ob.ModifyOrder(orderID, &newPrice, nil)
+            
+        case 2:
+            // Изменение цены и размера (используем сторону СУЩЕСТВУЮЩЕГО ордера!)
+            newPrice := generatePriceWithMagnetism(basePrice, profile, existingOrder.Side)
+            newSize := generateSize(profile)
+            ob.ModifyOrder(orderID, &newPrice, &newSize)
+        }
+    }
+    
+    // Периодическая очистка
+    if i%1000 == 0 {
+        ob.CleanupEmptyLevels()
+    }
+}
+
 	elapsed := time.Since(startTime)
 	
 	// Финальная очистка
