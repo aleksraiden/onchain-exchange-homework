@@ -81,7 +81,7 @@ var (
 	slotPool = sync.Pool{
 		New: func() interface{} {
 			return &Slot{
-				Orders: make([]*Order, 0, 32), // Предаллокация
+				Orders: make([]*Order, 0, 64), // Предаллокация
 			}
 		},
 	}
@@ -259,7 +259,7 @@ func getPriceLevelFromPool() *PriceLevel {
 		if pl.Slots[i] == nil {
 			pl.Slots[i] = &Slot{
 				Metadata: &SlotMetadataTable[i], // Ссылка на статическую метадату
-				Orders:   make([]*Order, 0, 32),
+				Orders:   make([]*Order, 0, 64),
 				Volume:   0,
 			}
 		} else {
@@ -435,6 +435,11 @@ type OrderBook struct {
 	
 	bestBidAtomic  atomic.Uint64  // atomic доступ без lock
     bestAskAtomic  atomic.Uint64  // atomic доступ без lock
+	
+	// Кэш отсортированных цен
+    buyPricesSorted  []uint64
+    sellPricesSorted []uint64
+    pricesCacheDirty atomic.Bool
 	
 	mu           sync.RWMutex             // Mutex для защиты
 	hashTicker   *time.Ticker             // Ticker для хеширования
@@ -1338,6 +1343,8 @@ func (ob *OrderBook) AddLimitOrderBatch(orders []struct{
                 level.Price = req.Price
                 level.TotalVolume = 0
                 levels[req.Price] = level
+				
+				ob.pricesCacheDirty.Store(true)
             }
             
             remainingSize := order.RemainingSize()
@@ -1400,8 +1407,6 @@ func (ob *OrderBook) AddLimitOrder(traderID uint32, price uint64, size uint64, s
 			levels[price] = level
 			
 			// Обновляем BestBid/BestAsk
-			//ob.updateBestPrices()
-			
 			// Оптимизация: точечное обновление только для нового уровня
 			if side == SELL {
 				currentBestAsk := ob.bestAskAtomic.Load()
@@ -1440,23 +1445,47 @@ var updateBestPricesCallCount uint64
 func (ob *OrderBook) updateBestPrices() {
     atomic.AddUint64(&updateBestPricesCallCount, 1)
 	
-	newBestBid := uint64(0)
-    newBestAsk := uint64(0)
+	// Быстрый путь: если кэш валиден
+    if !ob.pricesCacheDirty.Load() && len(ob.buyPricesSorted) > 0 && len(ob.sellPricesSorted) > 0 {
+        ob.bestBidAtomic.Store(ob.buyPricesSorted[0])
+        ob.bestAskAtomic.Store(ob.sellPricesSorted[0])
+        return
+    }
     
+    // Медленный путь: пересчет
+    ob.rebuildBestPrices()
+}
+
+func (ob *OrderBook) rebuildBestPrices() {
+    // BUY: отсортировать по убыванию
+    ob.buyPricesSorted = ob.buyPricesSorted[:0]
     for price := range ob.BuyLevels {
-        if price > newBestBid {
-            newBestBid = price
-        }
+        ob.buyPricesSorted = append(ob.buyPricesSorted, price)
+    }
+    if len(ob.buyPricesSorted) > 0 {
+        sort.Slice(ob.buyPricesSorted, func(i, j int) bool {
+            return ob.buyPricesSorted[i] > ob.buyPricesSorted[j]
+        })
+        ob.bestBidAtomic.Store(ob.buyPricesSorted[0])
+    } else {
+        ob.bestBidAtomic.Store(0)
     }
     
+    // SELL: отсортировать по возрастанию
+    ob.sellPricesSorted = ob.sellPricesSorted[:0]
     for price := range ob.SellLevels {
-        if newBestAsk == 0 || price < newBestAsk {
-            newBestAsk = price
-        }
+        ob.sellPricesSorted = append(ob.sellPricesSorted, price)
+    }
+    if len(ob.sellPricesSorted) > 0 {
+        sort.Slice(ob.sellPricesSorted, func(i, j int) bool {
+            return ob.sellPricesSorted[i] < ob.sellPricesSorted[j]
+        })
+        ob.bestAskAtomic.Store(ob.sellPricesSorted[0])
+    } else {
+        ob.bestAskAtomic.Store(0)
     }
     
-    ob.bestBidAtomic.Store(newBestBid)
-    ob.bestAskAtomic.Store(newBestAsk)
+    ob.pricesCacheDirty.Store(false)
 }
 
 // tryMatchUnsafe пытается совместить ордер (вызывается под lock)
@@ -2488,6 +2517,16 @@ func (ob *OrderBook) PrintStats() {
             fmt.Printf("  • Total lock wait time: %.2f ms\n", totalWaitMs)
         }
     }
+	
+	
+    // ДИАГНОСТИКА ОПТИМИЗАЦИЙ:
+    fmt.Println("🔧 Диагностика оптимизаций:")
+    fmt.Printf("  • HASH_INTERVAL = %v\n", HASH_INTERVAL)
+    fmt.Printf("  • hashTicker == nil: %v\n", ob.hashTicker == nil)
+    fmt.Printf("  • updateBestPrices calls: %d\n", atomic.LoadUint64(&updateBestPricesCallCount))
+    fmt.Printf("  • pricesCacheDirty loads: %v\n", ob.pricesCacheDirty.Load())
+    fmt.Printf("  • buyPricesSorted len: %d\n", len(ob.buyPricesSorted))
+    fmt.Printf("  • sellPricesSorted len: %d\n", len(ob.sellPricesSorted))
     
     fmt.Println("─────────────────────────────────────────")
 }
