@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/binary"
 	"fmt"
 	"math/rand"
@@ -30,6 +31,15 @@ const (
 	SLOT_RETAIL_START   = 3     // Начало диапазона для retail
 	SLOT_RETAIL_END     = 14    // Конец диапазона для retail
 	SLOT_RESERVED       = 15    // Зарезервированный слот
+)
+
+// TreePrintMode - режим вывода дерева
+type TreePrintMode int
+
+const (
+	TREE_PRINT_COMPACT  TreePrintMode = iota // Топ N уровней с каждой стороны
+	TREE_PRINT_SUMMARY                       // Только статистика по узлам
+	TREE_PRINT_FULL                          // Полное дерево (может быть огромным!)
 )
 
 // NodeType - тип узла в дереве
@@ -579,22 +589,24 @@ func (ob *OrderBook) GetSideHashes() (buyHash [32]byte, sellHash [32]byte) {
 }
 
 // PrintTreeStructure выводит структуру дерева в консоль
-func (ob *OrderBook) PrintTreeStructure() {
+// PrintTreeStructure выводит структуру дерева в консоль
+func (ob *OrderBook) PrintTreeStructure(mode TreePrintMode) {
 	ob.mu.Lock()
 	
 	// Валидация и исправление
 	fmt.Println("🔍 Проверка консистентности...")
+	validationCount := 0
 	for _, level := range ob.BuyLevels {
 		ob.validateAndFixLevelConsistency(level)
+		validationCount++
 	}
 	for _, level := range ob.SellLevels {
 		ob.validateAndFixLevelConsistency(level)
+		validationCount++
 	}
+	fmt.Printf("✓ Проверено %d ценовых уровней\n", validationCount)
 	
 	ob.mu.Unlock()
-	
-	// Опционально: очистка пустых уровней
-	// ob.CleanupEmptyLevels()
 	
 	ob.mu.RLock()
 	defer ob.mu.RUnlock()
@@ -604,12 +616,242 @@ func (ob *OrderBook) PrintTreeStructure() {
 	
 	fmt.Println("\n🌳 СТРУКТУРА VERKLE ДЕРЕВА")
 	fmt.Println("═══════════════════════════════════════════")
-	ob.printNodeRecursive(ob.Root, 0)
-	fmt.Println("═══════════════════════════════════════════")
-	fmt.Println("Примечание: Пустые кэшированные уровни скрыты\n")
+	
+	switch mode {
+	case TREE_PRINT_COMPACT:
+		ob.printTreeCompact()
+	case TREE_PRINT_SUMMARY:
+		ob.printTreeSummary()
+	case TREE_PRINT_FULL:
+		ob.printTreeFull()
+	}
+	
+	fmt.Println("═══════════════════════════════════════════\n")
 }
 
-// printNodeRecursive рекурсивно печатает структуру узла
+// printTreeFull выводит полное дерево
+func (ob *OrderBook) printTreeFull() {
+	fmt.Println("Режим: ПОЛНОЕ ДЕРЕВО")
+	fmt.Println()
+	
+	stats := &TreeStats{
+		TotalNodes:  0,
+		TotalLevels: 0,
+		PriceLevels: 0,
+		TotalOrders: 0,
+	}
+	
+	ob.printNodeRecursiveFull(ob.Root, 0, stats)
+	
+	fmt.Println()
+	fmt.Printf("📊 Статистика вывода:\n")
+	fmt.Printf("  • Узлов: %d\n", stats.TotalNodes)
+	fmt.Printf("  • Ценовых уровней: %d\n", stats.PriceLevels)
+	fmt.Printf("  • Ордеров: %d\n", stats.TotalOrders)
+}
+
+// printNodeRecursiveFull выводит полное дерево с подсчетом статистики
+func (ob *OrderBook) printNodeRecursiveFull(node interface{}, depth int, stats *TreeStats) {
+	indent := ""
+	for i := 0; i < depth; i++ {
+		indent += "  "
+	}
+	
+	switch n := node.(type) {
+	case *VerkleNode:
+		stats.TotalNodes++
+		
+		childCount := 0
+		for i := 0; i < VERKLE_WIDTH; i++ {
+			if n.Children[i] != nil {
+				childCount++
+			}
+		}
+		
+		fmt.Printf("%s├─ [%s] %s (hash: %x..., children: %d)\n",
+			indent, n.NodeType.String(), n.Metadata, n.Hash[:4], childCount)
+		
+		// Рекурсивно выводим всех детей
+		for i := 0; i < VERKLE_WIDTH; i++ {
+			if n.Children[i] != nil {
+				ob.printNodeRecursiveFull(n.Children[i], depth+1, stats)
+			}
+		}
+		
+	case *PriceLevel:
+		stats.TotalNodes++
+		stats.PriceLevels++  // <- ИСПРАВЛЕНО
+		
+		ordersCount := 0
+		for _, slot := range n.Slots {
+			ordersCount += len(slot.Orders)
+		}
+		stats.TotalOrders += ordersCount
+		
+		// Пропускаем полностью пустые уровни
+		if ordersCount == 0 && n.TotalVolume == 0 {
+			return
+		}
+		
+		fmt.Printf("%s├─ [PRICE] %.2f (volume: %.2f, orders: %d)\n",
+			indent, 
+			float64(n.Price)/PRICE_DECIMALS,
+			float64(n.TotalVolume)/PRICE_DECIMALS,
+			ordersCount)
+	}
+}
+
+// collectTreeStats собирает статистику по дереву
+func (ob *OrderBook) collectTreeStats(node interface{}) TreeStats {
+	stats := TreeStats{}
+	
+	switch n := node.(type) {
+	case *VerkleNode:
+		stats.TotalNodes++
+		
+		for i := 0; i < VERKLE_WIDTH; i++ {
+			if n.Children[i] != nil {
+				childStats := ob.collectTreeStats(n.Children[i])
+				stats.TotalNodes += childStats.TotalNodes
+				stats.PriceLevels += childStats.PriceLevels
+				stats.TotalOrders += childStats.TotalOrders
+				stats.TotalVolume += childStats.TotalVolume
+			}
+		}
+		
+	case *PriceLevel:
+		stats.TotalNodes++
+		stats.PriceLevels++
+		stats.TotalVolume += n.TotalVolume
+		
+		for _, slot := range n.Slots {
+			stats.TotalOrders += len(slot.Orders)
+		}
+	}
+	
+	return stats
+}
+
+// printTreeCompact выводит компактное представление (топ уровни)
+func (ob *OrderBook) printTreeCompact() {
+	fmt.Println("Режим: КОМПАКТНЫЙ (Топ-10 с каждой стороны)")
+	fmt.Println()
+	
+	// Корневой узел
+	fmt.Printf("├─ [ROOT] %s (hash: %x...)\n", ob.Root.Metadata, ob.Root.Hash[:4])
+	
+	// BUY сторона
+	if buyNode, ok := ob.Root.Children[0].(*VerkleNode); ok {
+		fmt.Printf("  ├─ [BUY_SIDE] (hash: %x..., levels: %d)\n", 
+			buyNode.Hash[:4], len(ob.BuyLevels))
+		ob.printTopLevels(ob.BuyLevels, true, 10)
+	}
+	
+	// SELL сторона
+	if sellNode, ok := ob.Root.Children[1].(*VerkleNode); ok {
+		fmt.Printf("  ├─ [SELL_SIDE] (hash: %x..., levels: %d)\n", 
+			sellNode.Hash[:4], len(ob.SellLevels))
+		ob.printTopLevels(ob.SellLevels, false, 10)
+	}
+}
+
+// printTopLevels выводит топ N ценовых уровней
+func (ob *OrderBook) printTopLevels(levels map[uint64]*PriceLevel, isBuy bool, limit int) {
+	// Собираем и сортируем цены
+	prices := make([]uint64, 0, len(levels))
+	for price, level := range levels {
+		if level.TotalVolume > 0 { // Только непустые
+			prices = append(prices, price)
+		}
+	}
+	
+	// Сортируем
+	if isBuy {
+		sort.Slice(prices, func(i, j int) bool { return prices[i] > prices[j] })
+	} else {
+		sort.Slice(prices, func(i, j int) bool { return prices[i] < prices[j] })
+	}
+	
+	// Ограничиваем количество
+	if len(prices) > limit {
+		prices = prices[:limit]
+	}
+	
+	// Выводим уровни
+	for idx, price := range prices {
+		level := levels[price]
+		ordersCount := 0
+		for _, slot := range level.Slots {
+			ordersCount += len(slot.Orders)
+		}
+		
+		prefix := "    ├─"
+		if idx == len(prices)-1 {
+			prefix = "    └─"
+		}
+		
+		fmt.Printf("%s [PRICE] %.2f (volume: %.2f, orders: %d)\n",
+			prefix,
+			float64(level.Price)/PRICE_DECIMALS,
+			float64(level.TotalVolume)/PRICE_DECIMALS,
+			ordersCount)
+	}
+	
+	if len(prices) < len(levels) {
+		fmt.Printf("    ... еще %d уровней (используйте TREE_PRINT_FULL)\n", 
+			len(levels)-len(prices))
+	}
+}
+
+// TreeStats - статистика дерева
+type TreeStats struct {
+	TotalLevels int
+	TotalNodes  int
+	PriceLevels int
+	TotalOrders int
+	TotalVolume uint64
+}
+
+// printTreeSummary выводит только статистику
+func (ob *OrderBook) printTreeSummary() {
+	fmt.Println("Режим: СТАТИСТИКА")
+	fmt.Println()
+	
+	stats := ob.collectTreeStats(ob.Root)
+	
+	fmt.Printf("├─ [ROOT] %s\n", ob.Root.Metadata)
+	fmt.Printf("│  • Root hash: %x...\n", ob.Root.Hash[:8])
+	fmt.Printf("│\n")
+	
+	if buyNode, ok := ob.Root.Children[0].(*VerkleNode); ok {
+		buyStats := ob.collectTreeStats(buyNode)
+		fmt.Printf("├─ [BUY_SIDE]\n")
+		fmt.Printf("│  • Hash: %x...\n", buyNode.Hash[:8])
+		fmt.Printf("│  • Уровней: %d\n", buyStats.PriceLevels)
+		fmt.Printf("│  • Ордеров: %d\n", buyStats.TotalOrders)
+		fmt.Printf("│  • Объем: %.2f\n", float64(buyStats.TotalVolume)/PRICE_DECIMALS)
+		fmt.Printf("│  • Узлов: %d\n", buyStats.TotalNodes)
+		fmt.Printf("│\n")
+	}
+	
+	if sellNode, ok := ob.Root.Children[1].(*VerkleNode); ok {
+		sellStats := ob.collectTreeStats(sellNode)
+		fmt.Printf("├─ [SELL_SIDE]\n")
+		fmt.Printf("│  • Hash: %x...\n", sellNode.Hash[:8])
+		fmt.Printf("│  • Уровней: %d\n", sellStats.PriceLevels)
+		fmt.Printf("│  • Ордеров: %d\n", sellStats.TotalOrders)
+		fmt.Printf("│  • Объем: %.2f\n", float64(sellStats.TotalVolume)/PRICE_DECIMALS)
+		fmt.Printf("│  • Узлов: %d\n", sellStats.TotalNodes)
+		fmt.Printf("│\n")
+	}
+	
+	fmt.Printf("├─ ИТОГО:\n")
+	fmt.Printf("   • Всего узлов: %d\n", stats.TotalNodes)
+	fmt.Printf("   • Всего уровней: %d\n", stats.PriceLevels)
+	fmt.Printf("   • Всего ордеров: %d\n", stats.TotalOrders)
+	fmt.Printf("   • Общий объем: %.2f\n", float64(stats.TotalVolume)/PRICE_DECIMALS)
+}
+
 // printNodeRecursive рекурсивно печатает структуру узла
 func (ob *OrderBook) printNodeRecursive(node interface{}, depth int) {
 	indent := ""
@@ -2095,7 +2337,90 @@ func (ob *OrderBook) PrintStats() {
 	fmt.Printf("═══════════════════════════════════════════\n\n")
 }
 
+// ExportTreeToTextFile экспортирует полное дерево в текстовый файл
+func (ob *OrderBook) ExportTreeToTextFile(filename string) error {
+	ob.mu.RLock()
+	defer ob.mu.RUnlock()
+	
+	ob.rebuildTree()
+	ob.computeRootHash()
+	
+	file, err := os.Create(filename)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	
+	writer := bufio.NewWriter(file)
+	defer writer.Flush()
+	
+	writer.WriteString("═══════════════════════════════════════════\n")
+	writer.WriteString("VERKLE TREE STRUCTURE - FULL EXPORT\n")
+	writer.WriteString(fmt.Sprintf("Timestamp: %s\n", time.Now().Format(time.RFC3339)))
+	writer.WriteString("═══════════════════════════════════════════\n\n")
+	
+	stats := &TreeStats{}
+	ob.writeNodeRecursive(writer, ob.Root, 0, stats)
+	
+	writer.WriteString("\n═══════════════════════════════════════════\n")
+	writer.WriteString(fmt.Sprintf("Total Nodes: %d\n", stats.TotalNodes))
+	writer.WriteString(fmt.Sprintf("Price Levels: %d\n", stats.PriceLevels))  // <- ИСПРАВЛЕНО
+	writer.WriteString(fmt.Sprintf("Total Orders: %d\n", stats.TotalOrders))
+	writer.WriteString(fmt.Sprintf("Total Volume: %.2f\n", float64(stats.TotalVolume)/PRICE_DECIMALS))
+	writer.WriteString("═══════════════════════════════════════════\n")
+	
+	fmt.Printf("✓ Полное дерево экспортировано в %s\n", filename)
+	return nil
+}
 
+// writeNodeRecursive записывает узел в файл
+func (ob *OrderBook) writeNodeRecursive(writer *bufio.Writer, node interface{}, depth int, stats *TreeStats) {
+	indent := ""
+	for i := 0; i < depth; i++ {
+		indent += "  "
+	}
+	
+	switch n := node.(type) {
+	case *VerkleNode:
+		stats.TotalNodes++
+		
+		childCount := 0
+		for i := 0; i < VERKLE_WIDTH; i++ {
+			if n.Children[i] != nil {
+				childCount++
+			}
+		}
+		
+		writer.WriteString(fmt.Sprintf("%s├─ [%s] %s (hash: %x..., children: %d)\n",
+			indent, n.NodeType.String(), n.Metadata, n.Hash[:4], childCount))
+		
+		for i := 0; i < VERKLE_WIDTH; i++ {
+			if n.Children[i] != nil {
+				ob.writeNodeRecursive(writer, n.Children[i], depth+1, stats)
+			}
+		}
+		
+	case *PriceLevel:
+		stats.TotalNodes++
+		stats.PriceLevels++  // <- ИСПРАВЛЕНО
+		
+		ordersCount := 0
+		for _, slot := range n.Slots {
+			ordersCount += len(slot.Orders)
+		}
+		stats.TotalOrders += ordersCount
+		
+		if ordersCount == 0 && n.TotalVolume == 0 {
+			return
+		}
+		
+		writer.WriteString(fmt.Sprintf("%s├─ [PRICE] %.2f (volume: %.2f, orders: %d)\n",
+			indent, 
+			float64(n.Price)/PRICE_DECIMALS,
+			float64(n.TotalVolume)/PRICE_DECIMALS,
+			ordersCount))
+	}
+}
 
 func main() {
 	fmt.Println("🌳 Verkle Tree Orderbook Simulation")
@@ -2262,7 +2587,24 @@ func main() {
 	// Финальная статистика
 	fmt.Println("\n🏁 ФИНАЛЬНАЯ СТАТИСТИКА")
 	ob.PrintStats()
-	ob.PrintTreeStructure()
+	
+	//ob.PrintTreeStructure()
+	
+	// Вариант 1: Компактный вывод (топ-10 уровней)
+	ob.PrintTreeStructure(TREE_PRINT_COMPACT)
+	
+	// Вариант 2: Только статистика
+	// ob.PrintTreeStructure(TREE_PRINT_SUMMARY)
+	
+	// Вариант 3: ПОЛНОЕ дерево (может быть очень большим!)
+	// ob.PrintTreeStructure(TREE_PRINT_FULL)
+	
+	// Полное дерево в файл (чтобы не забить консоль)
+	// Или если это первое использование err в блоке:
+	if err := ob.ExportTreeToTextFile("orderbook_tree_full.txt"); err != nil {
+		fmt.Printf("Ошибка экспорта дерева: %v\n", err)
+	}
+	
 	
 	tps := float64(numOperations) / elapsed.Seconds()
 	fmt.Printf("⚡ Производительность: %.0f операций/сек\n", tps)
