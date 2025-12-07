@@ -1,0 +1,123 @@
+{
+  "symbol": "BTC",
+  "root_hash": "8746573430289469b3a396852ee2c9da02bee9d5c13fad6d14554f88afad0d59",
+  "active_orders": 140,
+  "buy_levels": 67,
+  "sell_levels": 73,
+  "best_bid": 65092.04,
+  "best_ask": 64900.45,
+  "spread": 184467440737095330,
+  "stats": {
+    "total_operations": 912,
+    "total_orders": 368,
+    "total_matches": 654,
+    "total_cancels": 228,
+    "total_modifies": 252,
+    "total_market_orders": 139,
+    "hash_count": 1
+  },
+  "top_buy_levels": [
+    {
+      "price": 65092.04,
+      "volume": 76.91,
+      "orders_count": 1
+    },
+    {
+      "price": 65086.74,
+      "volume": 59.04,
+      "orders_count": 1
+    },
+    {
+      "price": 65085.86,
+      "volume": 12.99,
+      "orders_count": 1
+    },
+    {
+      "price": 65085.83,
+      "volume": 73.92,
+      "orders_count": 1
+    },
+    {
+      "price": 65081.28,
+      "volume": 87.52,
+      "orders_count": 1
+    },
+    {
+      "price": 65080.18,
+      "volume": 36.8,
+      "orders_count": 1
+    },
+    {
+      "price": 65079.27,
+      "volume": 18.77,
+      "orders_count": 1
+    },
+    {
+      "price": 65078.68,
+      "volume": 90.82,
+      "orders_count": 1
+    },
+    {
+      "price": 65078.28,
+      "volume": 92.69,
+      "orders_count": 1
+    },
+    {
+      "price": 65075.44,
+      "volume": 45.49,
+      "orders_count": 1
+    }
+  ],
+  "top_sell_levels": [
+    {
+      "price": 64900.45,
+      "volume": 83.83,
+      "orders_count": 1
+    },
+    {
+      "price": 64901.19,
+      "volume": 51.04,
+      "orders_count": 1
+    },
+    {
+      "price": 64905.58,
+      "volume": 96.08,
+      "orders_count": 1
+    },
+    {
+      "price": 64905.75,
+      "volume": 98.61,
+      "orders_count": 1
+    },
+    {
+      "price": 64907.71,
+      "volume": 19.89,
+      "orders_count": 1
+    },
+    {
+      "price": 64908.43,
+      "volume": 53.87,
+      "orders_count": 1
+    },
+    {
+      "price": 64909.36,
+      "volume": 21.17,
+      "orders_count": 1
+    },
+    {
+      "price": 64910.07,
+      "volume": 74.14,
+      "orders_count": 1
+    },
+    {
+      "price": 64910.36,
+      "volume": 52,
+      "orders_count": 1
+    },
+    {
+      "price": 64910.65,
+      "volume": 33.03,
+      "orders_count": 1
+    }
+  ]
+}

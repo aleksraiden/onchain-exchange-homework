@@ -20,10 +20,10 @@ import (
 const (
 	VERKLE_WIDTH      = 16      // Ширина Verkle дерева
 	PRICE_DECIMALS    = 100     // Точность цены (2 знака после запятой)
-	MAX_TRADERS       = 10000   // Максимальное количество трейдеров
+	MAX_TRADERS       = 1000   // Максимальное количество трейдеров
 	HASH_INTERVAL     = 500 * time.Millisecond // Интервал хеширования
 	
-	// Слоты для распределения ордеров
+	// Слоты для распределения ордеров с описанием
 	SLOT_MM_LIQUIDATION = 0     // Ликвидации маркет-мейкеров
 	SLOT_VIP            = 1     // VIP-трейдеры
 	SLOT_SMALL_RETAIL   = 2     // Мелкие retail ордера (<$10)
@@ -61,6 +61,34 @@ var (
 	}
 )
 
+// SlotMetadata содержит статические метаданные слота
+type SlotMetadata struct {
+	Index       int
+	Name        string
+	Description string
+	Priority    int // Приоритет исполнения (0 = высший)
+}
+
+// SlotMetadataTable - статическая таблица метаданных всех слотов
+var SlotMetadataTable = [VERKLE_WIDTH]SlotMetadata{
+	{Index: 0, Name: "MM_LIQUIDATION", Description: "Ликвидации маркет-мейкеров", Priority: 0},
+	{Index: 1, Name: "VIP", Description: "VIP-трейдеры", Priority: 1},
+	{Index: 2, Name: "SMALL_RETAIL", Description: "Мелкие retail (<$10)", Priority: 2},
+	{Index: 3, Name: "RETAIL_3", Description: "Retail ордера (группа 3)", Priority: 3},
+	{Index: 4, Name: "RETAIL_4", Description: "Retail ордера (группа 4)", Priority: 3},
+	{Index: 5, Name: "RETAIL_5", Description: "Retail ордера (группа 5)", Priority: 3},
+	{Index: 6, Name: "RETAIL_6", Description: "Retail ордера (группа 6)", Priority: 3},
+	{Index: 7, Name: "RETAIL_7", Description: "Retail ордера (группа 7)", Priority: 3},
+	{Index: 8, Name: "RETAIL_8", Description: "Retail ордера (группа 8)", Priority: 3},
+	{Index: 9, Name: "RETAIL_9", Description: "Retail ордера (группа 9)", Priority: 3},
+	{Index: 10, Name: "RETAIL_10", Description: "Retail ордера (группа 10)", Priority: 3},
+	{Index: 11, Name: "RETAIL_11", Description: "Retail ордера (группа 11)", Priority: 3},
+	{Index: 12, Name: "RETAIL_12", Description: "Retail ордера (группа 12)", Priority: 3},
+	{Index: 13, Name: "RETAIL_13", Description: "Retail ордера (группа 13)", Priority: 3},
+	{Index: 14, Name: "RETAIL_14", Description: "Retail ордера (группа 14)", Priority: 3},
+	{Index: 15, Name: "RESERVED", Description: "Зарезервированный слот", Priority: 99},
+}
+
 // Вспомогательные функции для работы с пулами
 func getOrderFromPool() *Order {
 	return orderPool.Get().(*Order)
@@ -72,44 +100,59 @@ func putOrderToPool(o *Order) {
 	orderPool.Put(o)
 }
 
-func getSlotFromPool() *Slot {
-	s := slotPool.Get().(*Slot)
-	s.Orders = s.Orders[:0] // Сбрасываем length, но сохраняем capacity
-	s.Volume = 0
-	return s
-}
-
-func putSlotToPool(s *Slot) {
-	// ИСПРАВЛЕНИЕ: НЕ возвращаем ордера в пул здесь!
-	// Они управляются через OrderIndex и возвращаются при Cancel
-	s.Orders = s.Orders[:0]
-	s.Volume = 0
-	slotPool.Put(s)
-}
-
 func getPriceLevelFromPool() *PriceLevel {
 	pl := priceLevelPool.Get().(*PriceLevel)
 	
-	// Инициализируем слоты если они nil
+	// Инициализируем ВСЕ 16 слотов со статическими метаданными
 	for i := 0; i < VERKLE_WIDTH; i++ {
 		if pl.Slots[i] == nil {
-			pl.Slots[i] = getSlotFromPool()
+			pl.Slots[i] = &Slot{
+				Metadata: &SlotMetadataTable[i], // Ссылка на статическую метадату
+				Orders:   make([]*Order, 0, 16),
+				Volume:   0,
+			}
+		} else {
+			// Слот уже существует, просто очищаем
+			pl.Slots[i].Orders = pl.Slots[i].Orders[:0]
+			pl.Slots[i].Volume = 0
+			// Метаданные не трогаем - они статические
 		}
 	}
+	
+	pl.Price = 0
+	pl.TotalVolume = 0
 	
 	return pl
 }
 
+// putPriceLevelToPool возвращает PriceLevel в пул (слоты НЕ удаляем)
 func putPriceLevelToPool(pl *PriceLevel) {
-	// Возвращаем слоты в пул
+	// Очищаем все слоты, но НЕ устанавливаем в nil
 	for i := 0; i < VERKLE_WIDTH; i++ {
 		if pl.Slots[i] != nil {
-			putSlotToPool(pl.Slots[i])
+			pl.Slots[i].Orders = pl.Slots[i].Orders[:0]
+			pl.Slots[i].Volume = 0
 		}
 	}
+	
 	pl.Price = 0
 	pl.TotalVolume = 0
 	priceLevelPool.Put(pl)
+}
+
+// getSlotFromPool больше не нужна для PriceLevel, но оставим для совместимости
+func getSlotFromPool() *Slot {
+	s := slotPool.Get().(*Slot)
+	s.Orders = s.Orders[:0]
+	s.Volume = 0
+	return s
+}
+
+// putSlotToPool больше не используется для слотов в PriceLevel
+func putSlotToPool(s *Slot) {
+	s.Orders = s.Orders[:0]
+	s.Volume = 0
+	slotPool.Put(s)
 }
 
 // Side - сторона ордера
@@ -146,6 +189,7 @@ type PriceLevel struct {
 
 // Slot - слот внутри ценового уровня
 type Slot struct {
+	Metadata *SlotMetadata // Указатель на статические метаданные
 	Orders []*Order // Список ордеров в слоте (FIFO)
 	Volume uint64   // Суммарный объем ордеров в слоте
 }
@@ -202,9 +246,13 @@ type OrderJSON struct {
 }
 
 type SlotJSON struct {
-	SlotIndex int          `json:"slot_index"`
-	Volume    float64      `json:"volume"`
-	Orders    []OrderJSON  `json:"orders"`
+	SlotIndex   int          `json:"slot_index"`
+	SlotName    string       `json:"slot_name"`
+	Description string       `json:"description"`
+	Priority    int          `json:"priority"`
+	Volume      float64      `json:"volume"`
+	OrdersCount int          `json:"orders_count"`
+	Orders      []OrderJSON  `json:"orders,omitempty"` // omitempty для компактности
 }
 
 type PriceLevelJSON struct {
@@ -324,21 +372,26 @@ func (ob *OrderBook) serializePriceLevel(level *PriceLevel) PriceLevelJSON {
 		Price:       float64(level.Price) / PRICE_DECIMALS,
 		TotalVolume: float64(level.TotalVolume) / PRICE_DECIMALS,
 		Hash:        hex.EncodeToString(hash[:]),
-		Slots:       make([]SlotJSON, 0),
+		Slots:       make([]SlotJSON, 0, VERKLE_WIDTH),
 	}
 	
-	// Сериализуем только непустые слоты
+	// Сериализуем ВСЕ слоты (даже пустые для наглядности)
 	for i := 0; i < VERKLE_WIDTH; i++ {
 		slot := level.Slots[i]
-		if slot.Volume > 0 {
-			slotJSON := SlotJSON{
-				SlotIndex: i,
-				Volume:    float64(slot.Volume) / PRICE_DECIMALS,
-				Orders:    make([]OrderJSON, 0, len(slot.Orders)),
-			}
-			
-			// Ограничиваем количество ордеров для читаемости
-			maxOrders := 10
+		
+		slotJSON := SlotJSON{
+			SlotIndex:   i,
+			SlotName:    slot.Metadata.Name,
+			Description: slot.Metadata.Description,
+			Priority:    slot.Metadata.Priority,
+			Volume:      float64(slot.Volume) / PRICE_DECIMALS,
+			OrdersCount: len(slot.Orders),
+			Orders:      make([]OrderJSON, 0),
+		}
+		
+		// Добавляем ордера только если они есть (для компактности)
+		if len(slot.Orders) > 0 {
+			maxOrders := 5 // Ограничиваем для читаемости
 			for idx, order := range slot.Orders {
 				if idx >= maxOrders {
 					break
@@ -351,7 +404,10 @@ func (ob *OrderBook) serializePriceLevel(level *PriceLevel) PriceLevelJSON {
 					Side:     order.Side.String(),
 				})
 			}
-			
+		}
+		
+		// Добавляем слот в результат только если в нем есть объем
+		if slot.Volume > 0 {
 			result.Slots = append(result.Slots, slotJSON)
 		}
 	}
@@ -522,26 +578,6 @@ func (ob *OrderBook) Stop() {
 }
 
 // periodicHasher - горутина для периодического пересчета хеша
-/**
-func (ob *OrderBook) periodicHasher() {
-	for {
-		select {
-		case <-ob.hashTicker.C:
-			ob.mu.RLock()
-			ob.rebuildTree()
-			ob.computeRootHash()
-			atomic.AddUint64(&ob.stats.HashCount, 1)
-			ob.stats.LastHashTime = time.Now()
-			rootHash := ob.LastRootHash
-			ob.mu.RUnlock()
-			
-			//fmt.Printf("⏱  Периодический хеш [%s]: %x...\n", time.Now().Format("15:04:05.000"), rootHash[:8]) 
-		case <-ob.stopChan:
-			return
-		}
-	}
-}
-**/
 func (ob *OrderBook) periodicHasher() {
 	for {
 		select {
@@ -620,12 +656,12 @@ func (ob *OrderBook) AddLimitOrder(traderID uint32, price uint64, size uint64, s
 	// Получаем или создаем уровень цены
 	level, exists := levels[price]
 	if !exists {
-		level = getPriceLevelFromPool()
+		level = getPriceLevelFromPool() // Все 16 слотов уже инициализированы!
 		level.Price = price
 		level.TotalVolume = 0
 		levels[price] = level
 		
-		// ОБНОВЛЯЕМ BestBid/BestAsk ТОЛЬКО при создании НОВОГО уровня
+		// Обновляем BestBid/BestAsk
 		if side == SELL {
 			if ob.BestAsk == 0 || price < ob.BestAsk {
 				ob.BestAsk = price
@@ -729,15 +765,21 @@ func (ob *OrderBook) CancelOrder(orderID uint64) bool {
 	slot := level.Slots[order.Slot]
 	
 	// Удаляем ордер из слота
-//	found := false
+	//found := false
 	for i, o := range slot.Orders {
 		if o.ID == orderID {
 			slot.Orders = append(slot.Orders[:i], slot.Orders[i+1:]...)
-			slot.Volume -= order.Size
+			slot.Volume -= order.Size  // <- Уменьшаем volume слота
 			level.TotalVolume -= order.Size
-//			found = true
+			//found = true
 			break
 		}
+	}
+
+	// ДОБАВЬТЕ ПРОВЕРКУ КОНСИСТЕНТНОСТИ:
+	// Если ордеров больше нет, volume должен быть 0
+	if len(slot.Orders) == 0 {
+		slot.Volume = 0
 	}
 	
 	// Удаляем из индекса
@@ -866,6 +908,11 @@ func (ob *OrderBook) ModifyOrder(orderID uint64, newPrice *uint64, newSize *uint
 				}
 			}
 			
+			// Проверка консистентности старого слота
+			if len(oldSlot.Orders) == 0 {
+				oldSlot.Volume = 0
+			}
+			
 			// Добавляем в новый слот
 			order.Slot = newSlot
 			targetSlot := oldLevel.Slots[newSlot]
@@ -887,56 +934,67 @@ func (ob *OrderBook) ModifyOrder(orderID uint64, newPrice *uint64, newSize *uint
 	}
 	
 	// Случай 2: Меняется цена (возможно и объем) - атомарный перенос в другой узел
+	// Случай 2: Меняется цена (возможно и объем) - атомарный перенос в другой узел
 	if priceChanged {
 		newPriceVal := *newPrice
 		newSizeVal := order.Size
 		if sizeChanged {
 			newSizeVal = *newSize
 		}
-		
-		// Удаляем из старого слота и уровня
+    
+		// ВАЖНО: Сначала удаляем из старого слота
+		orderFound := false
 		for i, o := range oldSlot.Orders {
 			if o.ID == orderID {
 				oldSlot.Orders = append(oldSlot.Orders[:i], oldSlot.Orders[i+1:]...)
 				oldSlot.Volume -= order.Size
 				oldLevel.TotalVolume -= order.Size
+				orderFound = true
 				break
 			}
 		}
-		
-		// Если старый уровень стал пустым, удаляем его
-		// Если уровень пустой, удаляем его и возвращаем в пул
-if oldLevel.TotalVolume == 0 {
-    deletedPrice := oldLevel.Price
-    delete(levels, order.Price)
-    putPriceLevelToPool(oldLevel)
     
-    // Обновляем BestBid/BestAsk ТОЛЬКО если удалили именно best уровень
-    if order.Side == BUY && deletedPrice == ob.BestBid {
-        // Ищем новый BestBid
-        ob.BestBid = 0
-        for price := range ob.BuyLevels {
-            if price > ob.BestBid {
-                ob.BestBid = price
-            }
-        }
-    } else if order.Side == SELL && deletedPrice == ob.BestAsk {
-        // Ищем новый BestAsk
-        ob.BestAsk = 0
-        for price := range ob.SellLevels {
-            if ob.BestAsk == 0 || price < ob.BestAsk {
-                ob.BestAsk = price
-            }
-        }
-    }
-}
+		if !orderFound {
+			// Ордер не найден в слоте - ошибка консистентности
+			fmt.Printf("⚠️  ОШИБКА: Ордер #%d не найден в слоте %d уровня %.2f\n",
+				orderID, order.Slot, float64(order.Price)/PRICE_DECIMALS)
+			return false
+		}
 		
-		// Обновляем ордер
-//		oldPrice := order.Price
+		// Проверка консистентности старого слота
+		if len(oldSlot.Orders) == 0 {
+			oldSlot.Volume = 0
+		}
+    
+		// Если старый уровень стал пустым, удаляем его
+		if oldLevel.TotalVolume == 0 {
+			deletedPrice := oldLevel.Price
+			delete(levels, order.Price)
+			putPriceLevelToPool(oldLevel)
+			
+			// Обновляем BestBid/BestAsk если удалили best уровень
+			if order.Side == BUY && deletedPrice == ob.BestBid {
+				ob.BestBid = 0
+				for price := range ob.BuyLevels {
+					if price > ob.BestBid {
+						ob.BestBid = price
+					}
+				}
+			} else if order.Side == SELL && deletedPrice == ob.BestAsk {
+				ob.BestAsk = 0
+				for price := range ob.SellLevels {
+					if ob.BestAsk == 0 || price < ob.BestAsk {
+						ob.BestAsk = price
+					}
+				}
+			}
+		}
+    
+		// ТЕПЕРЬ обновляем ордер (после удаления из старого места!)
 		order.Price = newPriceVal
 		order.Size = newSizeVal
 		order.Slot = ob.determineSlot(order)
-		
+    
 		// Получаем или создаем новый уровень цены
 		newLevel, exists := levels[newPriceVal]
 		if !exists {
@@ -944,27 +1002,32 @@ if oldLevel.TotalVolume == 0 {
 			newLevel.Price = newPriceVal
 			newLevel.TotalVolume = 0
 			levels[newPriceVal] = newLevel
+			
+			// Обновляем BestBid/BestAsk при создании нового уровня
+			if order.Side == SELL {
+				if ob.BestAsk == 0 || newPriceVal < ob.BestAsk {
+					ob.BestAsk = newPriceVal
+				}
+			} else if order.Side == BUY {
+				if ob.BestBid == 0 || newPriceVal > ob.BestBid {
+					ob.BestBid = newPriceVal
+				}
+			}
 		}
-		
+    
 		// Добавляем в новый слот
 		newSlot := newLevel.Slots[order.Slot]
 		newSlot.Orders = append(newSlot.Orders, order)
 		newSlot.Volume += newSizeVal
 		newLevel.TotalVolume += newSizeVal
-/*		
-		fmt.Printf("↻ Изменен ордер #%d: цена %.2f→%.2f, объем %.2f, слот %d\n",
-			orderID, float64(oldPrice)/PRICE_DECIMALS, float64(newPriceVal)/PRICE_DECIMALS,
-			float64(newSizeVal)/PRICE_DECIMALS, order.Slot)
-*/		
+		
 		atomic.AddUint64(&ob.stats.TotalModifies, 1)
+		atomic.AddUint64(&ob.stats.TotalOperations, 1)
 		
 		// Проверяем матчинг с новой ценой
 		ob.tryMatchUnsafe(order)
-		
-		return true
-	}
-	
-	return false
+    }
+    return true
 }
 
 // rebuildTree перестраивает Verkle дерево
@@ -1105,33 +1168,6 @@ func (ob *OrderBook) hashPriceLevel(level *PriceLevel) [32]byte {
 }
 
 // PrintStats выводит статистику ордербука
-/**
-func (ob *OrderBook) PrintStats() {
-	ob.mu.RLock()
-	defer ob.mu.RUnlock()
-	
-	totalOperations := atomic.LoadUint64(&ob.stats.TotalOperations)
-	totalOrders := atomic.LoadUint64(&ob.stats.TotalOrders)
-	totalMatches := atomic.LoadUint64(&ob.stats.TotalMatches)
-	totalCancels := atomic.LoadUint64(&ob.stats.TotalCancels)
-	totalModifies := atomic.LoadUint64(&ob.stats.TotalModifies)
-	hashCount := atomic.LoadUint64(&ob.stats.HashCount)
-	
-	fmt.Printf("\n═══════════════════════════════════════════\n")
-	fmt.Printf("Статистика %s:\n", ob.Symbol)
-	fmt.Printf("  • Активных ордеров: %d\n", len(ob.OrderIndex))
-	fmt.Printf("  • Всего добавлено: %d\n", totalOrders)
-	fmt.Printf("  • Матчей: %d\n", totalMatches)
-	fmt.Printf("  • Отмен: %d\n", totalCancels)
-	fmt.Printf("  • Изменений: %d\n", totalModifies)
-	fmt.Printf("  • BUY уровней: %d\n", len(ob.BuyLevels))
-	fmt.Printf("  • SELL уровней: %d\n", len(ob.SellLevels))
-	fmt.Printf("  • Всего операций (Tx): %d\n", totalOperations)
-	fmt.Printf("  • Хешей посчитано: %d\n", hashCount)
-	fmt.Printf("  • Root hash: %x...\n", ob.LastRootHash[:16])
-	fmt.Printf("═══════════════════════════════════════════\n\n")
-}
-**/
 func (ob *OrderBook) PrintStats() {
 	ob.mu.Lock()
 	
@@ -1188,76 +1224,12 @@ func main() {
 	basePrice := uint64(6500000) // $65000
 	
 	// Симулируем высокую нагрузку
-	numOperations := 200_000
+	numOperations := 10_000
 	//operationTypes := []string{"add", "cancel", "modify"}
 	
 	addedOrders := make([]uint64, 0)
 	
 	startTime := time.Now()
-
-/**	
-	for i := 0; i < numOperations; i++ {
-		opType := operationTypes[rand.Intn(len(operationTypes))]
-		
-		switch opType {
-		case "add":
-			traderID := uint32(rand.Intn(MAX_TRADERS) + 1)
-			priceOffset := uint64(rand.Intn(20000) - 10000)
-			price := basePrice + priceOffset
-			size := uint64(rand.Intn(10000) + 100)
-			side := BUY
-			if rand.Float32() < 0.5 {
-				side = SELL
-			}
-			
-			order := ob.AddLimitOrder(traderID, price, size, side)
-			addedOrders = append(addedOrders, order.ID)
-			
-		case "cancel":
-			if len(addedOrders) > 0 {
-				idx := rand.Intn(len(addedOrders))
-				orderID := addedOrders[idx]
-				if ob.CancelOrder(orderID) {
-					// Удаляем из списка
-					addedOrders = append(addedOrders[:idx], addedOrders[idx+1:]...)
-				}
-			}
-			
-		case "modify":
-			if len(addedOrders) > 0 {
-				orderID := addedOrders[rand.Intn(len(addedOrders))]
-				
-				// Случайно выбираем что менять
-				modType := rand.Intn(3)
-				
-				switch modType {
-				case 0: // Только объем
-					newSize := uint64(rand.Intn(10000) + 100)
-					ob.ModifyOrder(orderID, nil, &newSize)
-					
-				case 1: // Только цена
-					priceOffset := uint64(rand.Intn(20000) - 10000)
-					newPrice := basePrice + priceOffset
-					ob.ModifyOrder(orderID, &newPrice, nil)
-					
-				case 2: // Цена и объем
-					priceOffset := uint64(rand.Intn(20000) - 10000)
-					newPrice := basePrice + priceOffset
-					newSize := uint64(rand.Intn(10000) + 100)
-					ob.ModifyOrder(orderID, &newPrice, &newSize)
-				}
-			}
-		}
-		
-		// Статистика каждые 1000 операций
-		if (i+1)%1000 == 0 {
-			ob.PrintStats()
-		}
-		
-		// Небольшая задержка для демонстрации
-		//time.Sleep(10 * time.Millisecond)
-	}
-*/
 
 	for i := 0; i < numOperations; i++ {
 		// Распределение операций:
