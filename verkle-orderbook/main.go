@@ -23,8 +23,8 @@ import (
 const (
 	VERKLE_WIDTH      = 16      // Ширина Verkle дерева
 	PRICE_DECIMALS    = 100     // Точность цены (2 знака после запятой)
-	MAX_TRADERS       = 1000   // Максимальное количество трейдеров
-	HASH_INTERVAL     = 0 //500 * time.Millisecond // Интервал хеширования
+	MAX_TRADERS       = 10000   // Максимальное количество трейдеров
+	HASH_INTERVAL     = 500 * time.Millisecond // Интервал хеширования
 	
 	// Слоты для распределения ордеров с описанием
 	SLOT_MM_LIQUIDATION = 0     // Ликвидации маркет-мейкеров
@@ -2352,6 +2352,7 @@ func (ob *OrderBook) hashNode(node *VerkleNode) [32]byte {
 }
 
 // ExecuteMarketOrder исполняет рыночный ордер (не добавляется в книгу)
+/***
 func (ob *OrderBook) ExecuteMarketOrder(traderID uint32, size uint64, side Side) bool {
 	ob.mu.Lock()
 	defer ob.mu.Unlock()
@@ -2380,21 +2381,69 @@ func (ob *OrderBook) ExecuteMarketOrder(traderID uint32, size uint64, side Side)
 	} else {
 		sort.Slice(prices, func(i, j int) bool { return prices[i] > prices[j] })
 	}
-/*	
-	bestPrice := prices[0]
-	level := oppositeLevels[bestPrice]
-	
-	// Исполняем по лучшей цене (в реальности здесь будет логика частичного заполнения)
-	fmt.Printf("💥 МАРКЕТ: %s размер %.2f исполнен по цене %.2f (доступно %.2f)\n",
-		side, float64(size)/PRICE_DECIMALS, float64(bestPrice)/PRICE_DECIMALS,
-		float64(level.TotalVolume)/PRICE_DECIMALS) */
 	
 	atomic.AddUint64(&ob.stats.TotalMatches, 1)
 	atomic.AddUint64(&ob.stats.TotalMarketOrders, 1)
 	atomic.AddUint64(&ob.stats.TotalOperations, 1)
 	return true
 }
+***/
 
+func (ob *OrderBook) ExecuteMarketOrder(traderID uint32, size uint64, side Side) bool {
+    ob.mu.Lock()
+    defer ob.mu.Unlock()
+    
+    var oppositeLevels map[uint64]*PriceLevel
+    var bestPrice uint64
+    
+    if side == BUY {
+        oppositeLevels = ob.SellLevels
+        bestPrice = ob.bestAskAtomic.Load()
+    } else {
+        oppositeLevels = ob.BuyLevels
+        bestPrice = ob.bestBidAtomic.Load()
+    }
+    
+    if bestPrice == 0 || len(oppositeLevels) == 0 {
+        return false
+    }
+    
+    level := oppositeLevels[bestPrice]
+    if level == nil {
+        return false
+    }
+    
+    // Создаем временный маркет-ордер
+    order := getOrderFromPool()
+    order.ID = atomic.AddUint64(&ob.nextOrderID, 1)
+    order.TraderID = traderID
+    order.Price = bestPrice  // Для маркет-ордера BUY - макс цена, SELL - мин цена
+    if side == BUY {
+        order.Price = uint64(^uint64(0)) // Max uint64 - исполнится по любой цене
+    } else {
+        order.Price = 0 // Min - исполнится по любой цене
+    }
+    order.Size = size
+    order.FilledSize = 0
+    order.Side = side
+    order.Slot = ob.determineSlot(order)
+    
+    // Используем существующий механизм матчинга
+    ob.tryMatchUnsafe(order)
+    
+    // Очищаем
+    if !order.IsFilled() {
+        // Маркет-ордер не исполнился полностью - необычная ситуация
+        putOrderToPool(order)
+    } else {
+        putOrderToPool(order)
+    }
+    
+    atomic.AddUint64(&ob.stats.TotalMarketOrders, 1)
+    atomic.AddUint64(&ob.stats.TotalOperations, 1)
+    
+    return true
+}
 
 // hashPriceLevel вычисляет хеш ценового уровня
 func (ob *OrderBook) hashPriceLevel(level *PriceLevel) [32]byte {
@@ -2640,7 +2689,7 @@ func main() {
 	defer ob.Stop()
 	
 	basePrice := uint64(6500000) // $65000
-	numOperations := 100_000
+	numOperations := 1_000_000
 	
 	// Создаем профили трейдеров
 	fmt.Println("👥 Генерация профилей трейдеров...")
@@ -2789,7 +2838,7 @@ for i := 0; i < numOperations; i++ {
     }
     
     // Периодическая очистка
-    if i%1000 == 0 {
+    if i%10000 == 0 {
         ob.CleanupEmptyLevels()
     }
 }
