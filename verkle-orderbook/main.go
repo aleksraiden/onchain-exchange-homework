@@ -32,6 +32,34 @@ const (
 	SLOT_RESERVED       = 15    // Зарезервированный слот
 )
 
+// NodeType - тип узла в дереве
+type NodeType int
+
+const (
+	NODE_ROOT        NodeType = iota // Корневой узел
+	NODE_BUY_SIDE                    // Узел BUY стороны
+	NODE_SELL_SIDE                   // Узел SELL стороны
+	NODE_PRICE_GROUP                 // Группа ценовых уровней
+	NODE_LEAF                        // Листовой узел
+)
+
+func (nt NodeType) String() string {
+	switch nt {
+	case NODE_ROOT:
+		return "ROOT"
+	case NODE_BUY_SIDE:
+		return "BUY_SIDE"
+	case NODE_SELL_SIDE:
+		return "SELL_SIDE"
+	case NODE_PRICE_GROUP:
+		return "PRICE_GROUP"
+	case NODE_LEAF:
+		return "LEAF"
+	default:
+		return "UNKNOWN"
+	}
+}
+
 // Memory Pools для минимизации аллокаций
 var (
 	orderPool = sync.Pool{
@@ -226,6 +254,24 @@ func (o *Order) IsFilled() bool {
 	return o.FilledSize >= o.Size
 }
 
+// safeSubtract безопасно вычитает с защитой от underflow
+func safeSubtract(from, value uint64) uint64 {
+	if value > from {
+		fmt.Printf("⚠️  UNDERFLOW PREVENTED: попытка вычесть %d из %d\n", value, from)
+		return 0
+	}
+	return from - value
+}
+
+// safeAdd безопасно складывает с защитой от overflow
+func safeAdd(a, b uint64) uint64 {
+	if a > ^uint64(0)-b { // Проверка переполнения
+		fmt.Printf("⚠️  OVERFLOW PREVENTED: попытка сложить %d + %d\n", a, b)
+		return ^uint64(0) // Возвращаем максимальное значение
+	}
+	return a + b
+}
+
 // PriceLevel - уровень цены, содержит слоты с ордерами
 type PriceLevel struct {
 	Price       uint64              // Цена этого уровня
@@ -245,6 +291,8 @@ type VerkleNode struct {
 	Hash     [32]byte              // Blake3 хеш узла
 	Children [VERKLE_WIDTH]interface{} // Дочерние узлы или price levels
 	IsLeaf   bool                  // Является ли узел листом
+	NodeType NodeType                  // Тип узла
+	Metadata string                    // Дополнительные метаданные (например, "BUY", "SELL")
 }
 
 // OrderBook - основной класс ордербука
@@ -309,8 +357,16 @@ type PriceLevelJSON struct {
 
 type VerkleNodeJSON struct {
 	Hash     string              `json:"hash"`
-	IsLeaf   bool                `json:"is_leaf"`
-	Children []interface{}       `json:"children"` // PriceLevelJSON или VerkleNodeJSON
+	NodeType string              `json:"node_type"`
+	Metadata string              `json:"metadata,omitempty"`
+	Children []interface{}       `json:"children,omitempty"`
+	Stats    *NodeStatsJSON      `json:"stats,omitempty"` // Статистика узла
+}
+
+type NodeStatsJSON struct {
+	ChildrenCount int     `json:"children_count"`
+	TotalOrders   int     `json:"total_orders"`
+	TotalVolume   float64 `json:"total_volume"`
 }
 
 type OrderBookStateJSON struct {
@@ -474,23 +530,110 @@ func (ob *OrderBook) ExportToJSON(filename string) error {
 	return nil
 }
 
+// GetSideHashes возвращает хеши BUY и SELL сторон отдельно
+func (ob *OrderBook) GetSideHashes() (buyHash [32]byte, sellHash [32]byte) {
+	ob.mu.RLock()
+	defer ob.mu.RUnlock()
+	
+	ob.rebuildTree()
+	
+	if buyNode, ok := ob.Root.Children[0].(*VerkleNode); ok {
+		buyHash = ob.hashNode(buyNode)
+	}
+	
+	if sellNode, ok := ob.Root.Children[1].(*VerkleNode); ok {
+		sellHash = ob.hashNode(sellNode)
+	}
+	
+	return
+}
+
+// PrintTreeStructure выводит структуру дерева в консоль
+func (ob *OrderBook) PrintTreeStructure() {
+	ob.mu.RLock()
+	defer ob.mu.RUnlock()
+	
+	ob.rebuildTree()
+	ob.computeRootHash()
+	
+	fmt.Println("\n🌳 СТРУКТУРА VERKLE ДЕРЕВА")
+	fmt.Println("═══════════════════════════════════════════")
+	ob.printNodeRecursive(ob.Root, 0)
+	fmt.Println("═══════════════════════════════════════════\n")
+}
+
+// printNodeRecursive рекурсивно печатает структуру узла
+func (ob *OrderBook) printNodeRecursive(node interface{}, depth int) {
+	indent := ""
+	for i := 0; i < depth; i++ {
+		indent += "  "
+	}
+	
+	switch n := node.(type) {
+	case *VerkleNode:
+		childCount := 0
+		for i := 0; i < VERKLE_WIDTH; i++ {
+			if n.Children[i] != nil {
+				childCount++
+			}
+		}
+		
+		fmt.Printf("%s├─ [%s] %s (hash: %x..., children: %d)\n",
+			indent, n.NodeType.String(), n.Metadata, n.Hash[:4], childCount)
+		
+		for i := 0; i < VERKLE_WIDTH; i++ {
+			if n.Children[i] != nil {
+				ob.printNodeRecursive(n.Children[i], depth+1)
+			}
+		}
+		
+	case *PriceLevel:
+		ordersCount := 0
+		for _, slot := range n.Slots {
+			ordersCount += len(slot.Orders)
+		}
+		
+		fmt.Printf("%s├─ [PRICE] %.2f (volume: %.2f, orders: %d)\n",
+			indent, 
+			float64(n.Price)/PRICE_DECIMALS,
+			float64(n.TotalVolume)/PRICE_DECIMALS,
+			ordersCount)
+	}
+}
+
 // serializeVerkleNode рекурсивно сериализует узел Verkle дерева
 func (ob *OrderBook) serializeVerkleNode(node *VerkleNode) VerkleNodeJSON {
 	result := VerkleNodeJSON{
 		Hash:     hex.EncodeToString(node.Hash[:]),
-		IsLeaf:   node.IsLeaf,
+		NodeType: node.NodeType.String(),
+		Metadata: node.Metadata,
 		Children: make([]interface{}, 0),
 	}
+	
+	// Собираем статистику узла
+	stats := &NodeStatsJSON{}
 	
 	for i := 0; i < VERKLE_WIDTH; i++ {
 		switch child := node.Children[i].(type) {
 		case *VerkleNode:
 			result.Children = append(result.Children, ob.serializeVerkleNode(child))
+			stats.ChildrenCount++
+			
 		case *PriceLevel:
-			result.Children = append(result.Children, ob.serializePriceLevel(child))
-		default:
-			// Пустой узел - пропускаем
+			levelJSON := ob.serializePriceLevel(child)
+			result.Children = append(result.Children, levelJSON)
+			stats.ChildrenCount++
+			
+			// Считаем ордера и объем
+			for _, slot := range child.Slots {
+				stats.TotalOrders += len(slot.Orders)
+			}
+			stats.TotalVolume += float64(child.TotalVolume) / PRICE_DECIMALS
 		}
+	}
+	
+	if stats.ChildrenCount > 0 {
+		result.Stats = stats
 	}
 	
 	return result
@@ -932,8 +1075,11 @@ func (ob *OrderBook) tryMatchUnsafe(takerOrder *Order) {
 			}
 			
 			// Обновляем объемы
-			slot.Volume -= executeSize
-			level.TotalVolume -= executeSize
+			//slot.Volume -= executeSize
+			//level.TotalVolume -= executeSize
+			
+			slot.Volume = safeSubtract(slot.Volume, executeSize)
+			level.TotalVolume = safeSubtract(level.TotalVolume, executeSize)
 			
 			// Сохраняем трейд
 			ob.Trades = append(ob.Trades, trade)
@@ -1065,7 +1211,7 @@ func (ob *OrderBook) CancelOrder(orderID uint64) bool {
 		// Просто удаляем из индекса и возвращаем в пул
 		delete(ob.OrderIndex, orderID)
 		putOrderToPool(order)
-		atomic.AddUint64(&ob.stats.TotalCancels, 1)
+//		atomic.AddUint64(&ob.stats.TotalCancels, 1)
 //		fmt.Printf("✗ Отменен ордер #%d (уровень уже удален)\n", orderID)
 		return true
 	}
@@ -1077,8 +1223,12 @@ func (ob *OrderBook) CancelOrder(orderID uint64) bool {
 	for i, o := range slot.Orders {
 		if o.ID == orderID {
 			slot.Orders = append(slot.Orders[:i], slot.Orders[i+1:]...)
-			slot.Volume -= order.Size  // <- Уменьшаем volume слота
-			level.TotalVolume -= order.Size
+			//slot.Volume -= order.Size  // <- Уменьшаем volume слота
+			
+			slot.Volume = safeSubtract(slot.Volume, order.Size)
+			level.TotalVolume = safeSubtract(level.TotalVolume, order.Size)
+			
+			//level.TotalVolume -= order.Size
 			//found = true
 			break
 		}
@@ -1199,8 +1349,11 @@ func (ob *OrderBook) ModifyOrder(orderID uint64, newPrice *uint64, newSize *uint
 		oldSize := order.Size
 		
 		// Обновляем объемы
-		oldSlot.Volume -= oldSize
-		oldLevel.TotalVolume -= oldSize
+		//oldSlot.Volume -= oldSize
+		//oldLevel.TotalVolume -= oldSize
+		// ИСПРАВЛЕНИЕ: Безопасное вычитание
+		oldSlot.Volume = safeSubtract(oldSlot.Volume, oldSize)
+		oldLevel.TotalVolume = safeSubtract(oldLevel.TotalVolume, oldSize)
 		
 		order.Size = newSizeVal
 		
@@ -1242,7 +1395,6 @@ func (ob *OrderBook) ModifyOrder(orderID uint64, newPrice *uint64, newSize *uint
 	}
 	
 	// Случай 2: Меняется цена (возможно и объем) - атомарный перенос в другой узел
-	// Случай 2: Меняется цена (возможно и объем) - атомарный перенос в другой узел
 	if priceChanged {
 		newPriceVal := *newPrice
 		newSizeVal := order.Size
@@ -1255,8 +1407,13 @@ func (ob *OrderBook) ModifyOrder(orderID uint64, newPrice *uint64, newSize *uint
 		for i, o := range oldSlot.Orders {
 			if o.ID == orderID {
 				oldSlot.Orders = append(oldSlot.Orders[:i], oldSlot.Orders[i+1:]...)
-				oldSlot.Volume -= order.Size
-				oldLevel.TotalVolume -= order.Size
+				
+				//oldSlot.Volume -= order.Size
+				//oldLevel.TotalVolume -= order.Size
+				
+				oldSlot.Volume = safeSubtract(oldSlot.Volume, newSizeVal)
+				oldLevel.TotalVolume = safeSubtract(oldLevel.TotalVolume, newSizeVal)
+				
 				orderFound = true
 				break
 			}
@@ -1338,32 +1495,86 @@ func (ob *OrderBook) ModifyOrder(orderID uint64, newPrice *uint64, newSize *uint
     return true
 }
 
-// rebuildTree перестраивает Verkle дерево
+// rebuildTree перестраивает Verkle дерево с разделением BUY/SELL
 func (ob *OrderBook) rebuildTree() {
-	allLevels := make([]*PriceLevel, 0, len(ob.BuyLevels)+len(ob.SellLevels))
-	
-	for _, level := range ob.BuyLevels {
-		allLevels = append(allLevels, level)
-	}
-	for _, level := range ob.SellLevels {
-		allLevels = append(allLevels, level)
+	// Создаем корневой узел
+	ob.Root = &VerkleNode{
+		NodeType: NODE_ROOT,
+		Metadata: "OrderBook Root",
 	}
 	
-	sort.Slice(allLevels, func(i, j int) bool {
-		return allLevels[i].Price < allLevels[j].Price
-	})
+	// Child[0] = BUY сторона
+	// Child[1] = SELL сторона
+	// Children[2-15] = зарезервированы для будущего использования
 	
-	if len(allLevels) == 0 {
-		ob.Root = &VerkleNode{IsLeaf: false}
-		return
+	// Строим BUY поддерево
+	if len(ob.BuyLevels) > 0 {
+		ob.Root.Children[0] = ob.buildSideTree(ob.BuyLevels, NODE_BUY_SIDE)
 	}
 	
-	ob.Root = &VerkleNode{IsLeaf: false}
-	
-	for i, level := range allLevels {
-		childIndex := i % VERKLE_WIDTH
-		ob.Root.Children[childIndex] = level
+	// Строим SELL поддерево
+	if len(ob.SellLevels) > 0 {
+		ob.Root.Children[1] = ob.buildSideTree(ob.SellLevels, NODE_SELL_SIDE)
 	}
+}
+
+// buildSideTree строит поддерево для одной стороны (BUY или SELL)
+func (ob *OrderBook) buildSideTree(levels map[uint64]*PriceLevel, sideType NodeType) *VerkleNode {
+	sideNode := &VerkleNode{
+		NodeType: sideType,
+		Metadata: sideType.String(),
+	}
+	
+	// Собираем и сортируем уровни
+	sortedLevels := make([]*PriceLevel, 0, len(levels))
+	for _, level := range levels {
+		sortedLevels = append(sortedLevels, level)
+	}
+	
+	// Сортируем: BUY по убыванию, SELL по возрастанию
+	if sideType == NODE_BUY_SIDE {
+		sort.Slice(sortedLevels, func(i, j int) bool {
+			return sortedLevels[i].Price > sortedLevels[j].Price
+		})
+	} else {
+		sort.Slice(sortedLevels, func(i, j int) bool {
+			return sortedLevels[i].Price < sortedLevels[j].Price
+		})
+	}
+	
+	// Если уровней <= 16, размещаем их напрямую в children
+	if len(sortedLevels) <= VERKLE_WIDTH {
+		for i, level := range sortedLevels {
+			sideNode.Children[i] = level
+		}
+		return sideNode
+	}
+	
+	// Если уровней > 16, создаем промежуточные узлы (группы)
+	// Разбиваем на группы по VERKLE_WIDTH
+	groupSize := (len(sortedLevels) + VERKLE_WIDTH - 1) / VERKLE_WIDTH
+	
+	for groupIdx := 0; groupIdx < VERKLE_WIDTH && groupIdx*groupSize < len(sortedLevels); groupIdx++ {
+		groupNode := &VerkleNode{
+			NodeType: NODE_PRICE_GROUP,
+			Metadata: fmt.Sprintf("Group %d", groupIdx),
+		}
+		
+		startIdx := groupIdx * groupSize
+		endIdx := startIdx + groupSize
+		if endIdx > len(sortedLevels) {
+			endIdx = len(sortedLevels)
+		}
+		
+		// Размещаем уровни в группе
+		for i := startIdx; i < endIdx && i-startIdx < VERKLE_WIDTH; i++ {
+			groupNode.Children[i-startIdx] = sortedLevels[i]
+		}
+		
+		sideNode.Children[groupIdx] = groupNode
+	}
+	
+	return sideNode
 }
 
 // computeRootHash вычисляет Blake3 хеш корня дерева
@@ -1375,6 +1586,10 @@ func (ob *OrderBook) computeRootHash() {
 func (ob *OrderBook) hashNode(node *VerkleNode) [32]byte {
 	hasher := blake3.New()
 	
+	// Добавляем тип узла в хеш для уникальности
+	hasher.Write([]byte{byte(node.NodeType)})
+	
+	// Хешируем всех детей
 	for i := 0; i < VERKLE_WIDTH; i++ {
 		var childHash [32]byte
 		
@@ -1384,6 +1599,7 @@ func (ob *OrderBook) hashNode(node *VerkleNode) [32]byte {
 		case *PriceLevel:
 			childHash = ob.hashPriceLevel(child)
 		default:
+			// Пустой узел
 			childHash = [32]byte{}
 		}
 		
@@ -1392,6 +1608,7 @@ func (ob *OrderBook) hashNode(node *VerkleNode) [32]byte {
 	
 	var result [32]byte
 	hasher.Sum(result[:0])
+	node.Hash = result // Сохраняем хеш в узле
 	return result
 }
 
@@ -1479,10 +1696,19 @@ func (ob *OrderBook) hashPriceLevel(level *PriceLevel) [32]byte {
 func (ob *OrderBook) PrintStats() {
 	ob.mu.Lock()
 	
-	// Принудительно пересчитываем хеш перед выводом статистики
 	ob.rebuildTree()
 	ob.computeRootHash()
 	atomic.AddUint64(&ob.stats.HashCount, 1)
+	
+	// Получаем хеши сторон
+	buyHash := [32]byte{}
+	sellHash := [32]byte{}
+	if buyNode, ok := ob.Root.Children[0].(*VerkleNode); ok {
+		buyHash = buyNode.Hash
+	}
+	if sellNode, ok := ob.Root.Children[1].(*VerkleNode); ok {
+		sellHash = sellNode.Hash
+	}
 	
 	totalOperations := atomic.LoadUint64(&ob.stats.TotalOperations)
 	totalOrders := atomic.LoadUint64(&ob.stats.TotalOrders)
@@ -1493,10 +1719,10 @@ func (ob *OrderBook) PrintStats() {
 	hashCount := atomic.LoadUint64(&ob.stats.HashCount)
 	rootHash := ob.LastRootHash
 	
-	// ИСПРАВЛЕНИЕ: Считываем длины ПОД lock
 	activeOrders := len(ob.OrderIndex)
 	buyLevels := len(ob.BuyLevels)
 	sellLevels := len(ob.SellLevels)
+	tradesCount := len(ob.Trades)
 	
 	ob.mu.Unlock()
 	
@@ -1505,6 +1731,7 @@ func (ob *OrderBook) PrintStats() {
 	fmt.Printf("  • Активных ордеров: %d\n", activeOrders)
 	fmt.Printf("  • Всего добавлено: %d\n", totalOrders)
 	fmt.Printf("  • Маркет-ордеров: %d\n", totalMarketOrders)
+	fmt.Printf("  • Трейдов: %d\n", tradesCount)
 	fmt.Printf("  • Матчей: %d\n", totalMatches)
 	fmt.Printf("  • Отмен: %d\n", totalCancels)
 	fmt.Printf("  • Изменений: %d\n", totalModifies)
@@ -1512,10 +1739,12 @@ func (ob *OrderBook) PrintStats() {
 	fmt.Printf("  • SELL уровней: %d\n", sellLevels)
 	fmt.Printf("  • Всего операций (Tx): %d\n", totalOperations)
 	fmt.Printf("  • Хешей посчитано: %d\n", hashCount)
-	fmt.Printf("  • Root hash: %x...\n", rootHash[:16])
+	fmt.Printf("─────────────────────────────────────────\n")
+	fmt.Printf("  • Root hash:  %x...\n", rootHash[:16])
+	fmt.Printf("  • BUY hash:   %x...\n", buyHash[:16])
+	fmt.Printf("  • SELL hash:  %x...\n", sellHash[:16])
 	fmt.Printf("═══════════════════════════════════════════\n\n")
 }
-
 
 // Симулятор с высокой нагрузкой
 func main() {
@@ -1608,9 +1837,9 @@ func main() {
 		}
 		
 		// Статистика каждые N операций
-		if (i+1)%50_000 == 0 {
-			ob.PrintStats()
-		}
+		//if (i+1)%50_000 == 0 {
+		//	ob.PrintStats()
+		//}
 	}
 	
 	elapsed := time.Since(startTime)
@@ -1622,6 +1851,9 @@ func main() {
 	tps := float64(numOperations) / elapsed.Seconds()
 	fmt.Printf("⚡ Производительность: %.0f операций/сек\n", tps)
 	fmt.Printf("⏱  Общее время: %v\n", elapsed)
+	
+	// Показываем структуру дерева
+	ob.PrintTreeStructure()
 	
 	//JSON export 
 	// Экспортируем состояние дерева
