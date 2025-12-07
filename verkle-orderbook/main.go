@@ -13,6 +13,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"os"
+	
+	"runtime/pprof"
 
 	"github.com/zeebo/blake3"
 )
@@ -2625,6 +2627,14 @@ func main() {
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 	
 	rand.Seed(time.Now().UnixNano())
+	
+	// ПРОФИЛИРОВАНИЕ
+    cpuFile, _ := os.Create("cpu.prof")
+    pprof.StartCPUProfile(cpuFile)
+    defer func() {
+        pprof.StopCPUProfile()
+        cpuFile.Close()
+    }()
 	
 	ob := NewOrderBook("BTC")
 	defer ob.Stop()
