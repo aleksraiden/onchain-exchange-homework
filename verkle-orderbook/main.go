@@ -127,6 +127,11 @@ var SlotMetadataTable = [VERKLE_WIDTH]SlotMetadata{
 	{Index: 15, Name: "RESERVED", Description: "Зарезервированный слот", Priority: 99},
 }
 
+// Добавьте метод для быстрого чтения BestBid/Ask БЕЗ LOCK:
+func (ob *OrderBook) GetSpreadUnsafe() (bestBid, bestAsk uint64) {
+    return atomic.LoadUint64(&ob.BestBid), atomic.LoadUint64(&ob.BestAsk)
+}
+
 // getPriceMagnet возвращает "магнитную" цену (round numbers)
 func getPriceMagnet(basePrice uint64) []uint64 {
 	magnets := make([]uint64, 0, 20)
@@ -346,8 +351,12 @@ type OrderBook struct {
 	Trades       []*Trade                 // История всех трейдов
 	Root         *VerkleNode              // Корень Verkle дерева
 	LastRootHash [32]byte                 // Последний вычисленный root hash
+	
 	BestBid      uint64                   // Лучшая цена покупки
 	BestAsk      uint64                   // Лучшая цена продажи
+	
+	bestBidAtomic  atomic.Uint64  // atomic доступ без lock
+    bestAskAtomic  atomic.Uint64  // atomic доступ без lock
 	
 	mu           sync.RWMutex             // Mutex для защиты
 	hashTicker   *time.Ticker             // Ticker для хеширования
@@ -435,57 +444,6 @@ type StatsJSON struct {
 	HashCount        uint64 `json:"hash_count"`
 }
 
-// ExportToJSON экспортирует состояние ордербука в JSON файл
-/****
-func (ob *OrderBook) ExportToJSON(filename string) error {
-	ob.mu.RLock()
-	defer ob.mu.RUnlock()
-	
-	// Пересчитываем дерево и хеш
-	ob.rebuildTree()
-	ob.computeRootHash()
-	
-	// Собираем данные
-	state := OrderBookStateJSON{
-		Symbol:          ob.Symbol,
-		RootHash:        hex.EncodeToString(ob.LastRootHash[:]),
-		ActiveOrders:    len(ob.OrderIndex),
-		BuyLevelsCount:  len(ob.BuyLevels),
-		SellLevelsCount: len(ob.SellLevels),
-		BestBid:         float64(ob.BestBid) / PRICE_DECIMALS,
-		BestAsk:         float64(ob.BestAsk) / PRICE_DECIMALS,
-		Stats: StatsJSON{
-			TotalOperations:   ob.stats.TotalOperations,
-			TotalOrders:       ob.stats.TotalOrders,
-			TotalMatches:      ob.stats.TotalMatches,
-			TotalCancels:      ob.stats.TotalCancels,
-			TotalModifies:     ob.stats.TotalModifies,
-			TotalMarketOrders: ob.stats.TotalMarketOrders,
-			HashCount:         ob.stats.HashCount,
-		},
-		Tree:       ob.serializeVerkleNode(ob.Root),
-		BuyLevels:  ob.serializeLevels(ob.BuyLevels),
-		SellLevels: ob.serializeLevels(ob.SellLevels),
-	}
-	
-	// Конвертируем в JSON с отступами
-	jsonData, err := json.MarshalIndent(state, "", "  ")
-	if err != nil {
-		return fmt.Errorf("ошибка сериализации JSON: %w", err)
-	}
-	
-	// Записываем в файл
-	err = os.WriteFile(filename, jsonData, 0644)
-	if err != nil {
-		return fmt.Errorf("ошибка записи файла: %w", err)
-	}
-	
-	fmt.Printf("✓ Состояние дерева экспортировано в %s (%.2f KB)\n", 
-		filename, float64(len(jsonData))/1024)
-	
-	return nil
-}
-***/
 // ExportToJSON - обновленная версия с трейдами
 func (ob *OrderBook) ExportToJSON(filename string) error {
 	ob.mu.RLock()
@@ -494,9 +452,12 @@ func (ob *OrderBook) ExportToJSON(filename string) error {
 	ob.rebuildTree()
 	ob.computeRootHash()
 	
+	bestBid := ob.bestBidAtomic.Load()
+	bestAsk := ob.bestAskAtomic.Load()
+	
 	spread := 0.0
-	if ob.BestAsk > 0 && ob.BestBid > 0 {
-		spread = float64(ob.BestAsk-ob.BestBid) / PRICE_DECIMALS
+	if bestBid > 0 && bestAsk > 0 {
+		spread = float64(bestAsk - bestBid) / PRICE_DECIMALS
 	}
 	
 	// Сериализуем последние 100 трейдов
@@ -536,8 +497,8 @@ func (ob *OrderBook) ExportToJSON(filename string) error {
 		ActiveOrders:    len(ob.OrderIndex),
 		BuyLevelsCount:  len(ob.BuyLevels),
 		SellLevelsCount: len(ob.SellLevels),
-		BestBid:         float64(ob.BestBid) / PRICE_DECIMALS,
-		BestAsk:         float64(ob.BestAsk) / PRICE_DECIMALS,
+		BestBid:         float64(bestBid) / PRICE_DECIMALS,
+		BestAsk:         float64(bestAsk) / PRICE_DECIMALS,
 		Spread:          spread,
 		Stats:           StatsJSON{
 			TotalOperations:   ob.stats.TotalOperations,
@@ -636,7 +597,6 @@ func (ob *OrderBook) printTreeFull() {
 	
 	stats := &TreeStats{
 		TotalNodes:  0,
-		TotalLevels: 0,
 		PriceLevels: 0,
 		TotalOrders: 0,
 	}
@@ -805,7 +765,6 @@ func (ob *OrderBook) printTopLevels(levels map[uint64]*PriceLevel, isBuy bool, l
 
 // TreeStats - статистика дерева
 type TreeStats struct {
-	TotalLevels int
 	TotalNodes  int
 	PriceLevels int
 	TotalOrders int
@@ -1055,6 +1014,9 @@ func (ob *OrderBook) ExportToJSONCompact(filename string) error {
 	ob.rebuildTree()
 	ob.computeRootHash()
 	
+	bestBid := ob.bestBidAtomic.Load()
+	bestAsk := ob.bestAskAtomic.Load()
+	
 	// Упрощенная структура только со статистикой и топ уровнями
 	type CompactLevel struct {
 		Price       float64 `json:"price"`
@@ -1077,8 +1039,8 @@ func (ob *OrderBook) ExportToJSONCompact(filename string) error {
 	}
 	
 	spread := 0.0
-	if ob.BestAsk > 0 && ob.BestBid > 0 {
-		spread = float64(ob.BestAsk-ob.BestBid) / PRICE_DECIMALS
+	if bestAsk > 0 && bestBid > 0 {
+		spread = float64(bestAsk - bestBid) / PRICE_DECIMALS
 	}
 	
 	state := CompactState{
@@ -1087,8 +1049,8 @@ func (ob *OrderBook) ExportToJSONCompact(filename string) error {
 		ActiveOrders:    len(ob.OrderIndex),
 		BuyLevelsCount:  len(ob.BuyLevels),
 		SellLevelsCount: len(ob.SellLevels),
-		BestBid:         float64(ob.BestBid) / PRICE_DECIMALS,
-		BestAsk:         float64(ob.BestAsk) / PRICE_DECIMALS,
+		BestBid:         float64(bestBid) / PRICE_DECIMALS,
+		BestAsk:         float64(bestAsk) / PRICE_DECIMALS,
 		Spread:          spread,
 		Stats: StatsJSON{
 			TotalOperations:   ob.stats.TotalOperations,
@@ -1169,17 +1131,27 @@ func NewOrderBook(symbol string) *OrderBook {
 		BuyLevels:   make(map[uint64]*PriceLevel),
 		SellLevels:  make(map[uint64]*PriceLevel),
 		OrderIndex:  make(map[uint64]*Order),
-		Trades:      make([]*Trade, 0, 1000), // Предаллокация для трейдов
+		Trades:      make([]*Trade, 0, 10000), // Предаллокация для трейдов
 		Root:        &VerkleNode{IsLeaf: false},
-		BestBid:     0,
-		BestAsk:     0,
+				
 		hashTicker:  time.NewTicker(HASH_INTERVAL),
 		stopChan:    make(chan struct{}),
 		hashRequest: make(chan struct{}, 1),
 	}
 	
-	go ob.periodicHasher()
-	go ob.hashWorker()
+	// Инициализация atomic полей
+	ob.bestBidAtomic.Store(0)
+	ob.bestAskAtomic.Store(0)
+	
+	// Условный запуск хеширования
+    if HASH_INTERVAL > 0 {
+        ob.hashTicker = time.NewTicker(HASH_INTERVAL)
+        go ob.periodicHasher()
+        go ob.hashWorker()
+    }
+	
+	//go ob.periodicHasher()
+	//go ob.hashWorker()
 	
 	return ob
 }
@@ -1244,6 +1216,65 @@ func (ob *OrderBook) determineSlot(order *Order) uint8 {
 	return slot
 }
 
+// AddLimitOrderBatch добавляет несколько ордеров за один lock
+func (ob *OrderBook) AddLimitOrderBatch(orders []struct{
+    TraderID uint32
+    Price    uint64
+    Size     uint64
+    Side     Side
+}) []*Order {
+    ob.mu.Lock()
+    defer ob.mu.Unlock()
+    
+    results := make([]*Order, 0, len(orders))
+    
+    for _, req := range orders {
+        order := getOrderFromPool()
+        order.ID = atomic.AddUint64(&ob.nextOrderID, 1)
+        order.TraderID = req.TraderID
+        order.Price = req.Price
+        order.Size = req.Size
+        order.FilledSize = 0
+        order.IsPartialFill = false
+        order.Side = req.Side
+        order.Slot = ob.determineSlot(order)
+        
+        // Матчинг и добавление (без unlock)
+        ob.tryMatchUnsafe(order)
+        
+        if !order.IsFilled() {
+            levels := ob.BuyLevels
+            if req.Side == SELL {
+                levels = ob.SellLevels
+            }
+            
+            level, exists := levels[req.Price]
+            if !exists {
+                level = getPriceLevelFromPool()
+                level.Price = req.Price
+                level.TotalVolume = 0
+                levels[req.Price] = level
+            }
+            
+            remainingSize := order.RemainingSize()
+            slot := level.Slots[order.Slot]
+            slot.Orders = append(slot.Orders, order)
+            slot.Volume = safeAdd(slot.Volume, remainingSize)
+            level.TotalVolume = safeAdd(level.TotalVolume, remainingSize)
+            
+            ob.OrderIndex[order.ID] = order
+        }
+        
+        results = append(results, order)
+        atomic.AddUint64(&ob.stats.TotalOrders, 1)
+        atomic.AddUint64(&ob.stats.TotalOperations, 1)
+    }
+    
+    ob.updateBestPrices()
+    
+    return results
+}
+
 // AddLimitOrder добавляет лимитный ордер в ордербук
 func (ob *OrderBook) AddLimitOrder(traderID uint32, price uint64, size uint64, side Side) *Order {
 	order := getOrderFromPool()
@@ -1277,26 +1308,23 @@ func (ob *OrderBook) AddLimitOrder(traderID uint32, price uint64, size uint64, s
 			levels[price] = level
 			
 			// Обновляем BestBid/BestAsk
+			//ob.updateBestPrices()
+			
+			// Оптимизация: точечное обновление только для нового уровня
 			if side == SELL {
-				if ob.BestAsk == 0 || price < ob.BestAsk {
-					ob.BestAsk = price
+				currentBestAsk := ob.bestAskAtomic.Load()
+				if currentBestAsk == 0 || price < currentBestAsk {
+					ob.bestAskAtomic.Store(price)
 				}
-			} else if side == BUY {
-				if ob.BestBid == 0 || price > ob.BestBid {
-					ob.BestBid = price
+			} else { // BUY
+				currentBestBid := ob.bestBidAtomic.Load()
+				if price > currentBestBid {
+					ob.bestBidAtomic.Store(price)
 				}
 			}
 		}
 		
 		// Добавляем в слот (остаток неисполненного объема)
-/*
-	remainingSize := order.RemainingSize()
-	slot := level.Slots[order.Slot]
-	slot.Orders = append(slot.Orders, order)
-	slot.Volume += remainingSize
-	level.TotalVolume += remainingSize
-*/
-		// ВАЖНО: Добавляем только неисполненную часть!
 		remainingSize := order.RemainingSize()
 		slot := level.Slots[order.Slot]
 		slot.Orders = append(slot.Orders, order)
@@ -1315,20 +1343,23 @@ func (ob *OrderBook) AddLimitOrder(traderID uint32, price uint64, size uint64, s
 
 // updateBestPrices пересчитывает BestBid/BestAsk (вызывать под lock)
 func (ob *OrderBook) updateBestPrices() {
-    ob.BestBid = 0
-    ob.BestAsk = 0
+    newBestBid := uint64(0)
+    newBestAsk := uint64(0)
     
     for price := range ob.BuyLevels {
-        if price > ob.BestBid {
-            ob.BestBid = price
+        if price > newBestBid {
+            newBestBid = price
         }
     }
     
     for price := range ob.SellLevels {
-        if ob.BestAsk == 0 || price < ob.BestAsk {
-            ob.BestAsk = price
+        if newBestAsk == 0 || price < newBestAsk {
+            newBestAsk = price
         }
     }
+    
+    ob.bestBidAtomic.Store(newBestBid)
+    ob.bestAskAtomic.Store(newBestAsk)
 }
 
 // tryMatchUnsafe пытается совместить ордер (вызывается под lock)
@@ -1337,16 +1368,19 @@ func (ob *OrderBook) tryMatchUnsafe(takerOrder *Order) {
 		return // Ордер уже полностью исполнен
 	}
 	
-	var bestPrice uint64
-	var canMatch bool
-	
-	if takerOrder.Side == BUY {
-		bestPrice = ob.BestAsk
-		canMatch = ob.BestAsk > 0 && bestPrice <= takerOrder.Price
-	} else {
-		bestPrice = ob.BestBid
-		canMatch = ob.BestBid > 0 && bestPrice >= takerOrder.Price
-	}
+	bestBid := ob.bestBidAtomic.Load()
+    bestAsk := ob.bestAskAtomic.Load()
+    
+    var bestPrice 	uint64
+    var canMatch 	bool
+    
+    if takerOrder.Side == BUY {
+        bestPrice = bestAsk
+        canMatch = bestAsk > 0 && bestPrice <= takerOrder.Price
+    } else {
+        bestPrice = bestBid
+        canMatch = bestBid > 0 && bestPrice >= takerOrder.Price
+    }
 	
 	if !canMatch {
 		return
@@ -1771,11 +1805,13 @@ func (ob *OrderBook) CancelOrder(orderID uint64) bool {
 	
 	// Если уровень стал пустым, удаляем его
 	if level.TotalVolume == 0 {
-		deletedPrice := level.Price
+//deletedPrice := level.Price
 		delete(levels, level.Price)
 		putPriceLevelToPool(level)
 		
 		// Обновляем BestBid/BestAsk если удалили best уровень
+		ob.updateBestPrices()
+		/**
 		if order.Side == BUY && deletedPrice == ob.BestBid {
 			ob.BestBid = 0
 			for price := range ob.BuyLevels {
@@ -1791,6 +1827,7 @@ func (ob *OrderBook) CancelOrder(orderID uint64) bool {
 				}
 			}
 		}
+		**/
 	}
 	
 	atomic.AddUint64(&ob.stats.TotalOperations, 1)
@@ -1857,8 +1894,8 @@ func (ob *OrderBook) ModifyOrder(orderID uint64, newPrice *uint64, newSize *uint
 	oldLevel, levelExists := levels[order.Price]
 	if !levelExists {
 		// Уровень не существует - некорректное состояние
-		fmt.Printf("⚠️  ОШИБКА: Уровень %.2f для ордера #%d не найден\n",
-			float64(order.Price)/PRICE_DECIMALS, orderID)
+		/*fmt.Printf("⚠️  ОШИБКА: Уровень %.2f для ордера #%d не найден\n",
+			float64(order.Price)/PRICE_DECIMALS, orderID)*/
 		return false
 	}
 	
@@ -1976,8 +2013,8 @@ func (ob *OrderBook) ModifyOrder(orderID uint64, newPrice *uint64, newSize *uint
 		}
 		
 		if !orderFound {
-			fmt.Printf("⚠️  ОШИБКА: Ордер #%d не найден в слоте %d уровня %.2f\n",
-				orderID, order.Slot, float64(order.Price)/PRICE_DECIMALS)
+			/*fmt.Printf("⚠️  ОШИБКА: Ордер #%d не найден в слоте %d уровня %.2f\n",
+				orderID, order.Slot, float64(order.Price)/PRICE_DECIMALS)*/
 			return false
 		}
 		
@@ -1992,11 +2029,13 @@ func (ob *OrderBook) ModifyOrder(orderID uint64, newPrice *uint64, newSize *uint
 		
 		// Если старый уровень стал пустым, удаляем его
 		if oldLevel.TotalVolume == 0 {
-			deletedPrice := oldLevel.Price
+//deletedPrice := oldLevel.Price
 			delete(levels, oldLevel.Price)
 			putPriceLevelToPool(oldLevel)
 			
 			// Обновляем BestBid/BestAsk если удалили best уровень
+			ob.updateBestPrices()
+			/*
 			if order.Side == BUY && deletedPrice == ob.BestBid {
 				ob.BestBid = 0
 				for price := range ob.BuyLevels {
@@ -2012,6 +2051,7 @@ func (ob *OrderBook) ModifyOrder(orderID uint64, newPrice *uint64, newSize *uint
 					}
 				}
 			}
+			*/
 		}
 		
 		// ───────────────────────────────────────────────────────────────
@@ -2048,6 +2088,9 @@ func (ob *OrderBook) ModifyOrder(orderID uint64, newPrice *uint64, newSize *uint
 			levels[newPriceVal] = newLevel
 			
 			// Обновляем BestBid/BestAsk при создании нового уровня
+			ob.updateBestPrices()
+			
+			/*
 			if order.Side == SELL {
 				if ob.BestAsk == 0 || newPriceVal < ob.BestAsk {
 					ob.BestAsk = newPriceVal
@@ -2056,7 +2099,7 @@ func (ob *OrderBook) ModifyOrder(orderID uint64, newPrice *uint64, newSize *uint
 				if ob.BestBid == 0 || newPriceVal > ob.BestBid {
 					ob.BestBid = newPriceVal
 				}
-			}
+			}*/
 		}
 		
 		// Добавляем ордер в новый слот (только неисполненную часть!)
