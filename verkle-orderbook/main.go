@@ -117,6 +117,36 @@ var SlotMetadataTable = [VERKLE_WIDTH]SlotMetadata{
 	{Index: 15, Name: "RESERVED", Description: "Зарезервированный слот", Priority: 99},
 }
 
+// getPriceMagnet возвращает "магнитную" цену (round numbers)
+func getPriceMagnet(basePrice uint64) []uint64 {
+	magnets := make([]uint64, 0, 20)
+	
+	// Круглые числа: $65000, $64950, $65050 и т.д.
+	roundBase := (basePrice / 5000) * 5000 // Округляем до $50
+	
+	for i := -5; i <= 5; i++ {
+		magnets = append(magnets, roundBase+uint64(i*5000))
+	}
+	
+	return magnets
+}
+
+// generatePriceWithMagnetism генерирует цену с "притяжением" к круглым числам
+func generatePriceWithMagnetism(basePrice uint64, profile TraderProfile, side Side) uint64 {
+	// 40% шанс использовать "магнитную" цену
+	if rand.Float32() < 0.4 {
+		magnets := getPriceMagnet(basePrice)
+		magnetPrice := magnets[rand.Intn(len(magnets))]
+		
+		// Добавляем небольшой offset
+		offset := rand.Intn(100) - 50
+		return uint64(int64(magnetPrice) + int64(offset))
+	}
+	
+	// Иначе используем обычную генерацию
+	return generatePrice(basePrice, profile, side)
+}
+
 // Вспомогательные функции для работы с пулами
 func getOrderFromPool() *Order {
 	return orderPool.Get().(*Order)
@@ -1017,11 +1047,19 @@ func (ob *OrderBook) AddLimitOrder(traderID uint32, price uint64, size uint64, s
 		}
 		
 		// Добавляем в слот (остаток неисполненного объема)
+/*
+	remainingSize := order.RemainingSize()
+	slot := level.Slots[order.Slot]
+	slot.Orders = append(slot.Orders, order)
+	slot.Volume += remainingSize
+	level.TotalVolume += remainingSize
+*/
+		// ВАЖНО: Добавляем только неисполненную часть!
 		remainingSize := order.RemainingSize()
 		slot := level.Slots[order.Slot]
 		slot.Orders = append(slot.Orders, order)
-		slot.Volume += remainingSize
-		level.TotalVolume += remainingSize
+		slot.Volume = safeAdd(slot.Volume, remainingSize)
+		level.TotalVolume = safeAdd(level.TotalVolume, remainingSize)
 		
 		// Индексируем ордер
 		ob.OrderIndex[order.ID] = order
@@ -1292,6 +1330,109 @@ func (ob *OrderBook) GetTradesByTraderID(traderID uint32) []*Trade {
 	return trades
 }
 
+// TraderType - тип трейдера
+type TraderType int
+
+const (
+	TRADER_RETAIL       TraderType = iota // Обычный трейдер
+	TRADER_MARKET_MAKER                   // Маркет-мейкер (создает ликвидность)
+	TRADER_WHALE                          // Крупный трейдер
+	TRADER_BOT                            // Бот (частые операции)
+)
+
+// TraderProfile - профиль трейдера
+type TraderProfile struct {
+	ID           uint32
+	Type         TraderType
+	PriceSpread  int // Разброс цены для ордеров (в единицах)
+	OrderSize    int // Типичный размер ордера
+	CancelRate   float32 // Вероятность отмены (0-1)
+}
+
+// generateTraderProfiles создает профили трейдеров
+func generateTraderProfiles(numTraders int) []TraderProfile {
+	profiles := make([]TraderProfile, numTraders)
+	
+	for i := 0; i < numTraders; i++ {
+		traderID := uint32(i + 1)
+		
+		// 5% маркет-мейкеры
+		if i < numTraders*5/100 {
+			profiles[i] = TraderProfile{
+				ID:          traderID,
+				Type:        TRADER_MARKET_MAKER,
+				PriceSpread: 50,   // Узкий спред ±$0.50
+				OrderSize:   5000, // Крупные ордера
+				CancelRate:  0.3,  // Часто обновляют
+			}
+		// 10% киты
+		} else if i < numTraders*15/100 {
+			profiles[i] = TraderProfile{
+				ID:          traderID,
+				Type:        TRADER_WHALE,
+				PriceSpread: 200,  // ±$2
+				OrderSize:   20000,
+				CancelRate:  0.1,  // Редко отменяют
+			}
+		// 30% боты
+		} else if i < numTraders*45/100 {
+			profiles[i] = TraderProfile{
+				ID:          traderID,
+				Type:        TRADER_BOT,
+				PriceSpread: 100,  // ±$1
+				OrderSize:   3000,
+				CancelRate:  0.5,  // Очень часто обновляют
+			}
+		// 55% retail
+		} else {
+			profiles[i] = TraderProfile{
+				ID:          traderID,
+				Type:        TRADER_RETAIL,
+				PriceSpread: 500,  // ±$5
+				OrderSize:   1000,
+				CancelRate:  0.2,
+			}
+		}
+	}
+	
+	return profiles
+}
+
+// generatePrice генерирует цену для трейдера с учетом профиля
+func generatePrice(basePrice uint64, profile TraderProfile, side Side) uint64 {
+	offset := int64(rand.Intn(profile.PriceSpread*2) - profile.PriceSpread)
+	
+	// Маркет-мейкеры размещают ордера близко к лучшей цене
+	if profile.Type == TRADER_MARKET_MAKER {
+		// Добавляем небольшое смещение для создания спреда
+		if side == BUY {
+			offset -= int64(rand.Intn(10) + 1) // BUY чуть ниже
+		} else {
+			offset += int64(rand.Intn(10) + 1) // SELL чуть выше
+		}
+	}
+	
+	price := int64(basePrice) + offset
+	if price < 100 {
+		price = 100
+	}
+	
+	return uint64(price)
+}
+
+// generateSize генерирует размер ордера с учетом профиля
+func generateSize(profile TraderProfile) uint64 {
+	// Базовый размер из профиля с вариацией ±50%
+	variation := profile.OrderSize / 2
+	size := profile.OrderSize - variation + rand.Intn(variation*2)
+	
+	if size < 100 {
+		size = 100
+	}
+	
+	return uint64(size)
+}
+
 // GetRecentTrades возвращает последние N трейдов
 func (ob *OrderBook) GetRecentTrades(limit int) []*Trade {
 	ob.mu.RLock()
@@ -1331,6 +1472,7 @@ func (ob *OrderBook) ClearOldTrades(olderThan time.Duration) int {
 }
 
 // CancelOrder отменяет ордер по ID
+// CancelOrder удаляет ордер по ID (возвращает true если успешно)
 func (ob *OrderBook) CancelOrder(orderID uint64) bool {
 	ob.mu.Lock()
 	defer ob.mu.Unlock()
@@ -1345,15 +1487,12 @@ func (ob *OrderBook) CancelOrder(orderID uint64) bool {
 		levels = ob.SellLevels
 	}
 	
-	// ИСПРАВЛЕНИЕ: Проверяем что уровень еще существует
 	level, levelExists := levels[order.Price]
 	if !levelExists {
-		// Уровень был удален, но ордер остался в индексе
-		// Просто удаляем из индекса и возвращаем в пул
+		// Уровень не существует, но ордер в индексе - удаляем из индекса
 		delete(ob.OrderIndex, orderID)
 		putOrderToPool(order)
-//		atomic.AddUint64(&ob.stats.TotalCancels, 1)
-//		fmt.Printf("✗ Отменен ордер #%d (уровень уже удален)\n", orderID)
+		atomic.AddUint64(&ob.stats.TotalCancels, 1)
 		return true
 	}
 	
@@ -1364,39 +1503,38 @@ func (ob *OrderBook) CancelOrder(orderID uint64) bool {
 	for i, o := range slot.Orders {
 		if o.ID == orderID {
 			slot.Orders = append(slot.Orders[:i], slot.Orders[i+1:]...)
-			//slot.Volume -= order.Size  // <- Уменьшаем volume слота
 			
-			slot.Volume = safeSubtract(slot.Volume, order.Size)
-			level.TotalVolume = safeSubtract(level.TotalVolume, order.Size)
+			// ИСПРАВЛЕНИЕ: Вычитаем только неисполненную часть!
+			remainingSize := order.RemainingSize()
+			slot.Volume = safeSubtract(slot.Volume, remainingSize)
+			level.TotalVolume = safeSubtract(level.TotalVolume, remainingSize)
 			
-			//level.TotalVolume -= order.Size
 			//found = true
 			break
 		}
 	}
-
-	// ДОБАВЬТЕ ПРОВЕРКУ КОНСИСТЕНТНОСТИ:
-	// Если ордеров больше нет, volume должен быть 0
+	
+	delete(ob.OrderIndex, orderID)
+	putOrderToPool(order)
+	
+	// Проверка консистентности
 	if len(slot.Orders) == 0 {
+		/*
+		if slot.Volume != 0 {
+			fmt.Printf("⚠️  ИСПРАВЛЕНИЕ: Слот %d опустел, но volume = %d, сброс в 0\n", 
+				order.Slot, slot.Volume)
+		}*/
 		slot.Volume = 0
 	}
 	
-	// Удаляем из индекса
-	delete(ob.OrderIndex, orderID)
-	
-	// Возвращаем ордер в пул
-	putOrderToPool(order)
-	
-	// Если уровень пустой, удаляем его и возвращаем в пул
-	// Если уровень пустой, удаляем его и возвращаем в пул
+	// Если уровень стал пустым, удаляем его
 	if level.TotalVolume == 0 {
 		deletedPrice := level.Price
 		delete(levels, level.Price)
 		putPriceLevelToPool(level)
 		
-		// Обновляем BestBid/BestAsk ТОЛЬКО если удалили именно best уровень
+		// Обновляем BestBid/BestAsk если удалили best уровень
 		if order.Side == BUY && deletedPrice == ob.BestBid {
-			// Ищем новый BestBid
 			ob.BestBid = 0
 			for price := range ob.BuyLevels {
 				if price > ob.BestBid {
@@ -1404,7 +1542,6 @@ func (ob *OrderBook) CancelOrder(orderID uint64) bool {
 				}
 			}
 		} else if order.Side == SELL && deletedPrice == ob.BestAsk {
-			// Ищем новый BestAsk
 			ob.BestAsk = 0
 			for price := range ob.SellLevels {
 				if ob.BestAsk == 0 || price < ob.BestAsk {
@@ -1416,13 +1553,7 @@ func (ob *OrderBook) CancelOrder(orderID uint64) bool {
 	
 	atomic.AddUint64(&ob.stats.TotalOperations, 1)
 	atomic.AddUint64(&ob.stats.TotalCancels, 1)
-/*	
-	if found {
-		fmt.Printf("✗ Отменен ордер #%d\n", orderID)
-	} else {
-		fmt.Printf("✗ Отменен ордер #%d (не найден в слоте)\n", orderID)
-	}
-*/	
+	
 	return true
 }
 
@@ -1453,10 +1584,13 @@ func (ob *OrderBook) CancelAllByTrader(traderID uint32) int {
 // Если меняется только объем - остается в узле, может сменить слот
 // Если меняется цена - атомарно переносим в другой узел
 // OrderID остается идентичным
+// ModifyOrder изменяет цену и/или размер существующего ордера
+// Параметры newPrice и newSize - указатели, nil означает "не изменять"
 func (ob *OrderBook) ModifyOrder(orderID uint64, newPrice *uint64, newSize *uint64) bool {
 	ob.mu.Lock()
 	defer ob.mu.Unlock()
 	
+	// Проверяем существование ордера
 	order, exists := ob.OrderIndex[orderID]
 	if !exists {
 		return false
@@ -1466,39 +1600,75 @@ func (ob *OrderBook) ModifyOrder(orderID uint64, newPrice *uint64, newSize *uint
 	priceChanged := newPrice != nil && *newPrice != order.Price
 	sizeChanged := newSize != nil && *newSize != order.Size
 	
+	// Если ничего не меняется - успешно завершаем
 	if !priceChanged && !sizeChanged {
-		return true // Ничего не изменилось
+		return true
 	}
 	
+	// Получаем нужную сторону книги
 	levels := ob.BuyLevels
 	if order.Side == SELL {
 		levels = ob.SellLevels
 	}
 	
-	// ИСПРАВЛЕНИЕ: Проверяем что уровень существует
+	// Получаем текущий уровень цены
 	oldLevel, levelExists := levels[order.Price]
 	if !levelExists {
-		// Уровень был удален - не можем модифицировать
+		// Уровень не существует - некорректное состояние
+		fmt.Printf("⚠️  ОШИБКА: Уровень %.2f для ордера #%d не найден\n",
+			float64(order.Price)/PRICE_DECIMALS, orderID)
 		return false
 	}
 	
 	oldSlot := oldLevel.Slots[order.Slot]
 	
-	// Случай 1: Меняется только объем - остаемся в том же узле
+	// ═══════════════════════════════════════════════════════════════════
+	// СЛУЧАЙ 1: Меняется только размер (остаемся на том же ценовом уровне)
+	// ═══════════════════════════════════════════════════════════════════
 	if !priceChanged && sizeChanged {
 		newSizeVal := *newSize
-		oldSize := order.Size
 		
-		// Обновляем объемы
-		//oldSlot.Volume -= oldSize
-		//oldLevel.TotalVolume -= oldSize
-		// ИСПРАВЛЕНИЕ: Безопасное вычитание
-		oldSlot.Volume = safeSubtract(oldSlot.Volume, oldSize)
-		oldLevel.TotalVolume = safeSubtract(oldLevel.TotalVolume, oldSize)
+		// Получаем текущий неисполненный объем
+		oldRemainingSize := order.RemainingSize()
 		
+		// КРИТИЧНО: Вычитаем только неисполненную часть из volumes
+		oldSlot.Volume = safeSubtract(oldSlot.Volume, oldRemainingSize)
+		oldLevel.TotalVolume = safeSubtract(oldLevel.TotalVolume, oldRemainingSize)
+		
+		// Обновляем размер ордера (FilledSize не трогаем!)
 		order.Size = newSizeVal
 		
-		// Проверяем, нужно ли сменить слот из-за нового размера
+		// Вычисляем новый неисполненный объем
+		newRemainingSize := order.RemainingSize()
+		
+		// Если ордер уже полностью исполнен после уменьшения - удаляем
+		if newRemainingSize == 0 {
+			for i, o := range oldSlot.Orders {
+				if o.ID == orderID {
+					oldSlot.Orders = append(oldSlot.Orders[:i], oldSlot.Orders[i+1:]...)
+					break
+				}
+			}
+			
+			if len(oldSlot.Orders) == 0 {
+				oldSlot.Volume = 0
+			}
+			
+			// Удаляем пустой уровень если нужно
+			if oldLevel.TotalVolume == 0 {
+				delete(levels, oldLevel.Price)
+				putPriceLevelToPool(oldLevel)
+			}
+			
+			delete(ob.OrderIndex, orderID)
+			putOrderToPool(order)
+			
+			atomic.AddUint64(&ob.stats.TotalModifies, 1)
+			atomic.AddUint64(&ob.stats.TotalOperations, 1)
+			return true
+		}
+		
+		// Проверяем нужно ли сменить слот (из-за изменения размера)
 		newSlot := ob.determineSlot(order)
 		
 		if newSlot != order.Slot {
@@ -1519,49 +1689,51 @@ func (ob *OrderBook) ModifyOrder(orderID uint64, newPrice *uint64, newSize *uint
 			order.Slot = newSlot
 			targetSlot := oldLevel.Slots[newSlot]
 			targetSlot.Orders = append(targetSlot.Orders, order)
-			targetSlot.Volume += newSizeVal
-			
-/*			fmt.Printf("↻ Изменен ордер #%d: новый объем %.2f, перемещен в слот %d\n",
-				orderID, float64(newSizeVal)/PRICE_DECIMALS, newSlot) */
+			targetSlot.Volume = safeAdd(targetSlot.Volume, newRemainingSize)
 		} else {
-			// Остаемся в том же слоте
-			oldSlot.Volume += newSizeVal
-/*			fmt.Printf("↻ Изменен ордер #%d: новый объем %.2f (слот %d)\n",
-				orderID, float64(newSizeVal)/PRICE_DECIMALS, order.Slot) */
+			// Остаемся в том же слоте - просто обновляем volume
+			oldSlot.Volume = safeAdd(oldSlot.Volume, newRemainingSize)
 		}
 		
-		oldLevel.TotalVolume += newSizeVal
+		// Обновляем total volume уровня
+		oldLevel.TotalVolume = safeAdd(oldLevel.TotalVolume, newRemainingSize)
+		
 		atomic.AddUint64(&ob.stats.TotalModifies, 1)
+		atomic.AddUint64(&ob.stats.TotalOperations, 1)
 		return true
 	}
 	
-	// Случай 2: Меняется цена (возможно и объем) - атомарный перенос в другой узел
+	// ═══════════════════════════════════════════════════════════════════
+	// СЛУЧАЙ 2: Меняется цена (возможно и размер тоже)
+	// ═══════════════════════════════════════════════════════════════════
 	if priceChanged {
 		newPriceVal := *newPrice
 		newSizeVal := order.Size
 		if sizeChanged {
 			newSizeVal = *newSize
 		}
-    
-		// ВАЖНО: Сначала удаляем из старого слота
+		
+		// Получаем текущий неисполненный объем
+		oldRemainingSize := order.RemainingSize()
+		
+		// ───────────────────────────────────────────────────────────────
+		// ШАГ 1: Удаляем ордер из старого уровня
+		// ───────────────────────────────────────────────────────────────
 		orderFound := false
 		for i, o := range oldSlot.Orders {
 			if o.ID == orderID {
 				oldSlot.Orders = append(oldSlot.Orders[:i], oldSlot.Orders[i+1:]...)
 				
-				//oldSlot.Volume -= order.Size
-				//oldLevel.TotalVolume -= order.Size
-				
-				oldSlot.Volume = safeSubtract(oldSlot.Volume, newSizeVal)
-				oldLevel.TotalVolume = safeSubtract(oldLevel.TotalVolume, newSizeVal)
+				// КРИТИЧНО: Вычитаем только неисполненную часть
+				oldSlot.Volume = safeSubtract(oldSlot.Volume, oldRemainingSize)
+				oldLevel.TotalVolume = safeSubtract(oldLevel.TotalVolume, oldRemainingSize)
 				
 				orderFound = true
 				break
 			}
 		}
-    
+		
 		if !orderFound {
-			// Ордер не найден в слоте - ошибка консистентности
 			fmt.Printf("⚠️  ОШИБКА: Ордер #%d не найден в слоте %d уровня %.2f\n",
 				orderID, order.Slot, float64(order.Price)/PRICE_DECIMALS)
 			return false
@@ -1569,13 +1741,17 @@ func (ob *OrderBook) ModifyOrder(orderID uint64, newPrice *uint64, newSize *uint
 		
 		// Проверка консистентности старого слота
 		if len(oldSlot.Orders) == 0 {
+			/*if oldSlot.Volume != 0 {
+				fmt.Printf("⚠️  ИСПРАВЛЕНИЕ: Старый слот %d опустел, volume %d → 0\n", 
+					order.Slot, oldSlot.Volume)
+			}*/
 			oldSlot.Volume = 0
 		}
-    
+		
 		// Если старый уровень стал пустым, удаляем его
 		if oldLevel.TotalVolume == 0 {
 			deletedPrice := oldLevel.Price
-			delete(levels, order.Price)
+			delete(levels, oldLevel.Price)
 			putPriceLevelToPool(oldLevel)
 			
 			// Обновляем BestBid/BestAsk если удалили best уровень
@@ -1595,15 +1771,35 @@ func (ob *OrderBook) ModifyOrder(orderID uint64, newPrice *uint64, newSize *uint
 				}
 			}
 		}
-    
-		// ТЕПЕРЬ обновляем ордер (после удаления из старого места!)
+		
+		// ───────────────────────────────────────────────────────────────
+		// ШАГ 2: Обновляем параметры ордера
+		// ───────────────────────────────────────────────────────────────
+//oldPrice := order.Price
 		order.Price = newPriceVal
 		order.Size = newSizeVal
+		// ВАЖНО: FilledSize НЕ сбрасываем! Частичное исполнение сохраняется
 		order.Slot = ob.determineSlot(order)
-    
-		// Получаем или создаем новый уровень цены
+		
+		// Вычисляем новый неисполненный объем
+		newRemainingSize := order.RemainingSize()
+		
+		// Если после изменения ордер полностью исполнен - удаляем
+		if newRemainingSize == 0 {
+			delete(ob.OrderIndex, orderID)
+			putOrderToPool(order)
+			
+			atomic.AddUint64(&ob.stats.TotalModifies, 1)
+			atomic.AddUint64(&ob.stats.TotalOperations, 1)
+			return true
+		}
+		
+		// ───────────────────────────────────────────────────────────────
+		// ШАГ 3: Добавляем ордер в новый уровень цены
+		// ───────────────────────────────────────────────────────────────
 		newLevel, exists := levels[newPriceVal]
 		if !exists {
+			// Создаем новый уровень
 			newLevel = getPriceLevelFromPool()
 			newLevel.Price = newPriceVal
 			newLevel.TotalVolume = 0
@@ -1620,20 +1816,26 @@ func (ob *OrderBook) ModifyOrder(orderID uint64, newPrice *uint64, newSize *uint
 				}
 			}
 		}
-    
-		// Добавляем в новый слот
+		
+		// Добавляем ордер в новый слот (только неисполненную часть!)
 		newSlot := newLevel.Slots[order.Slot]
 		newSlot.Orders = append(newSlot.Orders, order)
-		newSlot.Volume += newSizeVal
-		newLevel.TotalVolume += newSizeVal
+		newSlot.Volume = safeAdd(newSlot.Volume, newRemainingSize)
+		newLevel.TotalVolume = safeAdd(newLevel.TotalVolume, newRemainingSize)
 		
 		atomic.AddUint64(&ob.stats.TotalModifies, 1)
 		atomic.AddUint64(&ob.stats.TotalOperations, 1)
 		
-		// Проверяем матчинг с новой ценой
+		// ───────────────────────────────────────────────────────────────
+		// ШАГ 4: Проверяем возможность матчинга с новой ценой
+		// ───────────────────────────────────────────────────────────────
 		ob.tryMatchUnsafe(order)
-    }
-    return true
+		
+		return true
+	}
+	
+	// Не должны сюда попасть
+	return false
 }
 
 // rebuildTree перестраивает Verkle дерево с разделением BUY/SELL
@@ -1893,134 +2095,182 @@ func (ob *OrderBook) PrintStats() {
 	fmt.Printf("═══════════════════════════════════════════\n\n")
 }
 
-// Симулятор с высокой нагрузкой
+
+
 func main() {
-	fmt.Println("🚀 Оптимизированный ордербук с Verkle деревом")
-	fmt.Println("   • Memory pools для минимизации GC")
-	fmt.Println("   • Периодическое хеширование (500ms)")
-	fmt.Println("   • Атомарные операции для счетчиков")
-	fmt.Println("   • Оптимизированное изменение ордеров\n")
+	fmt.Println("🌳 Verkle Tree Orderbook Simulation")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println("✓ Memory pools активны")
+	fmt.Println("✓ GC оптимизирован")
+	fmt.Println("✓ Периодическое хеширование: каждые 500ms")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 	
 	rand.Seed(time.Now().UnixNano())
+	
 	ob := NewOrderBook("BTC")
 	defer ob.Stop()
 	
 	basePrice := uint64(6500000) // $65000
+	numOperations := 100_000
 	
-	// Симулируем высокую нагрузку
-	numOperations := 10_000
-	//operationTypes := []string{"add", "cancel", "modify"}
+	// Создаем профили трейдеров
+	fmt.Println("👥 Генерация профилей трейдеров...")
+	traderProfiles := generateTraderProfiles(MAX_TRADERS)
 	
-	addedOrders := make([]uint64, 0)
+	mmCount := 0
+	whaleCount := 0
+	botCount := 0
+	retailCount := 0
+	
+	for _, p := range traderProfiles {
+		switch p.Type {
+		case TRADER_MARKET_MAKER:
+			mmCount++
+		case TRADER_WHALE:
+			whaleCount++
+		case TRADER_BOT:
+			botCount++
+		case TRADER_RETAIL:
+			retailCount++
+		}
+	}
+	
+	fmt.Printf("  • Маркет-мейкеры: %d\n", mmCount)
+	fmt.Printf("  • Киты: %d\n", whaleCount)
+	fmt.Printf("  • Боты: %d\n", botCount)
+	fmt.Printf("  • Retail: %d\n", retailCount)
+	fmt.Println()
+	
+	// Инициализация: создаем начальную ликвидность от MM
+	fmt.Println("💧 Создание начальной ликвидности...")
+	addedOrders := make([]uint64, 0, numOperations)
+	
+	for i := 0; i < mmCount; i++ {
+		profile := traderProfiles[i]
+		
+		// Каждый MM создает 5-10 ордеров на обе стороны
+		numOrders := rand.Intn(6) + 5
+		
+		for j := 0; j < numOrders; j++ {
+			// BUY ордер
+			price := generatePrice(basePrice, profile, BUY)
+			size := generateSize(profile)
+			order := ob.AddLimitOrder(profile.ID, price, size, BUY)
+			addedOrders = append(addedOrders, order.ID)
+			
+			// SELL ордер
+			price = generatePrice(basePrice, profile, SELL)
+			size = generateSize(profile)
+			order = ob.AddLimitOrder(profile.ID, price, size, SELL)
+			addedOrders = append(addedOrders, order.ID)
+		}
+	}
+	
+	fmt.Printf("✓ Создано %d начальных ордеров\n\n", len(addedOrders))
 	
 	startTime := time.Now()
-
+	
+	// Основной цикл симуляции
 	for i := 0; i < numOperations; i++ {
-		
-		// Периодическая очистка пустых уровней
-		if (i+1)%1000 == 0 {
-			ob.CleanupEmptyLevels()
-		}
-		
-		
-		// Распределение операций:
-		// 25% - маркет ордера
-		// 25% - лимитные добавления
-		// 25% - отмены
-		// 25% - изменения
+		// Выбираем случайного трейдера
+		profile := traderProfiles[rand.Intn(len(traderProfiles))]
 		
 		r := rand.Float32()
 		
-		if r < 0.15 {
-			// МАРКЕТ ОРДЕР (15%)
-			traderID := uint32(rand.Intn(MAX_TRADERS) + 1)
-			size := uint64(rand.Intn(10000) + 100)
+		// 25% - маркет ордера
+		if r < 0.25 {
+			size := generateSize(profile)
 			side := BUY
 			if rand.Float32() < 0.5 {
 				side = SELL
 			}
-			ob.ExecuteMarketOrder(traderID, size, side)
+			ob.ExecuteMarketOrder(profile.ID, size, side)
 			
-		} else if r < 0.50 {
-			// ЛИМИТНЫЙ ОРДЕР (25%)
-			traderID := uint32(rand.Intn(MAX_TRADERS) + 1)
-			priceOffset := uint64(rand.Intn(20000) - 10000)
-			price := basePrice + priceOffset
-			size := uint64(rand.Intn(10000) + 100)
+		// 35% - лимитные ордера (увеличено с 25%)
+		} else if r < 0.60 {
+			price := generatePriceWithMagnetism(basePrice, profile, BUY)
+			//generatePrice(basePrice, profile, BUY)
+			size := generateSize(profile)
 			side := BUY
 			if rand.Float32() < 0.5 {
 				side = SELL
+				price = generatePriceWithMagnetism(basePrice, profile, SELL)
 			}
 			
-			order := ob.AddLimitOrder(traderID, price, size, side)
+			order := ob.AddLimitOrder(profile.ID, price, size, side)
 			addedOrders = append(addedOrders, order.ID)
 			
-		} else if r < 0.75 {
-			// ОТМЕНА (25%)
+		// 20% - отмены (уменьшено с 25%)
+		} else if r < 0.80 {
 			if len(addedOrders) > 0 {
+				// Выбираем случайный ордер
 				idx := rand.Intn(len(addedOrders))
 				orderID := addedOrders[idx]
+				
 				if ob.CancelOrder(orderID) {
+					// Удаляем из списка
 					addedOrders = append(addedOrders[:idx], addedOrders[idx+1:]...)
 				}
 			}
 			
+		// 20% - модификации (уменьшено с 25%)
 		} else {
-			// ИЗМЕНЕНИЕ (25%)
 			if len(addedOrders) > 0 {
 				orderID := addedOrders[rand.Intn(len(addedOrders))]
 				
 				modType := rand.Intn(3)
 				switch modType {
-				case 0: // Только объем
-					newSize := uint64(rand.Intn(10000) + 100)
+				case 0: // Изменение размера
+					newSize := generateSize(profile)
 					ob.ModifyOrder(orderID, nil, &newSize)
 					
-				case 1: // Только цена
-					priceOffset := uint64(rand.Intn(20000) - 10000)
-					newPrice := basePrice + priceOffset
+				case 1: // Изменение цены
+					side := BUY
+					if rand.Float32() < 0.5 {
+						side = SELL
+					}
+					newPrice := generatePriceWithMagnetism(basePrice, profile, side)
 					ob.ModifyOrder(orderID, &newPrice, nil)
 					
-				case 2: // Цена и объем
-					priceOffset := uint64(rand.Intn(20000) - 10000)
-					newPrice := basePrice + priceOffset
-					newSize := uint64(rand.Intn(10000) + 100)
+				case 2: // Изменение цены и размера
+					side := BUY
+					if rand.Float32() < 0.5 {
+						side = SELL
+					}
+					newPrice := generatePriceWithMagnetism(basePrice, profile, side)
+					newSize := generateSize(profile)
 					ob.ModifyOrder(orderID, &newPrice, &newSize)
 				}
 			}
 		}
 		
-		// Статистика каждые N операций
-		//if (i+1)%50_000 == 0 {
+		// Периодическая очистка и статистика
+		if (i+1)%1000 == 0 {
+			ob.CleanupEmptyLevels()
+		}
+		
+		//if (i+1)%50000 == 0 {
 		//	ob.PrintStats()
 		//}
 	}
 	
 	elapsed := time.Since(startTime)
 	
+	// Финальная очистка
+	ob.CleanupEmptyLevels()
+	
 	// Финальная статистика
 	fmt.Println("\n🏁 ФИНАЛЬНАЯ СТАТИСТИКА")
 	ob.PrintStats()
+	ob.PrintTreeStructure()
 	
 	tps := float64(numOperations) / elapsed.Seconds()
 	fmt.Printf("⚡ Производительность: %.0f операций/сек\n", tps)
 	fmt.Printf("⏱  Общее время: %v\n", elapsed)
 	
-	// Показываем структуру дерева
-	ob.PrintTreeStructure()
-	
-	//JSON export 
-	// Экспортируем состояние дерева
+	// Экспорт
 	fmt.Println("\n📁 Экспорт состояния дерева...")
-	
-	// Полный экспорт (может быть большим)
-	err := ob.ExportToJSON("orderbook_full.json")
-	if err != nil {
-		fmt.Printf("Ошибка экспорта: %v\n", err)
-	}
-	
-	// Компактный экспорт
-	err = ob.ExportToJSONCompact("orderbook_compact.json")
+	err := ob.ExportToJSONCompact("orderbook_compact.json")
 	if err != nil {
 		fmt.Printf("Ошибка экспорта: %v\n", err)
 	}

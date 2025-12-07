@@ -1,123 +1,123 @@
 {
   "symbol": "BTC",
-  "root_hash": "cf03a029224526d467b79df59264f3ce53e7cf09e4e3ef120e7722122d9090ac",
-  "active_orders": 1428,
-  "buy_levels": 873,
-  "sell_levels": 749,
-  "best_bid": 65098.57,
-  "best_ask": 64925.44,
-  "spread": 184467440737095360,
+  "root_hash": "95efd0dbc3f345aed93b468593431f414f52c71288574543de638fc5c723513c",
+  "active_orders": 14526,
+  "buy_levels": 1474,
+  "sell_levels": 1895,
+  "best_bid": 65049.8,
+  "best_ask": 64749.5,
+  "spread": 184467440737095200,
   "stats": {
-    "total_operations": 6965,
-    "total_orders": 3575,
-    "total_matches": 2372,
-    "total_cancels": 1215,
-    "total_modifies": 1096,
-    "total_market_orders": 1439,
-    "hash_count": 1
+    "total_operations": 84918,
+    "total_orders": 35689,
+    "total_matches": 33581,
+    "total_cancels": 12179,
+    "total_modifies": 12158,
+    "total_market_orders": 24892,
+    "hash_count": 5
   },
   "top_buy_levels": [
     {
-      "price": 65098.57,
+      "price": 65049.8,
       "volume": 0,
       "orders_count": 0
     },
     {
-      "price": 65098.27,
-      "volume": 63.12,
-      "orders_count": 1
+      "price": 65049.79,
+      "volume": 200.58,
+      "orders_count": 3
     },
     {
-      "price": 65098.21,
-      "volume": 49.02,
-      "orders_count": 1
+      "price": 65049.78,
+      "volume": 21.04,
+      "orders_count": 2
     },
     {
-      "price": 65098.12,
-      "volume": 58.07,
-      "orders_count": 1
+      "price": 65049.77,
+      "volume": 78.32,
+      "orders_count": 4
     },
     {
-      "price": 65098.04,
-      "volume": 94.4,
-      "orders_count": 1
+      "price": 65049.76,
+      "volume": 31.77,
+      "orders_count": 2
     },
     {
-      "price": 65097.97,
-      "volume": 0,
-      "orders_count": 0
+      "price": 65049.75,
+      "volume": 104.72,
+      "orders_count": 6
     },
     {
-      "price": 65097.67,
-      "volume": 43.56,
-      "orders_count": 1
+      "price": 65049.74,
+      "volume": 302.06,
+      "orders_count": 4
     },
     {
-      "price": 65097.54,
-      "volume": 88.77,
-      "orders_count": 1
+      "price": 65049.73,
+      "volume": 15.13,
+      "orders_count": 2
     },
     {
-      "price": 65097.12,
-      "volume": 0,
-      "orders_count": 0
+      "price": 65049.72,
+      "volume": 113.59,
+      "orders_count": 4
     },
     {
-      "price": 65096.77,
-      "volume": 53.24,
-      "orders_count": 1
+      "price": 65049.71,
+      "volume": 26.21,
+      "orders_count": 3
     }
   ],
   "top_sell_levels": [
     {
-      "price": 64925.44,
+      "price": 64749.5,
       "volume": 0,
       "orders_count": 0
     },
     {
-      "price": 64925.76,
-      "volume": 61.96,
-      "orders_count": 1
+      "price": 64749.51,
+      "volume": 246.68,
+      "orders_count": 3
     },
     {
-      "price": 64926.5,
-      "volume": 43.4,
-      "orders_count": 1
+      "price": 64749.53,
+      "volume": 0,
+      "orders_count": 0
     },
     {
-      "price": 64926.6,
-      "volume": 63.12,
-      "orders_count": 1
+      "price": 64749.54,
+      "volume": 188.4,
+      "orders_count": 8
     },
     {
-      "price": 64926.77,
-      "volume": 85.98,
-      "orders_count": 1
+      "price": 64749.55,
+      "volume": 42.92,
+      "orders_count": 3
     },
     {
-      "price": 64926.84,
-      "volume": 39.46,
-      "orders_count": 1
+      "price": 64749.56,
+      "volume": 127.19,
+      "orders_count": 6
     },
     {
-      "price": 64927.01,
-      "volume": 37.05,
-      "orders_count": 1
+      "price": 64749.57,
+      "volume": 222,
+      "orders_count": 2
     },
     {
-      "price": 64927.13,
-      "volume": 3.74,
-      "orders_count": 1
+      "price": 64749.58,
+      "volume": 47.49,
+      "orders_count": 3
     },
     {
-      "price": 64927.17,
-      "volume": 31.09,
-      "orders_count": 1
+      "price": 64749.59,
+      "volume": 596.84,
+      "orders_count": 7
     },
     {
-      "price": 64927.45,
-      "volume": 27.61,
-      "orders_count": 1
+      "price": 64749.6,
+      "volume": 34.15,
+      "orders_count": 2
     }
   ]
 }
