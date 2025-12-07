@@ -163,6 +163,37 @@ const (
 	SELL
 )
 
+// Trade - структура исполненной сделки
+type Trade struct {
+	TradeID       uint64  // Уникальный ID трейда
+	TakerOrderID  uint64  // ID ордера инициатора (taker)
+	MakerOrderID  uint64  // ID ордера из книги (maker)
+	TakerTraderID uint32  // ID трейдера-инициатора
+	MakerTraderID uint32  // ID трейдера из книги
+	Price         uint64  // Цена исполнения
+	Size          uint64  // Объем исполнения
+	TakerSide     Side    // Сторона taker (BUY/SELL)
+	TakerPartial  bool    // Частичное заполнение taker ордера
+	MakerPartial  bool    // Частичное заполнение maker ордера
+	Timestamp     int64   // Unix timestamp в наносекундах
+}
+
+// TradeJSON - JSON представление трейда
+type TradeJSON struct {
+	TradeID       uint64  `json:"trade_id"`
+	TakerOrderID  uint64  `json:"taker_order_id"`
+	MakerOrderID  uint64  `json:"maker_order_id"`
+	TakerTraderID uint32  `json:"taker_trader_id"`
+	MakerTraderID uint32  `json:"maker_trader_id"`
+	Price         float64 `json:"price"`
+	Size          float64 `json:"size"`
+	TakerSide     string  `json:"taker_side"`
+	MakerSide     string  `json:"maker_side"`
+	TakerPartial  bool    `json:"taker_partial"`
+	MakerPartial  bool    `json:"maker_partial"`
+	Timestamp     int64   `json:"timestamp"`
+}
+
 func (s Side) String() string {
 	if s == BUY {
 		return "BUY"
@@ -172,12 +203,27 @@ func (s Side) String() string {
 
 // Order - структура ордера
 type Order struct {
-	ID       uint64  // Уникальный последовательный ID
-	TraderID uint32  // ID трейдера
-	Price    uint64  // Цена в целых числах (умножена на 100)
-	Size     uint64  // Объем ордера
-	Side     Side    // Сторона (BUY/SELL)
-	Slot     uint8   // Слот в Verkle дереве
+	ID            uint64  // Уникальный последовательный ID
+	TraderID      uint32  // ID трейдера
+	Price         uint64  // Цена в целых числах (умножена на 100)
+	Size          uint64  // Объем ордера
+	FilledSize    uint64  // Уже исполненный объем
+	Side          Side    // Сторона (BUY/SELL)
+	Slot          uint8   // Слот в Verkle дереве
+	IsPartialFill bool    // Флаг частичного заполнения
+}
+
+// RemainingSize возвращает неисполненный объем
+func (o *Order) RemainingSize() uint64 {
+	if o.FilledSize >= o.Size {
+		return 0
+	}
+	return o.Size - o.FilledSize
+}
+
+// IsFilled проверяет полностью ли исполнен ордер
+func (o *Order) IsFilled() bool {
+	return o.FilledSize >= o.Size
 }
 
 // PriceLevel - уровень цены, содержит слоты с ордерами
@@ -205,22 +251,21 @@ type VerkleNode struct {
 type OrderBook struct {
 	Symbol       string                    // Символ инструмента (BTC)
 	nextOrderID  uint64                    // Атомарный счетчик для ID ордеров
-	BuyLevels    map[uint64]*PriceLevel   // Bid уровни (цена -> PriceLevel)
-	SellLevels   map[uint64]*PriceLevel   // Ask уровни (цена -> PriceLevel)
+	nextTradeID  uint64                    // Атомарный счетчик для ID трейдов
+	BuyLevels    map[uint64]*PriceLevel   // Bid уровни
+	SellLevels   map[uint64]*PriceLevel   // Ask уровни
 	OrderIndex   map[uint64]*Order        // Индекс всех ордеров по ID
+	Trades       []*Trade                 // История всех трейдов
 	Root         *VerkleNode              // Корень Verkle дерева
 	LastRootHash [32]byte                 // Последний вычисленный root hash
+	BestBid      uint64                   // Лучшая цена покупки
+	BestAsk      uint64                   // Лучшая цена продажи
 	
-	BestBid  	 uint64  // Лучшая цена покупки (максимальная)
-	BestAsk  	 uint64
-	
-	mu           sync.RWMutex             // Mutex для защиты структур данных
-	hashTicker   *time.Ticker             // Ticker для периодического хеширования
-	stopChan     chan struct{}            // Канал для остановки хеширования
-	
-	stats        Stats                    // Статистика для мониторинга
-	
-	hashRequest chan struct{}  			  // Канал для запроса хеша
+	mu           sync.RWMutex             // Mutex для защиты
+	hashTicker   *time.Ticker             // Ticker для хеширования
+	stopChan     chan struct{}            // Канал для остановки
+	stats        Stats                    // Статистика
+	hashRequest  chan struct{}            // Канал для запроса хеша
 }
 
 // Stats - статистика ордербука
@@ -276,7 +321,9 @@ type OrderBookStateJSON struct {
 	SellLevelsCount int                `json:"sell_levels_count"`
 	BestBid         float64            `json:"best_bid"`
 	BestAsk         float64            `json:"best_ask"`
+	Spread          float64            `json:"spread"`
 	Stats           StatsJSON          `json:"stats"`
+	RecentTrades    []TradeJSON        `json:"recent_trades"` // Последние трейды
 	Tree            VerkleNodeJSON     `json:"tree"`
 	BuyLevels       []PriceLevelJSON   `json:"buy_levels"`
 	SellLevels      []PriceLevelJSON   `json:"sell_levels"`
@@ -293,6 +340,7 @@ type StatsJSON struct {
 }
 
 // ExportToJSON экспортирует состояние ордербука в JSON файл
+/****
 func (ob *OrderBook) ExportToJSON(filename string) error {
 	ob.mu.RLock()
 	defer ob.mu.RUnlock()
@@ -338,6 +386,90 @@ func (ob *OrderBook) ExportToJSON(filename string) error {
 	
 	fmt.Printf("✓ Состояние дерева экспортировано в %s (%.2f KB)\n", 
 		filename, float64(len(jsonData))/1024)
+	
+	return nil
+}
+***/
+// ExportToJSON - обновленная версия с трейдами
+func (ob *OrderBook) ExportToJSON(filename string) error {
+	ob.mu.RLock()
+	defer ob.mu.RUnlock()
+	
+	ob.rebuildTree()
+	ob.computeRootHash()
+	
+	spread := 0.0
+	if ob.BestAsk > 0 && ob.BestBid > 0 {
+		spread = float64(ob.BestAsk-ob.BestBid) / PRICE_DECIMALS
+	}
+	
+	// Сериализуем последние 100 трейдов
+	recentTrades := make([]TradeJSON, 0)
+	tradesLimit := 100
+	if tradesLimit > len(ob.Trades) {
+		tradesLimit = len(ob.Trades)
+	}
+	startIdx := len(ob.Trades) - tradesLimit
+	
+	for i := startIdx; i < len(ob.Trades); i++ {
+		trade := ob.Trades[i]
+		makerSide := "SELL"
+		if trade.TakerSide == SELL {
+			makerSide = "BUY"
+		}
+		
+		recentTrades = append(recentTrades, TradeJSON{
+			TradeID:       trade.TradeID,
+			TakerOrderID:  trade.TakerOrderID,
+			MakerOrderID:  trade.MakerOrderID,
+			TakerTraderID: trade.TakerTraderID,
+			MakerTraderID: trade.MakerTraderID,
+			Price:         float64(trade.Price) / PRICE_DECIMALS,
+			Size:          float64(trade.Size) / PRICE_DECIMALS,
+			TakerSide:     trade.TakerSide.String(),
+			MakerSide:     makerSide,
+			TakerPartial:  trade.TakerPartial,
+			MakerPartial:  trade.MakerPartial,
+			Timestamp:     trade.Timestamp,
+		})
+	}
+	
+	state := OrderBookStateJSON{
+		Symbol:          ob.Symbol,
+		RootHash:        hex.EncodeToString(ob.LastRootHash[:]),
+		ActiveOrders:    len(ob.OrderIndex),
+		BuyLevelsCount:  len(ob.BuyLevels),
+		SellLevelsCount: len(ob.SellLevels),
+		BestBid:         float64(ob.BestBid) / PRICE_DECIMALS,
+		BestAsk:         float64(ob.BestAsk) / PRICE_DECIMALS,
+		Spread:          spread,
+		Stats:           StatsJSON{
+			TotalOperations:   ob.stats.TotalOperations,
+			TotalOrders:       ob.stats.TotalOrders,
+			TotalMatches:      ob.stats.TotalMatches,
+			TotalCancels:      ob.stats.TotalCancels,
+			TotalModifies:     ob.stats.TotalModifies,
+			TotalMarketOrders: ob.stats.TotalMarketOrders,
+			HashCount:         ob.stats.HashCount,
+		},
+		RecentTrades:    recentTrades,
+		Tree:            ob.serializeVerkleNode(ob.Root),
+		BuyLevels:       ob.serializeLevels(ob.BuyLevels),
+		SellLevels:      ob.serializeLevels(ob.SellLevels),
+	}
+	
+	jsonData, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return fmt.Errorf("ошибка сериализации JSON: %w", err)
+	}
+	
+	err = os.WriteFile(filename, jsonData, 0644)
+	if err != nil {
+		return fmt.Errorf("ошибка записи файла: %w", err)
+	}
+	
+	fmt.Printf("✓ Состояние экспортировано в %s (%.2f KB, %d трейдов)\n", 
+		filename, float64(len(jsonData))/1024, len(recentTrades))
 	
 	return nil
 }
@@ -552,21 +684,21 @@ func NewOrderBook(symbol string) *OrderBook {
 	ob := &OrderBook{
 		Symbol:      symbol,
 		nextOrderID: 0,
+		nextTradeID: 0,
 		BuyLevels:   make(map[uint64]*PriceLevel),
 		SellLevels:  make(map[uint64]*PriceLevel),
-		BestBid:  	 0,  // Лучшая цена покупки (максимальная)
-		BestAsk:  	 0,  // Лучшая цена продажи (минимальная)
 		OrderIndex:  make(map[uint64]*Order),
+		Trades:      make([]*Trade, 0, 1000), // Предаллокация для трейдов
 		Root:        &VerkleNode{IsLeaf: false},
+		BestBid:     0,
+		BestAsk:     0,
 		hashTicker:  time.NewTicker(HASH_INTERVAL),
 		stopChan:    make(chan struct{}),
-		hashRequest: make(chan struct{}, 1),  // Буферизованный
+		hashRequest: make(chan struct{}, 1),
 	}
 	
-	// Запускаем горутину для периодического хеширования
 	go ob.periodicHasher()
-	
-	go ob.hashWorker()  // Новая горутина
+	go ob.hashWorker()
 	
 	return ob
 }
@@ -633,64 +765,61 @@ func (ob *OrderBook) determineSlot(order *Order) uint8 {
 
 // AddLimitOrder добавляет лимитный ордер в ордербук
 func (ob *OrderBook) AddLimitOrder(traderID uint32, price uint64, size uint64, side Side) *Order {
-	// Получаем ордер из пула
 	order := getOrderFromPool()
 	order.ID = atomic.AddUint64(&ob.nextOrderID, 1)
 	order.TraderID = traderID
 	order.Price = price
 	order.Size = size
+	order.FilledSize = 0           // Сброс заполнения
+	order.IsPartialFill = false    // Сброс флага
 	order.Side = side
 	order.Slot = ob.determineSlot(order)
 	
 	ob.mu.Lock()
 	defer ob.mu.Unlock()
 	
-	// Добавляем в соответствующую сторону книги
-	levels := ob.BuyLevels
-	if side == SELL {
-		levels = ob.SellLevels
-	} else if side == BUY {  // <- ДОБАВЬТЕ else if вместо просто if
-		levels = ob.BuyLevels
-	}
-
-	// Получаем или создаем уровень цены
-	level, exists := levels[price]
-	if !exists {
-		level = getPriceLevelFromPool() // Все 16 слотов уже инициализированы!
-		level.Price = price
-		level.TotalVolume = 0
-		levels[price] = level
-		
-		// Обновляем BestBid/BestAsk
+	// Пытаемся сматчить ордер
+	ob.tryMatchUnsafe(order)
+	
+	// Если ордер не исполнен полностью - добавляем в книгу
+	if !order.IsFilled() {
+		levels := ob.BuyLevels
 		if side == SELL {
-			if ob.BestAsk == 0 || price < ob.BestAsk {
-				ob.BestAsk = price
-			}
-		} else if side == BUY {
-			if ob.BestBid == 0 || price > ob.BestBid {
-				ob.BestBid = price
+			levels = ob.SellLevels
+		}
+		
+		level, exists := levels[price]
+		if !exists {
+			level = getPriceLevelFromPool()
+			level.Price = price
+			level.TotalVolume = 0
+			levels[price] = level
+			
+			// Обновляем BestBid/BestAsk
+			if side == SELL {
+				if ob.BestAsk == 0 || price < ob.BestAsk {
+					ob.BestAsk = price
+				}
+			} else if side == BUY {
+				if ob.BestBid == 0 || price > ob.BestBid {
+					ob.BestBid = price
+				}
 			}
 		}
+		
+		// Добавляем в слот (остаток неисполненного объема)
+		remainingSize := order.RemainingSize()
+		slot := level.Slots[order.Slot]
+		slot.Orders = append(slot.Orders, order)
+		slot.Volume += remainingSize
+		level.TotalVolume += remainingSize
+		
+		// Индексируем ордер
+		ob.OrderIndex[order.ID] = order
 	}
 	
-	// Добавляем ордер в соответствующий слот
-	slot := level.Slots[order.Slot]
-	slot.Orders = append(slot.Orders, order)
-	slot.Volume += size
-	level.TotalVolume += size
-	
-	// Индексируем ордер
-	ob.OrderIndex[order.ID] = order
-	atomic.AddUint64(&ob.stats.TotalOrders, 1)	
+	atomic.AddUint64(&ob.stats.TotalOrders, 1)
 	atomic.AddUint64(&ob.stats.TotalOperations, 1)
-	
-/*	
-	fmt.Printf("✓ Ордер #%d: %s %.2f размер %.2f трейдер %d слот %d\n",
-		order.ID, side, float64(price)/PRICE_DECIMALS, float64(size)/PRICE_DECIMALS,
-		traderID, order.Slot) */
-	
-	// Проверяем возможность матчинга (без lock, т.к. уже под lock)
-	ob.tryMatchUnsafe(order)
 	
 	return order
 }
@@ -714,25 +843,204 @@ func (ob *OrderBook) updateBestPrices() {
 }
 
 // tryMatchUnsafe пытается совместить ордер (вызывается под lock)
-func (ob *OrderBook) tryMatchUnsafe(order *Order) {
-    var bestPrice uint64
-    var canMatch bool
-    
-    if order.Side == BUY {
-        bestPrice = ob.BestAsk
-        canMatch = ob.BestAsk > 0 && bestPrice <= order.Price
-    } else {
-        bestPrice = ob.BestBid
-        canMatch = ob.BestBid > 0 && bestPrice >= order.Price
-    }
-    
-    if canMatch {
-        // Можно закомментировать вывод для еще большей скорости
-        // fmt.Printf("⚡ МАТЧ: Ордер #%d (%s %.2f) <-> уровень %.2f\n",
-        //     order.ID, order.Side, float64(order.Price)/PRICE_DECIMALS,
-        //     float64(bestPrice)/PRICE_DECIMALS)
-        atomic.AddUint64(&ob.stats.TotalMatches, 1)
-    }
+func (ob *OrderBook) tryMatchUnsafe(takerOrder *Order) {
+	if takerOrder.IsFilled() {
+		return // Ордер уже полностью исполнен
+	}
+	
+	var bestPrice uint64
+	var canMatch bool
+	
+	if takerOrder.Side == BUY {
+		bestPrice = ob.BestAsk
+		canMatch = ob.BestAsk > 0 && bestPrice <= takerOrder.Price
+	} else {
+		bestPrice = ob.BestBid
+		canMatch = ob.BestBid > 0 && bestPrice >= takerOrder.Price
+	}
+	
+	if !canMatch {
+		return
+	}
+	
+	// Получаем противоположную сторону книги
+	oppositeLevels := ob.SellLevels
+	if takerOrder.Side == SELL {
+		oppositeLevels = ob.BuyLevels
+	}
+	
+	level := oppositeLevels[bestPrice]
+	if level == nil {
+		return
+	}
+	
+	// Исполняем ордер по приоритету слотов (0 -> 15)
+	for slotIdx := 0; slotIdx < VERKLE_WIDTH; slotIdx++ {
+		if takerOrder.IsFilled() {
+			break
+		}
+		
+		slot := level.Slots[slotIdx]
+		if len(slot.Orders) == 0 {
+			continue
+		}
+		
+		// Обрабатываем ордера в слоте (FIFO)
+		i := 0
+		for i < len(slot.Orders) {
+			if takerOrder.IsFilled() {
+				break
+			}
+			
+			makerOrder := slot.Orders[i]
+			
+			// Вычисляем объем для исполнения
+			takerRemaining := takerOrder.RemainingSize()
+			makerRemaining := makerOrder.RemainingSize()
+			executeSize := takerRemaining
+			if makerRemaining < executeSize {
+				executeSize = makerRemaining
+			}
+			
+			// Создаем трейд
+			trade := &Trade{
+				TradeID:       atomic.AddUint64(&ob.nextTradeID, 1),
+				TakerOrderID:  takerOrder.ID,
+				MakerOrderID:  makerOrder.ID,
+				TakerTraderID: takerOrder.TraderID,
+				MakerTraderID: makerOrder.TraderID,
+				Price:         bestPrice,
+				Size:          executeSize,
+				TakerSide:     takerOrder.Side,
+				TakerPartial:  false,
+				MakerPartial:  false,
+				Timestamp:     time.Now().UnixNano(),
+			}
+			
+			// Обновляем заполнение
+			takerOrder.FilledSize += executeSize
+			makerOrder.FilledSize += executeSize
+			
+			// Устанавливаем флаги частичного заполнения
+			if !takerOrder.IsFilled() {
+				takerOrder.IsPartialFill = true
+				trade.TakerPartial = true
+			}
+			if !makerOrder.IsFilled() {
+				makerOrder.IsPartialFill = true
+				trade.MakerPartial = true
+			}
+			
+			// Обновляем объемы
+			slot.Volume -= executeSize
+			level.TotalVolume -= executeSize
+			
+			// Сохраняем трейд
+			ob.Trades = append(ob.Trades, trade)
+			atomic.AddUint64(&ob.stats.TotalMatches, 1)
+			
+			// Если maker ордер исполнен полностью - удаляем
+			if makerOrder.IsFilled() {
+				slot.Orders = append(slot.Orders[:i], slot.Orders[i+1:]...)
+				delete(ob.OrderIndex, makerOrder.ID)
+				putOrderToPool(makerOrder)
+				// i не увеличиваем, т.к. удалили элемент
+			} else {
+				i++
+			}
+			
+			// Логируем трейд (закомментируйте для производительности)
+			// fmt.Printf("⚡ TRADE #%d: %s %.2f @ %.2f (taker:#%d maker:#%d) [partial: T=%v M=%v]\n",
+			// 	trade.TradeID, trade.TakerSide, float64(executeSize)/PRICE_DECIMALS,
+			// 	float64(bestPrice)/PRICE_DECIMALS, takerOrder.ID, makerOrder.ID,
+			// 	trade.TakerPartial, trade.MakerPartial)
+		}
+		
+		// Если слот пуст, обнуляем volume
+		if len(slot.Orders) == 0 {
+			slot.Volume = 0
+		}
+	}
+	
+	// Если уровень стал пустым, удаляем
+	if level.TotalVolume == 0 {
+		delete(oppositeLevels, bestPrice)
+		putPriceLevelToPool(level)
+		ob.updateBestPrices()
+	}
+	
+	// Если taker ордер не исполнен полностью - остается в книге
+	// Если исполнен полностью - удаляем из индекса
+	if takerOrder.IsFilled() {
+		delete(ob.OrderIndex, takerOrder.ID)
+		// НЕ возвращаем в пул - он еще используется в вызывающем коде
+	}
+}
+
+// GetTradesByOrderID возвращает все трейды связанные с ордером
+func (ob *OrderBook) GetTradesByOrderID(orderID uint64) []*Trade {
+	ob.mu.RLock()
+	defer ob.mu.RUnlock()
+	
+	trades := make([]*Trade, 0)
+	for _, trade := range ob.Trades {
+		if trade.TakerOrderID == orderID || trade.MakerOrderID == orderID {
+			trades = append(trades, trade)
+		}
+	}
+	return trades
+}
+
+// GetTradesByTraderID возвращает все трейды трейдера
+func (ob *OrderBook) GetTradesByTraderID(traderID uint32) []*Trade {
+	ob.mu.RLock()
+	defer ob.mu.RUnlock()
+	
+	trades := make([]*Trade, 0)
+	for _, trade := range ob.Trades {
+		if trade.TakerTraderID == traderID || trade.MakerTraderID == traderID {
+			trades = append(trades, trade)
+		}
+	}
+	return trades
+}
+
+// GetRecentTrades возвращает последние N трейдов
+func (ob *OrderBook) GetRecentTrades(limit int) []*Trade {
+	ob.mu.RLock()
+	defer ob.mu.RUnlock()
+	
+	if limit <= 0 || limit > len(ob.Trades) {
+		limit = len(ob.Trades)
+	}
+	
+	start := len(ob.Trades) - limit
+	return ob.Trades[start:]
+}
+
+// ClearOldTrades очищает трейды старше заданного времени (для экономии памяти)
+func (ob *OrderBook) ClearOldTrades(olderThan time.Duration) int {
+	ob.mu.Lock()
+	defer ob.mu.Unlock()
+	
+	cutoff := time.Now().Add(-olderThan).UnixNano()
+	
+	// Находим индекс первого "свежего" трейда
+	firstValidIdx := 0
+	for i, trade := range ob.Trades {
+		if trade.Timestamp >= cutoff {
+			firstValidIdx = i
+			break
+		}
+	}
+	
+	if firstValidIdx == 0 {
+		return 0
+	}
+	
+	removed := firstValidIdx
+	ob.Trades = ob.Trades[firstValidIdx:]
+	return removed
 }
 
 // CancelOrder отменяет ордер по ID

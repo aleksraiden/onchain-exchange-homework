@@ -1,1372 +1,2756 @@
 {
   "symbol": "BTC",
-  "root_hash": "8746573430289469b3a396852ee2c9da02bee9d5c13fad6d14554f88afad0d59",
-  "active_orders": 140,
-  "buy_levels_count": 67,
-  "sell_levels_count": 73,
-  "best_bid": 65092.04,
-  "best_ask": 64900.45,
+  "root_hash": "7b694b15b9aadb517e7ed8527872fbd0bc9ffb772ad4eb01ad54597dbd6b8671",
+  "active_orders": 1177,
+  "buy_levels_count": 591,
+  "sell_levels_count": 626,
+  "best_bid": 65098.76,
+  "best_ask": 64900.09,
+  "spread": 184467440737095300,
   "stats": {
-    "total_operations": 912,
-    "total_orders": 368,
-    "total_matches": 654,
-    "total_cancels": 228,
-    "total_modifies": 252,
-    "total_market_orders": 139,
+    "total_operations": 8610,
+    "total_orders": 3468,
+    "total_matches": 1622,
+    "total_cancels": 2184,
+    "total_modifies": 2176,
+    "total_market_orders": 1513,
     "hash_count": 1
   },
+  "recent_trades": [
+    {
+      "trade_id": 10,
+      "taker_order_id": 36,
+      "maker_order_id": 21,
+      "taker_trader_id": 877,
+      "maker_trader_id": 336,
+      "price": 65092.71,
+      "size": 50.24,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": false,
+      "maker_partial": true,
+      "timestamp": 1765104828830099199
+    },
+    {
+      "trade_id": 11,
+      "taker_order_id": 37,
+      "maker_order_id": 21,
+      "taker_trader_id": 233,
+      "maker_trader_id": 336,
+      "price": 65092.71,
+      "size": 43.98,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828830100209
+    },
+    {
+      "trade_id": 12,
+      "taker_order_id": 39,
+      "maker_order_id": 32,
+      "taker_trader_id": 686,
+      "maker_trader_id": 754,
+      "price": 65060.21,
+      "size": 59.76,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": false,
+      "maker_partial": true,
+      "timestamp": 1765104828830109943
+    },
+    {
+      "trade_id": 13,
+      "taker_order_id": 40,
+      "maker_order_id": 32,
+      "taker_trader_id": 813,
+      "maker_trader_id": 754,
+      "price": 65060.21,
+      "size": 30.43,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828830110408
+    },
+    {
+      "trade_id": 14,
+      "taker_order_id": 40,
+      "maker_order_id": 34,
+      "taker_trader_id": 813,
+      "maker_trader_id": 278,
+      "price": 65048.8,
+      "size": 1.47,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828830115455
+    },
+    {
+      "trade_id": 15,
+      "taker_order_id": 43,
+      "maker_order_id": 33,
+      "taker_trader_id": 878,
+      "maker_trader_id": 714,
+      "price": 65037.17,
+      "size": 40.92,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828830120083
+    },
+    {
+      "trade_id": 16,
+      "taker_order_id": 20,
+      "maker_order_id": 41,
+      "taker_trader_id": 908,
+      "maker_trader_id": 683,
+      "price": 64988.06,
+      "size": 69.7,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828830127580
+    },
+    {
+      "trade_id": 17,
+      "taker_order_id": 46,
+      "maker_order_id": 20,
+      "taker_trader_id": 83,
+      "maker_trader_id": 908,
+      "price": 64907.32,
+      "size": 6.26,
+      "taker_side": "BUY",
+      "maker_side": "SELL",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828830129059
+    },
+    {
+      "trade_id": 18,
+      "taker_order_id": 50,
+      "maker_order_id": 47,
+      "taker_trader_id": 10,
+      "maker_trader_id": 346,
+      "price": 65030,
+      "size": 27.62,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828830134616
+    },
+    {
+      "trade_id": 19,
+      "taker_order_id": 57,
+      "maker_order_id": 52,
+      "taker_trader_id": 192,
+      "maker_trader_id": 902,
+      "price": 65047.49,
+      "size": 9.66,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": false,
+      "maker_partial": true,
+      "timestamp": 1765104828830166086
+    },
+    {
+      "trade_id": 20,
+      "taker_order_id": 62,
+      "maker_order_id": 59,
+      "taker_trader_id": 910,
+      "maker_trader_id": 285,
+      "price": 65095.12,
+      "size": 37.59,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828830178159
+    },
+    {
+      "trade_id": 21,
+      "taker_order_id": 71,
+      "maker_order_id": 58,
+      "taker_trader_id": 163,
+      "maker_trader_id": 672,
+      "price": 65059.74,
+      "size": 38.73,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828830202666
+    },
+    {
+      "trade_id": 22,
+      "taker_order_id": 84,
+      "maker_order_id": 46,
+      "taker_trader_id": 168,
+      "maker_trader_id": 83,
+      "price": 65095.9,
+      "size": 0,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828830238654
+    },
+    {
+      "trade_id": 23,
+      "taker_order_id": 104,
+      "maker_order_id": 102,
+      "taker_trader_id": 331,
+      "maker_trader_id": 98,
+      "price": 65096.11,
+      "size": 31.89,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": false,
+      "maker_partial": true,
+      "timestamp": 1765104828830304467
+    },
+    {
+      "trade_id": 24,
+      "taker_order_id": 107,
+      "maker_order_id": 102,
+      "taker_trader_id": 862,
+      "maker_trader_id": 98,
+      "price": 65096.11,
+      "size": 8.93,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828830307379
+    },
+    {
+      "trade_id": 25,
+      "taker_order_id": 162,
+      "maker_order_id": 159,
+      "taker_trader_id": 31,
+      "maker_trader_id": 146,
+      "price": 64901.4,
+      "size": 20.61,
+      "taker_side": "BUY",
+      "maker_side": "SELL",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828830472264
+    },
+    {
+      "trade_id": 26,
+      "taker_order_id": 149,
+      "maker_order_id": 224,
+      "taker_trader_id": 714,
+      "maker_trader_id": 211,
+      "price": 64907.06,
+      "size": 87.21,
+      "taker_side": "BUY",
+      "maker_side": "SELL",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828830699568
+    },
+    {
+      "trade_id": 27,
+      "taker_order_id": 202,
+      "maker_order_id": 240,
+      "taker_trader_id": 913,
+      "maker_trader_id": 240,
+      "price": 65098.33,
+      "size": 42.77,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": false,
+      "maker_partial": true,
+      "timestamp": 1765104828830797222
+    },
+    {
+      "trade_id": 28,
+      "taker_order_id": 243,
+      "maker_order_id": 240,
+      "taker_trader_id": 226,
+      "maker_trader_id": 240,
+      "price": 65098.33,
+      "size": 20,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828830808314
+    },
+    {
+      "trade_id": 29,
+      "taker_order_id": 244,
+      "maker_order_id": 243,
+      "taker_trader_id": 776,
+      "maker_trader_id": 226,
+      "price": 64906.71,
+      "size": 26.5,
+      "taker_side": "BUY",
+      "maker_side": "SELL",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828830815721
+    },
+    {
+      "trade_id": 30,
+      "taker_order_id": 97,
+      "maker_order_id": 268,
+      "taker_trader_id": 711,
+      "maker_trader_id": 329,
+      "price": 64903.66,
+      "size": 49.26,
+      "taker_side": "BUY",
+      "maker_side": "SELL",
+      "taker_partial": false,
+      "maker_partial": true,
+      "timestamp": 1765104828830901305
+    },
+    {
+      "trade_id": 31,
+      "taker_order_id": 221,
+      "maker_order_id": 268,
+      "taker_trader_id": 754,
+      "maker_trader_id": 329,
+      "price": 64903.66,
+      "size": 24.83,
+      "taker_side": "BUY",
+      "maker_side": "SELL",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828830902682
+    },
+    {
+      "trade_id": 32,
+      "taker_order_id": 284,
+      "maker_order_id": 283,
+      "taker_trader_id": 665,
+      "maker_trader_id": 355,
+      "price": 64903.35,
+      "size": 28.33,
+      "taker_side": "BUY",
+      "maker_side": "SELL",
+      "taker_partial": false,
+      "maker_partial": true,
+      "timestamp": 1765104828830955505
+    },
+    {
+      "trade_id": 33,
+      "taker_order_id": 285,
+      "maker_order_id": 283,
+      "taker_trader_id": 365,
+      "maker_trader_id": 355,
+      "price": 64903.35,
+      "size": 64.35,
+      "taker_side": "BUY",
+      "maker_side": "SELL",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828830955985
+    },
+    {
+      "trade_id": 34,
+      "taker_order_id": 294,
+      "maker_order_id": 293,
+      "taker_trader_id": 979,
+      "maker_trader_id": 495,
+      "price": 65098.14,
+      "size": 24.57,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": false,
+      "maker_partial": true,
+      "timestamp": 1765104828830990783
+    },
+    {
+      "trade_id": 35,
+      "taker_order_id": 282,
+      "maker_order_id": 293,
+      "taker_trader_id": 997,
+      "maker_trader_id": 495,
+      "price": 65098.14,
+      "size": 27.84,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": false,
+      "maker_partial": true,
+      "timestamp": 1765104828830992872
+    },
+    {
+      "trade_id": 36,
+      "taker_order_id": 297,
+      "maker_order_id": 293,
+      "taker_trader_id": 973,
+      "maker_trader_id": 495,
+      "price": 65098.14,
+      "size": 17.81,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828831004028
+    },
+    {
+      "trade_id": 37,
+      "taker_order_id": 281,
+      "maker_order_id": 317,
+      "taker_trader_id": 505,
+      "maker_trader_id": 928,
+      "price": 65096.13,
+      "size": 56.97,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": false,
+      "maker_partial": true,
+      "timestamp": 1765104828831108696
+    },
+    {
+      "trade_id": 38,
+      "taker_order_id": 148,
+      "maker_order_id": 317,
+      "taker_trader_id": 385,
+      "maker_trader_id": 928,
+      "price": 65096.13,
+      "size": 27.41,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828831110046
+    },
+    {
+      "trade_id": 39,
+      "taker_order_id": 346,
+      "maker_order_id": 124,
+      "taker_trader_id": 108,
+      "maker_trader_id": 400,
+      "price": 65096.01,
+      "size": 88.79,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": false,
+      "maker_partial": true,
+      "timestamp": 1765104828831220796
+    },
+    {
+      "trade_id": 40,
+      "taker_order_id": 348,
+      "maker_order_id": 124,
+      "taker_trader_id": 857,
+      "maker_trader_id": 400,
+      "price": 65096.01,
+      "size": 11.91,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828831230471
+    },
+    {
+      "trade_id": 41,
+      "taker_order_id": 431,
+      "maker_order_id": 259,
+      "taker_trader_id": 813,
+      "maker_trader_id": 938,
+      "price": 64902.63,
+      "size": 36.56,
+      "taker_side": "BUY",
+      "maker_side": "SELL",
+      "taker_partial": false,
+      "maker_partial": true,
+      "timestamp": 1765104828831707253
+    },
+    {
+      "trade_id": 42,
+      "taker_order_id": 435,
+      "maker_order_id": 259,
+      "taker_trader_id": 169,
+      "maker_trader_id": 938,
+      "price": 64902.63,
+      "size": 27.29,
+      "taker_side": "BUY",
+      "maker_side": "SELL",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828831710434
+    },
+    {
+      "trade_id": 43,
+      "taker_order_id": 448,
+      "maker_order_id": 446,
+      "taker_trader_id": 931,
+      "maker_trader_id": 103,
+      "price": 64905.25,
+      "size": 36.15,
+      "taker_side": "BUY",
+      "maker_side": "SELL",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828831778638
+    },
+    {
+      "trade_id": 44,
+      "taker_order_id": 460,
+      "maker_order_id": 459,
+      "taker_trader_id": 502,
+      "maker_trader_id": 451,
+      "price": 64903.7,
+      "size": 9.33,
+      "taker_side": "BUY",
+      "maker_side": "SELL",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828831829965
+    },
+    {
+      "trade_id": 45,
+      "taker_order_id": 491,
+      "maker_order_id": 486,
+      "taker_trader_id": 382,
+      "maker_trader_id": 441,
+      "price": 65097.35,
+      "size": 1.65,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": false,
+      "maker_partial": true,
+      "timestamp": 1765104828832029342
+    },
+    {
+      "trade_id": 46,
+      "taker_order_id": 492,
+      "maker_order_id": 486,
+      "taker_trader_id": 998,
+      "maker_trader_id": 441,
+      "price": 65097.35,
+      "size": 19.23,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828832039065
+    },
+    {
+      "trade_id": 47,
+      "taker_order_id": 541,
+      "maker_order_id": 539,
+      "taker_trader_id": 115,
+      "maker_trader_id": 252,
+      "price": 65096.38,
+      "size": 29.73,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828832324051
+    },
+    {
+      "trade_id": 48,
+      "taker_order_id": 557,
+      "maker_order_id": 553,
+      "taker_trader_id": 153,
+      "maker_trader_id": 295,
+      "price": 64901.7,
+      "size": 11.26,
+      "taker_side": "BUY",
+      "maker_side": "SELL",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828832408583
+    },
+    {
+      "trade_id": 49,
+      "taker_order_id": 561,
+      "maker_order_id": 556,
+      "taker_trader_id": 418,
+      "maker_trader_id": 820,
+      "price": 64904.66,
+      "size": 59.42,
+      "taker_side": "BUY",
+      "maker_side": "SELL",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828832427867
+    },
+    {
+      "trade_id": 50,
+      "taker_order_id": 569,
+      "maker_order_id": 567,
+      "taker_trader_id": 544,
+      "maker_trader_id": 709,
+      "price": 65097.77,
+      "size": 14.6,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": false,
+      "maker_partial": true,
+      "timestamp": 1765104828832508668
+    },
+    {
+      "trade_id": 51,
+      "taker_order_id": 570,
+      "maker_order_id": 567,
+      "taker_trader_id": 453,
+      "maker_trader_id": 709,
+      "price": 65097.77,
+      "size": 31.22,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828832509341
+    },
+    {
+      "trade_id": 52,
+      "taker_order_id": 429,
+      "maker_order_id": 624,
+      "taker_trader_id": 689,
+      "maker_trader_id": 860,
+      "price": 65097.96,
+      "size": 65.01,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828833068598
+    },
+    {
+      "trade_id": 53,
+      "taker_order_id": 626,
+      "maker_order_id": 429,
+      "taker_trader_id": 842,
+      "maker_trader_id": 689,
+      "price": 64900.94,
+      "size": 34.32,
+      "taker_side": "BUY",
+      "maker_side": "SELL",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828833075133
+    },
+    {
+      "trade_id": 54,
+      "taker_order_id": 667,
+      "maker_order_id": 664,
+      "taker_trader_id": 720,
+      "maker_trader_id": 521,
+      "price": 65097.59,
+      "size": 32.11,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828833369413
+    },
+    {
+      "trade_id": 55,
+      "taker_order_id": 854,
+      "maker_order_id": 605,
+      "taker_trader_id": 839,
+      "maker_trader_id": 957,
+      "price": 65096.92,
+      "size": 14,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": false,
+      "maker_partial": true,
+      "timestamp": 1765104828835098335
+    },
+    {
+      "trade_id": 56,
+      "taker_order_id": 855,
+      "maker_order_id": 605,
+      "taker_trader_id": 650,
+      "maker_trader_id": 957,
+      "price": 65096.92,
+      "size": 65.07,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828835099086
+    },
+    {
+      "trade_id": 57,
+      "taker_order_id": 357,
+      "maker_order_id": 850,
+      "taker_trader_id": 935,
+      "maker_trader_id": 600,
+      "price": 64900.48,
+      "size": 86.75,
+      "taker_side": "BUY",
+      "maker_side": "SELL",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828835243343
+    },
+    {
+      "trade_id": 58,
+      "taker_order_id": 918,
+      "maker_order_id": 917,
+      "taker_trader_id": 344,
+      "maker_trader_id": 401,
+      "price": 65097.79,
+      "size": 95.9,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828835441304
+    },
+    {
+      "trade_id": 59,
+      "taker_order_id": 994,
+      "maker_order_id": 993,
+      "taker_trader_id": 959,
+      "maker_trader_id": 443,
+      "price": 65097.51,
+      "size": 14.42,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828836163243
+    },
+    {
+      "trade_id": 60,
+      "taker_order_id": 199,
+      "maker_order_id": 1053,
+      "taker_trader_id": 238,
+      "maker_trader_id": 934,
+      "price": 65096.61,
+      "size": 2.38,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": false,
+      "maker_partial": true,
+      "timestamp": 1765104828836673216
+    },
+    {
+      "trade_id": 61,
+      "taker_order_id": 678,
+      "maker_order_id": 1053,
+      "taker_trader_id": 857,
+      "maker_trader_id": 934,
+      "price": 65096.61,
+      "size": 27.5,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": false,
+      "maker_partial": true,
+      "timestamp": 1765104828836673882
+    },
+    {
+      "trade_id": 62,
+      "taker_order_id": 1057,
+      "maker_order_id": 1053,
+      "taker_trader_id": 860,
+      "maker_trader_id": 934,
+      "price": 65096.61,
+      "size": 38.92,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828836710583
+    },
+    {
+      "trade_id": 63,
+      "taker_order_id": 1094,
+      "maker_order_id": 1093,
+      "taker_trader_id": 790,
+      "maker_trader_id": 805,
+      "price": 65097.2,
+      "size": 44.14,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828836992947
+    },
+    {
+      "trade_id": 64,
+      "taker_order_id": 706,
+      "maker_order_id": 1107,
+      "taker_trader_id": 472,
+      "maker_trader_id": 109,
+      "price": 65097.37,
+      "size": 2.96,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": false,
+      "maker_partial": true,
+      "timestamp": 1765104828837176360
+    },
+    {
+      "trade_id": 65,
+      "taker_order_id": 1112,
+      "maker_order_id": 1107,
+      "taker_trader_id": 695,
+      "maker_trader_id": 109,
+      "price": 65097.37,
+      "size": 12.21,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828837176859
+    },
+    {
+      "trade_id": 66,
+      "taker_order_id": 1178,
+      "maker_order_id": 1177,
+      "taker_trader_id": 732,
+      "maker_trader_id": 727,
+      "price": 65097.57,
+      "size": 36.28,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828837980658
+    },
+    {
+      "trade_id": 67,
+      "taker_order_id": 1237,
+      "maker_order_id": 1235,
+      "taker_trader_id": 791,
+      "maker_trader_id": 589,
+      "price": 65097.95,
+      "size": 34.38,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828838511252
+    },
+    {
+      "trade_id": 68,
+      "taker_order_id": 1354,
+      "maker_order_id": 1346,
+      "taker_trader_id": 539,
+      "maker_trader_id": 676,
+      "price": 65098.94,
+      "size": 32.25,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": false,
+      "maker_partial": true,
+      "timestamp": 1765104828839943939
+    },
+    {
+      "trade_id": 69,
+      "taker_order_id": 1355,
+      "maker_order_id": 1346,
+      "taker_trader_id": 635,
+      "maker_trader_id": 676,
+      "price": 65098.94,
+      "size": 5.82,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828839944333
+    },
+    {
+      "trade_id": 70,
+      "taker_order_id": 1364,
+      "maker_order_id": 765,
+      "taker_trader_id": 486,
+      "maker_trader_id": 7,
+      "price": 64900.61,
+      "size": 78.14,
+      "taker_side": "BUY",
+      "maker_side": "SELL",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828840120289
+    },
+    {
+      "trade_id": 71,
+      "taker_order_id": 627,
+      "maker_order_id": 1388,
+      "taker_trader_id": 72,
+      "maker_trader_id": 104,
+      "price": 65096.7,
+      "size": 15.17,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828840329213
+    },
+    {
+      "trade_id": 72,
+      "taker_order_id": 1412,
+      "maker_order_id": 985,
+      "taker_trader_id": 424,
+      "maker_trader_id": 67,
+      "price": 64900.05,
+      "size": 16.15,
+      "taker_side": "BUY",
+      "maker_side": "SELL",
+      "taker_partial": false,
+      "maker_partial": true,
+      "timestamp": 1765104828840537977
+    },
+    {
+      "trade_id": 73,
+      "taker_order_id": 1413,
+      "maker_order_id": 985,
+      "taker_trader_id": 362,
+      "maker_trader_id": 67,
+      "price": 64900.05,
+      "size": 33.29,
+      "taker_side": "BUY",
+      "maker_side": "SELL",
+      "taker_partial": false,
+      "maker_partial": true,
+      "timestamp": 1765104828840561982
+    },
+    {
+      "trade_id": 74,
+      "taker_order_id": 1351,
+      "maker_order_id": 985,
+      "taker_trader_id": 791,
+      "maker_trader_id": 67,
+      "price": 64900.05,
+      "size": 8.49,
+      "taker_side": "BUY",
+      "maker_side": "SELL",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828840562855
+    },
+    {
+      "trade_id": 75,
+      "taker_order_id": 1281,
+      "maker_order_id": 1208,
+      "taker_trader_id": 576,
+      "maker_trader_id": 824,
+      "price": 65098.63,
+      "size": 2.97,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828840707551
+    },
+    {
+      "trade_id": 76,
+      "taker_order_id": 1464,
+      "maker_order_id": 1410,
+      "taker_trader_id": 386,
+      "maker_trader_id": 514,
+      "price": 65097.72,
+      "size": 37.23,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828840960297
+    },
+    {
+      "trade_id": 77,
+      "taker_order_id": 1675,
+      "maker_order_id": 1674,
+      "taker_trader_id": 103,
+      "maker_trader_id": 504,
+      "price": 65097.02,
+      "size": 33.45,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828843735402
+    },
+    {
+      "trade_id": 78,
+      "taker_order_id": 1684,
+      "maker_order_id": 1683,
+      "taker_trader_id": 664,
+      "maker_trader_id": 410,
+      "price": 64900.81,
+      "size": 29.14,
+      "taker_side": "BUY",
+      "maker_side": "SELL",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828843926184
+    },
+    {
+      "trade_id": 79,
+      "taker_order_id": 1722,
+      "maker_order_id": 782,
+      "taker_trader_id": 564,
+      "maker_trader_id": 981,
+      "price": 64900.65,
+      "size": 29.38,
+      "taker_side": "BUY",
+      "maker_side": "SELL",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828844623429
+    },
+    {
+      "trade_id": 80,
+      "taker_order_id": 1856,
+      "maker_order_id": 1934,
+      "taker_trader_id": 726,
+      "maker_trader_id": 2,
+      "price": 65096.26,
+      "size": 10.34,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": false,
+      "maker_partial": true,
+      "timestamp": 1765104828849099070
+    },
+    {
+      "trade_id": 81,
+      "taker_order_id": 1936,
+      "maker_order_id": 1934,
+      "taker_trader_id": 251,
+      "maker_trader_id": 2,
+      "price": 65096.26,
+      "size": 27.9,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": false,
+      "maker_partial": true,
+      "timestamp": 1765104828849100386
+    },
+    {
+      "trade_id": 82,
+      "taker_order_id": 1937,
+      "maker_order_id": 1856,
+      "taker_trader_id": 738,
+      "maker_trader_id": 726,
+      "price": 64900.09,
+      "size": 0,
+      "taker_side": "BUY",
+      "maker_side": "SELL",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828849101558
+    },
+    {
+      "trade_id": 83,
+      "taker_order_id": 1938,
+      "maker_order_id": 1934,
+      "taker_trader_id": 788,
+      "maker_trader_id": 2,
+      "price": 65096.26,
+      "size": 8.65,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828849158395
+    },
+    {
+      "trade_id": 84,
+      "taker_order_id": 1958,
+      "maker_order_id": 1957,
+      "taker_trader_id": 824,
+      "maker_trader_id": 518,
+      "price": 65097.14,
+      "size": 46.63,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": false,
+      "maker_partial": true,
+      "timestamp": 1765104828849688220
+    },
+    {
+      "trade_id": 85,
+      "taker_order_id": 1959,
+      "maker_order_id": 1957,
+      "taker_trader_id": 625,
+      "maker_trader_id": 518,
+      "price": 65097.14,
+      "size": 8.94,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": false,
+      "maker_partial": true,
+      "timestamp": 1765104828849690115
+    },
+    {
+      "trade_id": 86,
+      "taker_order_id": 1643,
+      "maker_order_id": 1957,
+      "taker_trader_id": 921,
+      "maker_trader_id": 518,
+      "price": 65097.14,
+      "size": 38.5,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828849697903
+    },
+    {
+      "trade_id": 87,
+      "taker_order_id": 1828,
+      "maker_order_id": 2007,
+      "taker_trader_id": 923,
+      "maker_trader_id": 786,
+      "price": 65099.1,
+      "size": 21.61,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828851169344
+    },
+    {
+      "trade_id": 88,
+      "taker_order_id": 2062,
+      "maker_order_id": 2060,
+      "taker_trader_id": 49,
+      "maker_trader_id": 926,
+      "price": 65099.93,
+      "size": 24.62,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828852567733
+    },
+    {
+      "trade_id": 89,
+      "taker_order_id": 2126,
+      "maker_order_id": 514,
+      "taker_trader_id": 835,
+      "maker_trader_id": 115,
+      "price": 65096.66,
+      "size": 25.58,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": false,
+      "maker_partial": true,
+      "timestamp": 1765104828853706773
+    },
+    {
+      "trade_id": 90,
+      "taker_order_id": 2127,
+      "maker_order_id": 514,
+      "taker_trader_id": 653,
+      "maker_trader_id": 115,
+      "price": 65096.66,
+      "size": 45.19,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828853707852
+    },
+    {
+      "trade_id": 91,
+      "taker_order_id": 2181,
+      "maker_order_id": 1900,
+      "taker_trader_id": 67,
+      "maker_trader_id": 441,
+      "price": 65098.84,
+      "size": 58.73,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828854645981
+    },
+    {
+      "trade_id": 92,
+      "taker_order_id": 1483,
+      "maker_order_id": 2221,
+      "taker_trader_id": 17,
+      "maker_trader_id": 280,
+      "price": 64900.09,
+      "size": 3.5,
+      "taker_side": "BUY",
+      "maker_side": "SELL",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828855341236
+    },
+    {
+      "trade_id": 93,
+      "taker_order_id": 2223,
+      "maker_order_id": 1483,
+      "taker_trader_id": 651,
+      "maker_trader_id": 17,
+      "price": 65098.76,
+      "size": 22.27,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828855341806
+    },
+    {
+      "trade_id": 94,
+      "taker_order_id": 1655,
+      "maker_order_id": 2590,
+      "taker_trader_id": 76,
+      "maker_trader_id": 993,
+      "price": 65099.65,
+      "size": 8.01,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": false,
+      "maker_partial": true,
+      "timestamp": 1765104828862101123
+    },
+    {
+      "trade_id": 95,
+      "taker_order_id": 2595,
+      "maker_order_id": 2590,
+      "taker_trader_id": 977,
+      "maker_trader_id": 993,
+      "price": 65099.65,
+      "size": 30.02,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": false,
+      "maker_partial": true,
+      "timestamp": 1765104828862102666
+    },
+    {
+      "trade_id": 96,
+      "taker_order_id": 2596,
+      "maker_order_id": 2590,
+      "taker_trader_id": 167,
+      "maker_trader_id": 993,
+      "price": 65099.65,
+      "size": 4.69,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828862129915
+    },
+    {
+      "trade_id": 97,
+      "taker_order_id": 2982,
+      "maker_order_id": 2980,
+      "taker_trader_id": 402,
+      "maker_trader_id": 341,
+      "price": 65099.44,
+      "size": 38.64,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": false,
+      "maker_partial": true,
+      "timestamp": 1765104828867736813
+    },
+    {
+      "trade_id": 98,
+      "taker_order_id": 2983,
+      "maker_order_id": 2980,
+      "taker_trader_id": 171,
+      "maker_trader_id": 341,
+      "price": 65099.44,
+      "size": 1.59,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828867737599
+    },
+    {
+      "trade_id": 99,
+      "taker_order_id": 3022,
+      "maker_order_id": 2022,
+      "taker_trader_id": 202,
+      "maker_trader_id": 272,
+      "price": 65099.98,
+      "size": 11.99,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": false,
+      "maker_partial": true,
+      "timestamp": 1765104828868139787
+    },
+    {
+      "trade_id": 100,
+      "taker_order_id": 3024,
+      "maker_order_id": 2022,
+      "taker_trader_id": 756,
+      "maker_trader_id": 272,
+      "price": 65099.98,
+      "size": 28.66,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": false,
+      "maker_partial": true,
+      "timestamp": 1765104828868174610
+    },
+    {
+      "trade_id": 101,
+      "taker_order_id": 2664,
+      "maker_order_id": 2022,
+      "taker_trader_id": 191,
+      "maker_trader_id": 272,
+      "price": 65099.98,
+      "size": 17.48,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": false,
+      "maker_partial": true,
+      "timestamp": 1765104828868174932
+    },
+    {
+      "trade_id": 102,
+      "taker_order_id": 1859,
+      "maker_order_id": 2022,
+      "taker_trader_id": 358,
+      "maker_trader_id": 272,
+      "price": 65099.98,
+      "size": 17.24,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": false,
+      "maker_partial": true,
+      "timestamp": 1765104828868305529
+    },
+    {
+      "trade_id": 103,
+      "taker_order_id": 3016,
+      "maker_order_id": 2022,
+      "taker_trader_id": 720,
+      "maker_trader_id": 272,
+      "price": 65099.98,
+      "size": 7.06,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828868305782
+    },
+    {
+      "trade_id": 104,
+      "taker_order_id": 3099,
+      "maker_order_id": 3098,
+      "taker_trader_id": 346,
+      "maker_trader_id": 923,
+      "price": 65098.86,
+      "size": 4.86,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828869383068
+    },
+    {
+      "trade_id": 105,
+      "taker_order_id": 3232,
+      "maker_order_id": 2767,
+      "taker_trader_id": 881,
+      "maker_trader_id": 816,
+      "price": 65099.04,
+      "size": 53.68,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": false,
+      "maker_partial": true,
+      "timestamp": 1765104828871228047
+    },
+    {
+      "trade_id": 106,
+      "taker_order_id": 3171,
+      "maker_order_id": 2767,
+      "taker_trader_id": 184,
+      "maker_trader_id": 816,
+      "price": 65099.04,
+      "size": 25.9,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828871373195
+    },
+    {
+      "trade_id": 107,
+      "taker_order_id": 3333,
+      "maker_order_id": 3330,
+      "taker_trader_id": 94,
+      "maker_trader_id": 851,
+      "price": 65099.04,
+      "size": 16.65,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": false,
+      "maker_partial": true,
+      "timestamp": 1765104828873253901
+    },
+    {
+      "trade_id": 108,
+      "taker_order_id": 3334,
+      "maker_order_id": 3330,
+      "taker_trader_id": 18,
+      "maker_trader_id": 851,
+      "price": 65099.04,
+      "size": 11.16,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828873254114
+    },
+    {
+      "trade_id": 109,
+      "taker_order_id": 3389,
+      "maker_order_id": 3388,
+      "taker_trader_id": 384,
+      "maker_trader_id": 407,
+      "price": 65099.8,
+      "size": 47.24,
+      "taker_side": "SELL",
+      "maker_side": "BUY",
+      "taker_partial": true,
+      "maker_partial": false,
+      "timestamp": 1765104828874362755
+    }
+  ],
   "tree": {
     "hash": "0000000000000000000000000000000000000000000000000000000000000000",
     "is_leaf": false,
     "children": [
       {
-        "price": 65080.18,
-        "total_volume": 36.8,
+        "price": 65099.9,
+        "total_volume": 1.98,
         "slots": [
           {
-            "slot_index": 13,
-            "slot_name": "RETAIL_13",
-            "description": "Retail ордера (группа 13)",
-            "priority": 3,
-            "volume": 36.8,
+            "slot_index": 2,
+            "slot_name": "SMALL_RETAIL",
+            "description": "Мелкие retail (\u003c$10)",
+            "priority": 2,
+            "volume": 1.98,
             "orders_count": 1,
             "orders": [
               {
-                "id": 361,
-                "trader_id": 6082,
-                "price": 65080.18,
-                "size": 36.8,
-                "side": "BUY"
-              }
-            ]
-          }
-        ],
-        "hash": "d449dd710d855ac485e5ecb144a73dd51852def9a4f8c186727677b6457dafbd"
-      },
-      {
-        "price": 65080.55,
-        "total_volume": 35.01,
-        "slots": [
-          {
-            "slot_index": 6,
-            "slot_name": "RETAIL_6",
-            "description": "Retail ордера (группа 6)",
-            "priority": 3,
-            "volume": 35.01,
-            "orders_count": 1,
-            "orders": [
-              {
-                "id": 286,
-                "trader_id": 8451,
-                "price": 65080.55,
-                "size": 35.01,
+                "id": 1297,
+                "trader_id": 668,
+                "price": 65099.9,
+                "size": 1.98,
                 "side": "SELL"
               }
             ]
           }
         ],
-        "hash": "11691cc018469243230727cf581c23216f831578a1c23335843da3286f4dcfee"
+        "hash": "9681c5b2a4fc99e869169f5176a6ec617928a930269458a9498c89a579a0741c"
       },
       {
-        "price": 65081.08,
-        "total_volume": 61.32,
-        "slots": [
-          {
-            "slot_index": 6,
-            "slot_name": "RETAIL_6",
-            "description": "Retail ордера (группа 6)",
-            "priority": 3,
-            "volume": 61.32,
-            "orders_count": 1,
-            "orders": [
-              {
-                "id": 278,
-                "trader_id": 6807,
-                "price": 65081.08,
-                "size": 61.32,
-                "side": "SELL"
-              }
-            ]
-          }
-        ],
-        "hash": "a167a4b4a7e3ae1fc080593eeababf536d03becfdc31f29b541a99635c429154"
-      },
-      {
-        "price": 65081.28,
-        "total_volume": 87.52,
-        "slots": [
-          {
-            "slot_index": 10,
-            "slot_name": "RETAIL_10",
-            "description": "Retail ордера (группа 10)",
-            "priority": 3,
-            "volume": 87.52,
-            "orders_count": 1,
-            "orders": [
-              {
-                "id": 358,
-                "trader_id": 7639,
-                "price": 65081.28,
-                "size": 87.52,
-                "side": "BUY"
-              }
-            ]
-          }
-        ],
-        "hash": "f1a628dfa02d061fe62f75fb1760175937c6967067526f3806d34e88d2e6e6a9"
-      },
-      {
-        "price": 65083.07,
-        "total_volume": 55.47,
-        "slots": [
-          {
-            "slot_index": 8,
-            "slot_name": "RETAIL_8",
-            "description": "Retail ордера (группа 8)",
-            "priority": 3,
-            "volume": 55.47,
-            "orders_count": 1,
-            "orders": [
-              {
-                "id": 130,
-                "trader_id": 1133,
-                "price": 65083.07,
-                "size": 55.47,
-                "side": "SELL"
-              }
-            ]
-          }
-        ],
-        "hash": "04bec54c7fa258ee3c96eb85582bb96ce9640172c27e8c2116143c9e69f137cb"
-      },
-      {
-        "price": 65085.83,
-        "total_volume": 73.92,
-        "slots": [
-          {
-            "slot_index": 7,
-            "slot_name": "RETAIL_7",
-            "description": "Retail ордера (группа 7)",
-            "priority": 3,
-            "volume": 73.92,
-            "orders_count": 1,
-            "orders": [
-              {
-                "id": 336,
-                "trader_id": 9784,
-                "price": 65085.83,
-                "size": 73.92,
-                "side": "BUY"
-              }
-            ]
-          }
-        ],
-        "hash": "9ba4ae68a36c7561988bdb8e268292d8a7f27ee67641373a7d41bf4a5962e440"
-      },
-      {
-        "price": 65085.86,
-        "total_volume": 12.99,
-        "slots": [
-          {
-            "slot_index": 3,
-            "slot_name": "RETAIL_3",
-            "description": "Retail ордера (группа 3)",
-            "priority": 3,
-            "volume": 12.99,
-            "orders_count": 1,
-            "orders": [
-              {
-                "id": 326,
-                "trader_id": 9888,
-                "price": 65085.86,
-                "size": 12.99,
-                "side": "BUY"
-              }
-            ]
-          }
-        ],
-        "hash": "a4516a2b3ce23efad0f2a2308e29d7ec5ba911579a04e165eb2e0f2364effabf"
-      },
-      {
-        "price": 65086.74,
-        "total_volume": 59.04,
-        "slots": [
-          {
-            "slot_index": 5,
-            "slot_name": "RETAIL_5",
-            "description": "Retail ордера (группа 5)",
-            "priority": 3,
-            "volume": 59.04,
-            "orders_count": 1,
-            "orders": [
-              {
-                "id": 360,
-                "trader_id": 6614,
-                "price": 65086.74,
-                "size": 59.04,
-                "side": "BUY"
-              }
-            ]
-          }
-        ],
-        "hash": "63095f1e578b9d307236b2e35ad69bb8a20e501d0b86fafa437fe00d16886950"
-      },
-      {
-        "price": 65087.91,
-        "total_volume": 43.43,
-        "slots": [
-          {
-            "slot_index": 12,
-            "slot_name": "RETAIL_12",
-            "description": "Retail ордера (группа 12)",
-            "priority": 3,
-            "volume": 43.43,
-            "orders_count": 1,
-            "orders": [
-              {
-                "id": 343,
-                "trader_id": 7293,
-                "price": 65087.91,
-                "size": 43.43,
-                "side": "SELL"
-              }
-            ]
-          }
-        ],
-        "hash": "81aa84a3d2ef40acccb4fe219dfc1bb2f76deb4c4e31f48d4b5b64ed248e84d6"
-      },
-      {
-        "price": 65090.65,
-        "total_volume": 71.78,
-        "slots": [
-          {
-            "slot_index": 12,
-            "slot_name": "RETAIL_12",
-            "description": "Retail ордера (группа 12)",
-            "priority": 3,
-            "volume": 71.78,
-            "orders_count": 1,
-            "orders": [
-              {
-                "id": 296,
-                "trader_id": 7305,
-                "price": 65090.65,
-                "size": 71.78,
-                "side": "SELL"
-              }
-            ]
-          }
-        ],
-        "hash": "c89c6651b5e981fbef1f938b65d8df2cade3367c5446141da39bddf2b19c5cf1"
-      },
-      {
-        "price": 65092.04,
-        "total_volume": 76.91,
+        "price": 65097.6,
+        "total_volume": 81.51,
         "slots": [
           {
             "slot_index": 9,
             "slot_name": "RETAIL_9",
             "description": "Retail ордера (группа 9)",
             "priority": 3,
-            "volume": 76.91,
+            "volume": 81.51,
             "orders_count": 1,
             "orders": [
               {
-                "id": 238,
-                "trader_id": 510,
-                "price": 65092.04,
-                "size": 76.91,
+                "id": 3166,
+                "trader_id": 618,
+                "price": 65097.6,
+                "size": 81.51,
                 "side": "BUY"
               }
             ]
           }
         ],
-        "hash": "681fcaa7a797dcc18910c827853d6b554d21c1f8423558795cacc652b933fc56"
+        "hash": "0a9343f899f1687c6dc90cb3b0bf9d19f3a628bb0dc4bac630daf0ead13847f8"
       },
       {
-        "price": 65092.66,
-        "total_volume": 82.15,
+        "price": 65097.68,
+        "total_volume": 30.4,
         "slots": [
           {
-            "slot_index": 8,
-            "slot_name": "RETAIL_8",
-            "description": "Retail ордера (группа 8)",
+            "slot_index": 4,
+            "slot_name": "RETAIL_4",
+            "description": "Retail ордера (группа 4)",
             "priority": 3,
-            "volume": 82.15,
+            "volume": 30.4,
             "orders_count": 1,
             "orders": [
               {
-                "id": 267,
-                "trader_id": 2885,
-                "price": 65092.66,
-                "size": 82.15,
-                "side": "SELL"
-              }
-            ]
-          }
-        ],
-        "hash": "d5586f305b536b59ea124832b79f6b9503aeae900c53e7b7f92c6745c6f1275f"
-      },
-      {
-        "price": 65078.68,
-        "total_volume": 90.82,
-        "slots": [
-          {
-            "slot_index": 8,
-            "slot_name": "RETAIL_8",
-            "description": "Retail ордера (группа 8)",
-            "priority": 3,
-            "volume": 90.82,
-            "orders_count": 1,
-            "orders": [
-              {
-                "id": 215,
-                "trader_id": 2393,
-                "price": 65078.68,
-                "size": 90.82,
+                "id": 3401,
+                "trader_id": 781,
+                "price": 65097.68,
+                "size": 30.4,
                 "side": "BUY"
               }
             ]
           }
         ],
-        "hash": "29eb113294c5848d0309dd249eb3544c701943ad7a0ce2a64bd63026f941825c"
+        "hash": "f69a5cf1bff89603375093349ccc367ada5de2b75f2f984092450cf13a10f0c8"
       },
       {
-        "price": 65078.97,
-        "total_volume": 40.5,
+        "price": 65097.92,
+        "total_volume": 58.79,
         "slots": [
           {
-            "slot_index": 8,
-            "slot_name": "RETAIL_8",
-            "description": "Retail ордера (группа 8)",
+            "slot_index": 12,
+            "slot_name": "RETAIL_12",
+            "description": "Retail ордера (группа 12)",
             "priority": 3,
-            "volume": 40.5,
+            "volume": 58.79,
             "orders_count": 1,
             "orders": [
               {
-                "id": 194,
-                "trader_id": 7841,
-                "price": 65078.97,
-                "size": 40.5,
+                "id": 2480,
+                "trader_id": 621,
+                "price": 65097.92,
+                "size": 58.79,
+                "side": "BUY"
+              }
+            ]
+          }
+        ],
+        "hash": "0892b286518376f2bd5e29f1b3f32714135739e52e5ea6c4432bece0f199f39f"
+      },
+      {
+        "price": 65098.12,
+        "total_volume": 78.52,
+        "slots": [
+          {
+            "slot_index": 12,
+            "slot_name": "RETAIL_12",
+            "description": "Retail ордера (группа 12)",
+            "priority": 3,
+            "volume": 78.52,
+            "orders_count": 1,
+            "orders": [
+              {
+                "id": 2917,
+                "trader_id": 129,
+                "price": 65098.12,
+                "size": 78.52,
                 "side": "SELL"
               }
             ]
           }
         ],
-        "hash": "b9676a79ac498fafffb34821b6793e785f960afab85bce411302a90b3925b1df"
+        "hash": "419e7d10f2cc28a546bb73eee9c4638146687b1c1c37b51e2aea68b276b28b53"
       },
       {
-        "price": 65079.27,
-        "total_volume": 18.77,
+        "price": 65098.13,
+        "total_volume": 77.08,
+        "slots": [
+          {
+            "slot_index": 11,
+            "slot_name": "RETAIL_11",
+            "description": "Retail ордера (группа 11)",
+            "priority": 3,
+            "volume": 77.08,
+            "orders_count": 1,
+            "orders": [
+              {
+                "id": 2274,
+                "trader_id": 212,
+                "price": 65098.13,
+                "size": 77.08,
+                "side": "SELL"
+              }
+            ]
+          }
+        ],
+        "hash": "0d03e199511ad72e95c3828ba933757805b8450b4839231f02c53fcc9ef1c2fb"
+      },
+      {
+        "price": 65098.33,
+        "total_volume": 43.85,
         "slots": [
           {
             "slot_index": 13,
             "slot_name": "RETAIL_13",
             "description": "Retail ордера (группа 13)",
             "priority": 3,
-            "volume": 18.77,
+            "volume": 43.85,
             "orders_count": 1,
             "orders": [
               {
-                "id": 307,
-                "trader_id": 5950,
-                "price": 65079.27,
-                "size": 18.77,
-                "side": "BUY"
-              }
-            ]
-          }
-        ],
-        "hash": "c17d9046351735d3fb94d0cc44add126627819be93e4220c26c62e77a22cbe3c"
-      },
-      {
-        "price": 65079.78,
-        "total_volume": 78.22,
-        "slots": [
-          {
-            "slot_index": 6,
-            "slot_name": "RETAIL_6",
-            "description": "Retail ордера (группа 6)",
-            "priority": 3,
-            "volume": 78.22,
-            "orders_count": 1,
-            "orders": [
-              {
-                "id": 273,
-                "trader_id": 6483,
-                "price": 65079.78,
-                "size": 78.22,
+                "id": 1759,
+                "trader_id": 478,
+                "price": 65098.33,
+                "size": 43.85,
                 "side": "SELL"
               }
             ]
           }
         ],
-        "hash": "e287179eeb6a3f97eff3bc649de1ca96b9877fc4515a10d8a96704f602b2bb95"
+        "hash": "7e9ea3ab9c8d1678cf10bcf1c8f53b171da1264b614a207a2380fcadf6f901ac"
+      },
+      {
+        "price": 65098.44,
+        "total_volume": 41.59,
+        "slots": [
+          {
+            "slot_index": 14,
+            "slot_name": "RETAIL_14",
+            "description": "Retail ордера (группа 14)",
+            "priority": 3,
+            "volume": 41.59,
+            "orders_count": 1,
+            "orders": [
+              {
+                "id": 2984,
+                "trader_id": 479,
+                "price": 65098.44,
+                "size": 41.59,
+                "side": "BUY"
+              }
+            ]
+          }
+        ],
+        "hash": "7a2f6aa6d70a30ad36924aea611aeff4ae9457dc23f2108d21403d136c3c273b"
+      },
+      {
+        "price": 65098.69,
+        "total_volume": 9.24,
+        "slots": [
+          {
+            "slot_index": 2,
+            "slot_name": "SMALL_RETAIL",
+            "description": "Мелкие retail (\u003c$10)",
+            "priority": 2,
+            "volume": 9.24,
+            "orders_count": 1,
+            "orders": [
+              {
+                "id": 2087,
+                "trader_id": 237,
+                "price": 65098.69,
+                "size": 9.24,
+                "side": "BUY"
+              }
+            ]
+          }
+        ],
+        "hash": "35f6c6b19d10948cc9e37a70c8b26d72af211a7b45375d44d1dd04c7e3eba38c"
+      },
+      {
+        "price": 65098.76,
+        "total_volume": 3.5,
+        "slots": [],
+        "hash": "1f1878fd2ca7d05c362fe1df428d1b9a5e8e50eb44d5ec2549730252f41b7970"
+      },
+      {
+        "price": 65098.91,
+        "total_volume": 11.18,
+        "slots": [
+          {
+            "slot_index": 13,
+            "slot_name": "RETAIL_13",
+            "description": "Retail ордера (группа 13)",
+            "priority": 3,
+            "volume": 11.18,
+            "orders_count": 1,
+            "orders": [
+              {
+                "id": 3318,
+                "trader_id": 670,
+                "price": 65098.91,
+                "size": 11.18,
+                "side": "SELL"
+              }
+            ]
+          }
+        ],
+        "hash": "c671e94669a1a258e974adafd5985b20ac72ea9f2d1a13fc8dd823729f7aa786"
+      },
+      {
+        "price": 65098.93,
+        "total_volume": 30.43,
+        "slots": [
+          {
+            "slot_index": 12,
+            "slot_name": "RETAIL_12",
+            "description": "Retail ордера (группа 12)",
+            "priority": 3,
+            "volume": 30.43,
+            "orders_count": 1,
+            "orders": [
+              {
+                "id": 2940,
+                "trader_id": 477,
+                "price": 65098.93,
+                "size": 30.43,
+                "side": "SELL"
+              }
+            ]
+          }
+        ],
+        "hash": "816f8162c0d085e71303f42cd05263c714d0b8cacff756bafc9d36e088e8acfa"
+      },
+      {
+        "price": 65099.2,
+        "total_volume": 76.7,
+        "slots": [
+          {
+            "slot_index": 5,
+            "slot_name": "RETAIL_5",
+            "description": "Retail ордера (группа 5)",
+            "priority": 3,
+            "volume": 76.7,
+            "orders_count": 1,
+            "orders": [
+              {
+                "id": 1623,
+                "trader_id": 194,
+                "price": 65099.2,
+                "size": 76.7,
+                "side": "SELL"
+              }
+            ]
+          }
+        ],
+        "hash": "6a6e335d91d83a596fa7fe54f6d1cb0b0134c4790e8bfa387153757459e6037c"
+      },
+      {
+        "price": 65099.57,
+        "total_volume": 86.36,
+        "slots": [
+          {
+            "slot_index": 14,
+            "slot_name": "RETAIL_14",
+            "description": "Retail ордера (группа 14)",
+            "priority": 3,
+            "volume": 86.36,
+            "orders_count": 1,
+            "orders": [
+              {
+                "id": 1905,
+                "trader_id": 839,
+                "price": 65099.57,
+                "size": 86.36,
+                "side": "SELL"
+              }
+            ]
+          }
+        ],
+        "hash": "55f5eab6f9ccd15006f34d5dd64163d2ec4b45c27b19a716a5b8a569f4f83ed1"
+      },
+      {
+        "price": 65099.78,
+        "total_volume": 39.11,
+        "slots": [
+          {
+            "slot_index": 9,
+            "slot_name": "RETAIL_9",
+            "description": "Retail ордера (группа 9)",
+            "priority": 3,
+            "volume": 39.11,
+            "orders_count": 1,
+            "orders": [
+              {
+                "id": 3036,
+                "trader_id": 570,
+                "price": 65099.78,
+                "size": 39.11,
+                "side": "SELL"
+              }
+            ]
+          }
+        ],
+        "hash": "bd5875a07d82abe108426012bf905d1f27dd408808574a946c68292a9e059ccf"
+      },
+      {
+        "price": 65099.83,
+        "total_volume": 6.22,
+        "slots": [
+          {
+            "slot_index": 2,
+            "slot_name": "SMALL_RETAIL",
+            "description": "Мелкие retail (\u003c$10)",
+            "priority": 2,
+            "volume": 6.22,
+            "orders_count": 1,
+            "orders": [
+              {
+                "id": 2134,
+                "trader_id": 220,
+                "price": 65099.83,
+                "size": 6.22,
+                "side": "SELL"
+              }
+            ]
+          }
+        ],
+        "hash": "db5f02410adc678c490bb7e7c3b939560aa3a3d1d34428c5db1f20b8f106f282"
       }
     ]
   },
   "buy_levels": [
     {
-      "price": 65079.27,
-      "total_volume": 18.77,
-      "slots": [
-        {
-          "slot_index": 13,
-          "slot_name": "RETAIL_13",
-          "description": "Retail ордера (группа 13)",
-          "priority": 3,
-          "volume": 18.77,
-          "orders_count": 1,
-          "orders": [
-            {
-              "id": 307,
-              "trader_id": 5950,
-              "price": 65079.27,
-              "size": 18.77,
-              "side": "BUY"
-            }
-          ]
-        }
-      ],
-      "hash": "c17d9046351735d3fb94d0cc44add126627819be93e4220c26c62e77a22cbe3c"
-    },
-    {
-      "price": 64903.04,
-      "total_volume": 1.83,
-      "slots": [
-        {
-          "slot_index": 2,
-          "slot_name": "SMALL_RETAIL",
-          "description": "Мелкие retail (\u003c$10)",
-          "priority": 2,
-          "volume": 1.83,
-          "orders_count": 1,
-          "orders": [
-            {
-              "id": 176,
-              "trader_id": 6549,
-              "price": 64903.04,
-              "size": 1.83,
-              "side": "BUY"
-            }
-          ]
-        }
-      ],
-      "hash": "65059fecc775092b8496434588cd6adee845190dce36c17820150357d5cd8344"
-    },
-    {
-      "price": 64934.05,
-      "total_volume": 18.51,
-      "slots": [
-        {
-          "slot_index": 4,
-          "slot_name": "RETAIL_4",
-          "description": "Retail ордера (группа 4)",
-          "priority": 3,
-          "volume": 18.51,
-          "orders_count": 1,
-          "orders": [
-            {
-              "id": 243,
-              "trader_id": 925,
-              "price": 64934.05,
-              "size": 18.51,
-              "side": "BUY"
-            }
-          ]
-        }
-      ],
-      "hash": "c2e3a33e1ffabdfc0834e9a31fa913f05595786a097351b94d4c1b05a0957b60"
-    },
-    {
-      "price": 65080.18,
-      "total_volume": 36.8,
-      "slots": [
-        {
-          "slot_index": 13,
-          "slot_name": "RETAIL_13",
-          "description": "Retail ордера (группа 13)",
-          "priority": 3,
-          "volume": 36.8,
-          "orders_count": 1,
-          "orders": [
-            {
-              "id": 361,
-              "trader_id": 6082,
-              "price": 65080.18,
-              "size": 36.8,
-              "side": "BUY"
-            }
-          ]
-        }
-      ],
-      "hash": "d449dd710d855ac485e5ecb144a73dd51852def9a4f8c186727677b6457dafbd"
-    },
-    {
-      "price": 65069.74,
-      "total_volume": 10.26,
-      "slots": [
-        {
-          "slot_index": 7,
-          "slot_name": "RETAIL_7",
-          "description": "Retail ордера (группа 7)",
-          "priority": 3,
-          "volume": 10.26,
-          "orders_count": 1,
-          "orders": [
-            {
-              "id": 137,
-              "trader_id": 6520,
-              "price": 65069.74,
-              "size": 10.26,
-              "side": "BUY"
-            }
-          ]
-        }
-      ],
-      "hash": "5fe68b09fe7165fd415d105920e678ad7426757129bf9b7be15218a43e0176e2"
-    },
-    {
-      "price": 64931.92,
-      "total_volume": 34.49,
-      "slots": [
-        {
-          "slot_index": 3,
-          "slot_name": "RETAIL_3",
-          "description": "Retail ордера (группа 3)",
-          "priority": 3,
-          "volume": 34.49,
-          "orders_count": 1,
-          "orders": [
-            {
-              "id": 368,
-              "trader_id": 9252,
-              "price": 64931.92,
-              "size": 34.49,
-              "side": "BUY"
-            }
-          ]
-        }
-      ],
-      "hash": "bd6d60c78e93fcd82b9a4fb6c6fb065cd9f9893b107c4db58d6d5988ec9657eb"
-    },
-    {
-      "price": 64948.37,
-      "total_volume": 32.61,
+      "price": 64984.74,
+      "total_volume": 86.96,
       "slots": [
         {
           "slot_index": 10,
           "slot_name": "RETAIL_10",
           "description": "Retail ордера (группа 10)",
           "priority": 3,
-          "volume": 32.61,
+          "volume": 86.96,
           "orders_count": 1,
           "orders": [
             {
-              "id": 285,
-              "trader_id": 6307,
-              "price": 64948.37,
-              "size": 32.61,
+              "id": 2476,
+              "trader_id": 979,
+              "price": 64984.74,
+              "size": 86.96,
               "side": "BUY"
             }
           ]
         }
       ],
-      "hash": "87d97f5a491898fb279f1664d78f9e364f731f9ce35523cf4152985184173aec"
+      "hash": "293b087b668d93687b6fc3c04db352a3375303c67dc03624da0190fbdfa45b00"
     },
     {
-      "price": 65052.44,
-      "total_volume": 97.17,
+      "price": 64948.23,
+      "total_volume": 40.22,
       "slots": [
         {
-          "slot_index": 11,
-          "slot_name": "RETAIL_11",
-          "description": "Retail ордера (группа 11)",
+          "slot_index": 13,
+          "slot_name": "RETAIL_13",
+          "description": "Retail ордера (группа 13)",
           "priority": 3,
-          "volume": 97.17,
+          "volume": 40.22,
           "orders_count": 1,
           "orders": [
             {
-              "id": 331,
-              "trader_id": 1580,
-              "price": 65052.44,
-              "size": 97.17,
+              "id": 2305,
+              "trader_id": 286,
+              "price": 64948.23,
+              "size": 40.22,
               "side": "BUY"
             }
           ]
         }
       ],
-      "hash": "e8881197620f487c1732d7a08d5f80cabd8d580f6f257c7992f998af0843214a"
+      "hash": "02a246d68225dca7a3c26f8f55a4f2d8f603361649f2d5c314eda69980ebc597"
     },
     {
-      "price": 65054.08,
-      "total_volume": 60.64,
+      "price": 64916.04,
+      "total_volume": 76.67,
       "slots": [
         {
-          "slot_index": 7,
-          "slot_name": "RETAIL_7",
-          "description": "Retail ордера (группа 7)",
+          "slot_index": 4,
+          "slot_name": "RETAIL_4",
+          "description": "Retail ордера (группа 4)",
           "priority": 3,
-          "volume": 60.64,
+          "volume": 76.67,
           "orders_count": 1,
           "orders": [
             {
-              "id": 167,
-              "trader_id": 4936,
-              "price": 65054.08,
-              "size": 60.64,
+              "id": 2484,
+              "trader_id": 889,
+              "price": 64916.04,
+              "size": 76.67,
               "side": "BUY"
             }
           ]
         }
       ],
-      "hash": "248d3d8499deaee2b91180f42e656412a05ad9a95512b0ef4764bf8dee6d798c"
+      "hash": "f0adfce9e0ec628f2c6eb7589a342c3b49609d6d21a601c5ade1a2e0909f6fa6"
     },
     {
-      "price": 65035.68,
-      "total_volume": 48.52,
+      "price": 64997.73,
+      "total_volume": 59.46,
+      "slots": [
+        {
+          "slot_index": 1,
+          "slot_name": "VIP",
+          "description": "VIP-трейдеры",
+          "priority": 1,
+          "volume": 59.46,
+          "orders_count": 1,
+          "orders": [
+            {
+              "id": 2919,
+              "trader_id": 77,
+              "price": 64997.73,
+              "size": 59.46,
+              "side": "BUY"
+            }
+          ]
+        }
+      ],
+      "hash": "f12b2a84b7609325e5b71c8fa96e1443be784952303f8e229fbcdb549868cf69"
+    },
+    {
+      "price": 65041.51,
+      "total_volume": 129.6,
       "slots": [
         {
           "slot_index": 3,
           "slot_name": "RETAIL_3",
           "description": "Retail ордера (группа 3)",
           "priority": 3,
-          "volume": 48.52,
+          "volume": 87.26,
           "orders_count": 1,
           "orders": [
             {
-              "id": 292,
-              "trader_id": 2352,
-              "price": 65035.68,
-              "size": 48.52,
+              "id": 3423,
+              "trader_id": 828,
+              "price": 65041.51,
+              "size": 87.26,
+              "side": "BUY"
+            }
+          ]
+        },
+        {
+          "slot_index": 5,
+          "slot_name": "RETAIL_5",
+          "description": "Retail ордера (группа 5)",
+          "priority": 3,
+          "volume": 42.34,
+          "orders_count": 1,
+          "orders": [
+            {
+              "id": 2435,
+              "trader_id": 434,
+              "price": 65041.51,
+              "size": 42.34,
               "side": "BUY"
             }
           ]
         }
       ],
-      "hash": "e4e9ab9246664378ea90e454f55ad06a6da8decb28bddd5b3962156284af26d5"
+      "hash": "59e3a15c19d56f781816d6aaa861599729cf57e754f4fbb1e3a7a2585fccef71"
     },
     {
-      "price": 65075.44,
-      "total_volume": 45.49,
+      "price": 65074.68,
+      "total_volume": 69.51,
       "slots": [
         {
-          "slot_index": 12,
-          "slot_name": "RETAIL_12",
-          "description": "Retail ордера (группа 12)",
+          "slot_index": 10,
+          "slot_name": "RETAIL_10",
+          "description": "Retail ордера (группа 10)",
           "priority": 3,
-          "volume": 45.49,
+          "volume": 69.51,
           "orders_count": 1,
           "orders": [
             {
-              "id": 141,
-              "trader_id": 4197,
-              "price": 65075.44,
-              "size": 45.49,
+              "id": 3376,
+              "trader_id": 955,
+              "price": 65074.68,
+              "size": 69.51,
               "side": "BUY"
             }
           ]
         }
       ],
-      "hash": "e567c31356fb576d045d15a90f4f72b0e0b4ec9bc7966074f5472d424fd5e88f"
+      "hash": "eab1c95176e7db1177e997540f053f4ce4c8abe9914a179acc4810dff72f374f"
     },
     {
-      "price": 64940.6,
-      "total_volume": 28.34,
+      "price": 64980.46,
+      "total_volume": 12.12,
       "slots": [
         {
           "slot_index": 5,
           "slot_name": "RETAIL_5",
           "description": "Retail ордера (группа 5)",
           "priority": 3,
-          "volume": 28.34,
+          "volume": 12.12,
           "orders_count": 1,
           "orders": [
             {
-              "id": 303,
-              "trader_id": 9062,
-              "price": 64940.6,
-              "size": 28.34,
+              "id": 1823,
+              "trader_id": 422,
+              "price": 64980.46,
+              "size": 12.12,
               "side": "BUY"
             }
           ]
         }
       ],
-      "hash": "a5d3b94faefedf495c58cbd4a12ddc517d36676a8bb10f9d48a9c5564b3c2143"
+      "hash": "0ddb2efbd0a4214718579a545491124975d58ef257ef01969106d132ea0c725c"
     },
     {
-      "price": 64981.89,
-      "total_volume": 60.72,
-      "slots": [
-        {
-          "slot_index": 9,
-          "slot_name": "RETAIL_9",
-          "description": "Retail ордера (группа 9)",
-          "priority": 3,
-          "volume": 60.72,
-          "orders_count": 1,
-          "orders": [
-            {
-              "id": 345,
-              "trader_id": 2154,
-              "price": 64981.89,
-              "size": 60.72,
-              "side": "BUY"
-            }
-          ]
-        }
-      ],
-      "hash": "9e85a84dc57e1a7f9abd0badf221704525702126fc2faead58d084f4f6f26774"
-    },
-    {
-      "price": 64943.13,
-      "total_volume": 52.73,
-      "slots": [
-        {
-          "slot_index": 6,
-          "slot_name": "RETAIL_6",
-          "description": "Retail ордера (группа 6)",
-          "priority": 3,
-          "volume": 52.73,
-          "orders_count": 1,
-          "orders": [
-            {
-              "id": 367,
-              "trader_id": 4863,
-              "price": 64943.13,
-              "size": 52.73,
-              "side": "BUY"
-            }
-          ]
-        }
-      ],
-      "hash": "03cd829a6e39f59285ab87c5c34f8340834235a09b1d0b7ea7f2218af4614b21"
-    },
-    {
-      "price": 64919.46,
-      "total_volume": 64.45,
-      "slots": [
-        {
-          "slot_index": 10,
-          "slot_name": "RETAIL_10",
-          "description": "Retail ордера (группа 10)",
-          "priority": 3,
-          "volume": 64.45,
-          "orders_count": 1,
-          "orders": [
-            {
-              "id": 230,
-              "trader_id": 5683,
-              "price": 64919.46,
-              "size": 64.45,
-              "side": "BUY"
-            }
-          ]
-        }
-      ],
-      "hash": "ddd4ab81f436d61af8da9820d586f3ee0f3c5fdac2fa1ceaf59be9587a72478e"
-    },
-    {
-      "price": 64903.51,
-      "total_volume": 38.28,
-      "slots": [
-        {
-          "slot_index": 8,
-          "slot_name": "RETAIL_8",
-          "description": "Retail ордера (группа 8)",
-          "priority": 3,
-          "volume": 38.28,
-          "orders_count": 1,
-          "orders": [
-            {
-              "id": 263,
-              "trader_id": 4073,
-              "price": 64903.51,
-              "size": 38.28,
-              "side": "BUY"
-            }
-          ]
-        }
-      ],
-      "hash": "0dbbf2a6e57d264f4adfc1bf393b35351025fcad1d23a2d844e08b56a7b7fd01"
-    },
-    {
-      "price": 64971.18,
-      "total_volume": 22.07,
+      "price": 65029.45,
+      "total_volume": 98.95,
       "slots": [
         {
           "slot_index": 3,
           "slot_name": "RETAIL_3",
           "description": "Retail ордера (группа 3)",
           "priority": 3,
-          "volume": 22.07,
+          "volume": 98.95,
           "orders_count": 1,
           "orders": [
             {
-              "id": 354,
-              "trader_id": 7548,
-              "price": 64971.18,
-              "size": 22.07,
+              "id": 2272,
+              "trader_id": 468,
+              "price": 65029.45,
+              "size": 98.95,
               "side": "BUY"
             }
           ]
         }
       ],
-      "hash": "f46d3481f1db624cfe26a03ac5c3a9d3b383bad5135c2dfb44a0de1f05f283ce"
+      "hash": "e58af781c615b152e53d23faf87a6380dbe12c175a0a1aba13cfb7e2ffc536cc"
     },
     {
-      "price": 65044.69,
-      "total_volume": 2.85,
+      "price": 64940.82,
+      "total_volume": 69.53,
       "slots": [
         {
-          "slot_index": 2,
-          "slot_name": "SMALL_RETAIL",
-          "description": "Мелкие retail (\u003c$10)",
-          "priority": 2,
-          "volume": 2.85,
+          "slot_index": 1,
+          "slot_name": "VIP",
+          "description": "VIP-трейдеры",
+          "priority": 1,
+          "volume": 69.53,
           "orders_count": 1,
           "orders": [
             {
-              "id": 244,
-              "trader_id": 8640,
-              "price": 65044.69,
-              "size": 2.85,
+              "id": 938,
+              "trader_id": 27,
+              "price": 64940.82,
+              "size": 69.53,
               "side": "BUY"
             }
           ]
         }
       ],
-      "hash": "f1198a0c498684e60ae6f7dda9fda880b637a43fc82cb4a3114d2e4ed0c8792f"
+      "hash": "034cf38e4ae44da2eb6e2ebc2a7f2ee94b970dea180fb3ad8b9d46d2b7f1dc41"
     },
     {
-      "price": 65005.72,
-      "total_volume": 50.11,
+      "price": 64990.2,
+      "total_volume": 67.69,
       "slots": [
         {
-          "slot_index": 3,
-          "slot_name": "RETAIL_3",
-          "description": "Retail ордера (группа 3)",
+          "slot_index": 13,
+          "slot_name": "RETAIL_13",
+          "description": "Retail ордера (группа 13)",
           "priority": 3,
-          "volume": 50.11,
+          "volume": 67.69,
           "orders_count": 1,
           "orders": [
             {
-              "id": 364,
-              "trader_id": 3012,
-              "price": 65005.72,
-              "size": 50.11,
+              "id": 3464,
+              "trader_id": 610,
+              "price": 64990.2,
+              "size": 67.69,
               "side": "BUY"
             }
           ]
         }
       ],
-      "hash": "e871804719dbca025090308e84d7c0bf97ba82e1b9c14ba385f7e14654811915"
+      "hash": "19244b907b0d90f3cbc221b4c8b044cabbe08c9ae289904f8477015be8ad2f23"
     },
     {
-      "price": 64972.59,
-      "total_volume": 6.41,
-      "slots": [
-        {
-          "slot_index": 2,
-          "slot_name": "SMALL_RETAIL",
-          "description": "Мелкие retail (\u003c$10)",
-          "priority": 2,
-          "volume": 6.41,
-          "orders_count": 1,
-          "orders": [
-            {
-              "id": 156,
-              "trader_id": 2817,
-              "price": 64972.59,
-              "size": 6.41,
-              "side": "BUY"
-            }
-          ]
-        }
-      ],
-      "hash": "03a8c9f0cc97bf821cb2498f4ca307fb9b489501c97efe7ba29707706aa5604b"
-    }
-  ],
-  "sell_levels": [
-    {
-      "price": 64942.3,
-      "total_volume": 36.75,
-      "slots": [
-        {
-          "slot_index": 6,
-          "slot_name": "RETAIL_6",
-          "description": "Retail ордера (группа 6)",
-          "priority": 3,
-          "volume": 36.75,
-          "orders_count": 1,
-          "orders": [
-            {
-              "id": 277,
-              "trader_id": 3147,
-              "price": 64942.3,
-              "size": 36.75,
-              "side": "SELL"
-            }
-          ]
-        }
-      ],
-      "hash": "9607a6affbce72c006103f31b67695181a8743b7a7cccfa51d0ab640bf6d4cfe"
-    },
-    {
-      "price": 64959.36,
-      "total_volume": 49.06,
-      "slots": [
-        {
-          "slot_index": 10,
-          "slot_name": "RETAIL_10",
-          "description": "Retail ордера (группа 10)",
-          "priority": 3,
-          "volume": 49.06,
-          "orders_count": 1,
-          "orders": [
-            {
-              "id": 105,
-              "trader_id": 3367,
-              "price": 64959.36,
-              "size": 49.06,
-              "side": "SELL"
-            }
-          ]
-        }
-      ],
-      "hash": "7e788325742b7c296c6c96e3836c542404ae13f70bce541f2f9efc538802c4a1"
-    },
-    {
-      "price": 64927.27,
-      "total_volume": 38.43,
-      "slots": [
-        {
-          "slot_index": 12,
-          "slot_name": "RETAIL_12",
-          "description": "Retail ордера (группа 12)",
-          "priority": 3,
-          "volume": 38.43,
-          "orders_count": 1,
-          "orders": [
-            {
-              "id": 233,
-              "trader_id": 1701,
-              "price": 64927.27,
-              "size": 38.43,
-              "side": "SELL"
-            }
-          ]
-        }
-      ],
-      "hash": "89f519e3509f8d2ec46ca3c15bcd3b303d27790d7b0f3e9c98693b097583a258"
-    },
-    {
-      "price": 65092.66,
-      "total_volume": 82.15,
-      "slots": [
-        {
-          "slot_index": 8,
-          "slot_name": "RETAIL_8",
-          "description": "Retail ордера (группа 8)",
-          "priority": 3,
-          "volume": 82.15,
-          "orders_count": 1,
-          "orders": [
-            {
-              "id": 267,
-              "trader_id": 2885,
-              "price": 65092.66,
-              "size": 82.15,
-              "side": "SELL"
-            }
-          ]
-        }
-      ],
-      "hash": "d5586f305b536b59ea124832b79f6b9503aeae900c53e7b7f92c6745c6f1275f"
-    },
-    {
-      "price": 64911.76,
-      "total_volume": 74.56,
-      "slots": [
-        {
-          "slot_index": 12,
-          "slot_name": "RETAIL_12",
-          "description": "Retail ордера (группа 12)",
-          "priority": 3,
-          "volume": 74.56,
-          "orders_count": 1,
-          "orders": [
-            {
-              "id": 347,
-              "trader_id": 1125,
-              "price": 64911.76,
-              "size": 74.56,
-              "side": "SELL"
-            }
-          ]
-        }
-      ],
-      "hash": "c09263077ccd3e9b0438ee164349c19a063af2a6a9bd9e4c1fa956fc405b5e3d"
-    },
-    {
-      "price": 65051.02,
-      "total_volume": 96.76,
-      "slots": [
-        {
-          "slot_index": 3,
-          "slot_name": "RETAIL_3",
-          "description": "Retail ордера (группа 3)",
-          "priority": 3,
-          "volume": 96.76,
-          "orders_count": 1,
-          "orders": [
-            {
-              "id": 315,
-              "trader_id": 3516,
-              "price": 65051.02,
-              "size": 96.76,
-              "side": "SELL"
-            }
-          ]
-        }
-      ],
-      "hash": "f43425d4698fe94b64acaf34065b5abd78c8f3e212772c303fd923809fc9957f"
-    },
-    {
-      "price": 64982.95,
-      "total_volume": 53.17,
-      "slots": [
-        {
-          "slot_index": 6,
-          "slot_name": "RETAIL_6",
-          "description": "Retail ордера (группа 6)",
-          "priority": 3,
-          "volume": 53.17,
-          "orders_count": 1,
-          "orders": [
-            {
-              "id": 324,
-              "trader_id": 3867,
-              "price": 64982.95,
-              "size": 53.17,
-              "side": "SELL"
-            }
-          ]
-        }
-      ],
-      "hash": "981d2c81158a4c01ca5dd4e122e957f7c9c98e6bc7c4cd93fc9c96ae9b68c60c"
-    },
-    {
-      "price": 64905.75,
-      "total_volume": 98.61,
+      "price": 64956.74,
+      "total_volume": 100.59,
       "slots": [
         {
           "slot_index": 11,
           "slot_name": "RETAIL_11",
           "description": "Retail ордера (группа 11)",
           "priority": 3,
-          "volume": 98.61,
+          "volume": 100.59,
           "orders_count": 1,
           "orders": [
             {
-              "id": 328,
-              "trader_id": 7880,
-              "price": 64905.75,
-              "size": 98.61,
-              "side": "SELL"
+              "id": 2828,
+              "trader_id": 464,
+              "price": 64956.74,
+              "size": 100.59,
+              "side": "BUY"
             }
           ]
         }
       ],
-      "hash": "d58242d7a9bd9b88ad9dc4ea8b84518e4298ff1abbe2f974a9ee61ebbc90a15e"
+      "hash": "3e8e8eb049797f93267f23a9c2cd896a44c647a5ef5322f7708aef20c822d9e8"
     },
     {
-      "price": 64922.44,
-      "total_volume": 16.69,
+      "price": 65080.47,
+      "total_volume": 54.96,
       "slots": [
         {
-          "slot_index": 10,
-          "slot_name": "RETAIL_10",
-          "description": "Retail ордера (группа 10)",
-          "priority": 3,
-          "volume": 16.69,
+          "slot_index": 1,
+          "slot_name": "VIP",
+          "description": "VIP-трейдеры",
+          "priority": 1,
+          "volume": 54.96,
           "orders_count": 1,
           "orders": [
             {
-              "id": 123,
-              "trader_id": 2563,
-              "price": 64922.44,
-              "size": 16.69,
-              "side": "SELL"
+              "id": 2268,
+              "trader_id": 24,
+              "price": 65080.47,
+              "size": 54.96,
+              "side": "BUY"
             }
           ]
         }
       ],
-      "hash": "95ea7ffb7f79dc30eaeef0c1c3cc95c32d1b4f5c7955da5ab6926f448f071e2a"
+      "hash": "2dd6a2b06efa73a7b4b87b514773b49f89ec1931e3378f3a0e34c650d1a38ed0"
     },
     {
-      "price": 64984.42,
-      "total_volume": 17.22,
-      "slots": [
-        {
-          "slot_index": 10,
-          "slot_name": "RETAIL_10",
-          "description": "Retail ордера (группа 10)",
-          "priority": 3,
-          "volume": 17.22,
-          "orders_count": 1,
-          "orders": [
-            {
-              "id": 339,
-              "trader_id": 6283,
-              "price": 64984.42,
-              "size": 17.22,
-              "side": "SELL"
-            }
-          ]
-        }
-      ],
-      "hash": "dafb9b72b3cb07990a4bf2a5435e95ae84a76cb20cca0e5514231b2b90141167"
-    },
-    {
-      "price": 65087.91,
-      "total_volume": 43.43,
-      "slots": [
-        {
-          "slot_index": 12,
-          "slot_name": "RETAIL_12",
-          "description": "Retail ордера (группа 12)",
-          "priority": 3,
-          "volume": 43.43,
-          "orders_count": 1,
-          "orders": [
-            {
-              "id": 343,
-              "trader_id": 7293,
-              "price": 65087.91,
-              "size": 43.43,
-              "side": "SELL"
-            }
-          ]
-        }
-      ],
-      "hash": "81aa84a3d2ef40acccb4fe219dfc1bb2f76deb4c4e31f48d4b5b64ed248e84d6"
-    },
-    {
-      "price": 65019.81,
-      "total_volume": 63.81,
-      "slots": [
-        {
-          "slot_index": 9,
-          "slot_name": "RETAIL_9",
-          "description": "Retail ордера (группа 9)",
-          "priority": 3,
-          "volume": 63.81,
-          "orders_count": 1,
-          "orders": [
-            {
-              "id": 344,
-              "trader_id": 7578,
-              "price": 65019.81,
-              "size": 63.81,
-              "side": "SELL"
-            }
-          ]
-        }
-      ],
-      "hash": "ea821bc5dcaf50c9f8a5912933f0ca2f3c8f6fec9d4e354a5c5552b2a7945609"
-    },
-    {
-      "price": 64913.21,
-      "total_volume": 38.08,
-      "slots": [
-        {
-          "slot_index": 14,
-          "slot_name": "RETAIL_14",
-          "description": "Retail ордера (группа 14)",
-          "priority": 3,
-          "volume": 38.08,
-          "orders_count": 1,
-          "orders": [
-            {
-              "id": 346,
-              "trader_id": 1103,
-              "price": 64913.21,
-              "size": 38.08,
-              "side": "SELL"
-            }
-          ]
-        }
-      ],
-      "hash": "b82dc52eb5b10e0ba35e057e7520d9342a01fd693d37e16b9d721323c0896325"
-    },
-    {
-      "price": 64905.58,
-      "total_volume": 96.08,
-      "slots": [
-        {
-          "slot_index": 8,
-          "slot_name": "RETAIL_8",
-          "description": "Retail ордера (группа 8)",
-          "priority": 3,
-          "volume": 96.08,
-          "orders_count": 1,
-          "orders": [
-            {
-              "id": 365,
-              "trader_id": 4541,
-              "price": 64905.58,
-              "size": 96.08,
-              "side": "SELL"
-            }
-          ]
-        }
-      ],
-      "hash": "c94c51bab9a92cadafcc6ee386fb87015dc754100fc9249162d4173b0d5ec0c1"
-    },
-    {
-      "price": 64910.36,
-      "total_volume": 52,
+      "price": 65027.05,
+      "total_volume": 57.01,
       "slots": [
         {
           "slot_index": 7,
           "slot_name": "RETAIL_7",
           "description": "Retail ордера (группа 7)",
           "priority": 3,
-          "volume": 52,
+          "volume": 57.01,
           "orders_count": 1,
           "orders": [
             {
-              "id": 252,
-              "trader_id": 364,
-              "price": 64910.36,
-              "size": 52,
-              "side": "SELL"
+              "id": 3164,
+              "trader_id": 712,
+              "price": 65027.05,
+              "size": 57.01,
+              "side": "BUY"
             }
           ]
         }
       ],
-      "hash": "962c4cebeeed163d476eb2ecd32fa3b2175ac2cfcfd370b48f265ed5cf606b15"
+      "hash": "42c177f5b22b05ae918f93fc7cda0a3c4b0b92d5a8b85a20cf600e3785cf5aa2"
     },
     {
-      "price": 65083.07,
-      "total_volume": 55.47,
-      "slots": [
-        {
-          "slot_index": 8,
-          "slot_name": "RETAIL_8",
-          "description": "Retail ордера (группа 8)",
-          "priority": 3,
-          "volume": 55.47,
-          "orders_count": 1,
-          "orders": [
-            {
-              "id": 130,
-              "trader_id": 1133,
-              "price": 65083.07,
-              "size": 55.47,
-              "side": "SELL"
-            }
-          ]
-        }
-      ],
-      "hash": "04bec54c7fa258ee3c96eb85582bb96ce9640172c27e8c2116143c9e69f137cb"
-    },
-    {
-      "price": 64950.48,
-      "total_volume": 61.49,
-      "slots": [
-        {
-          "slot_index": 12,
-          "slot_name": "RETAIL_12",
-          "description": "Retail ордера (группа 12)",
-          "priority": 3,
-          "volume": 61.49,
-          "orders_count": 1,
-          "orders": [
-            {
-              "id": 287,
-              "trader_id": 8133,
-              "price": 64950.48,
-              "size": 61.49,
-              "side": "SELL"
-            }
-          ]
-        }
-      ],
-      "hash": "89d01e475521f7444973063aa3826c0a2a163d4cfc17100734f04efac4570000"
-    },
-    {
-      "price": 64900.45,
-      "total_volume": 83.83,
-      "slots": [
-        {
-          "slot_index": 11,
-          "slot_name": "RETAIL_11",
-          "description": "Retail ордера (группа 11)",
-          "priority": 3,
-          "volume": 83.83,
-          "orders_count": 1,
-          "orders": [
-            {
-              "id": 334,
-              "trader_id": 8288,
-              "price": 64900.45,
-              "size": 83.83,
-              "side": "SELL"
-            }
-          ]
-        }
-      ],
-      "hash": "76db309faee960ba2df623ef88da522fcb73ce12660bb35ac5e1df24fa7461c3"
-    },
-    {
-      "price": 64910.07,
-      "total_volume": 74.14,
+      "price": 65087.99,
+      "total_volume": 82.71,
       "slots": [
         {
           "slot_index": 4,
           "slot_name": "RETAIL_4",
           "description": "Retail ордера (группа 4)",
           "priority": 3,
-          "volume": 74.14,
+          "volume": 82.71,
           "orders_count": 1,
           "orders": [
             {
-              "id": 335,
-              "trader_id": 6553,
-              "price": 64910.07,
-              "size": 74.14,
-              "side": "SELL"
+              "id": 3273,
+              "trader_id": 145,
+              "price": 65087.99,
+              "size": 82.71,
+              "side": "BUY"
             }
           ]
         }
       ],
-      "hash": "fb3846e03f556a28167de1873a5bba148dd058f6b598e3f8d2f954cede169445"
+      "hash": "4a05bfd10b343ad83611f21622424466b6c8e467e1d96e7a469b04d3a45d21d6"
     },
     {
-      "price": 65070.25,
-      "total_volume": 79.45,
+      "price": 65042.02,
+      "total_volume": 18.36,
       "slots": [
         {
-          "slot_index": 6,
-          "slot_name": "RETAIL_6",
-          "description": "Retail ордера (группа 6)",
+          "slot_index": 3,
+          "slot_name": "RETAIL_3",
+          "description": "Retail ордера (группа 3)",
           "priority": 3,
-          "volume": 79.45,
+          "volume": 18.36,
           "orders_count": 1,
           "orders": [
             {
-              "id": 349,
-              "trader_id": 1563,
-              "price": 65070.25,
-              "size": 79.45,
+              "id": 2991,
+              "trader_id": 156,
+              "price": 65042.02,
+              "size": 18.36,
+              "side": "BUY"
+            }
+          ]
+        }
+      ],
+      "hash": "d2ccdb7092799c49cff92a0ebc7944087a0c0834afadb8892e99fb5605d90f18"
+    },
+    {
+      "price": 65096.74,
+      "total_volume": 29.19,
+      "slots": [
+        {
+          "slot_index": 3,
+          "slot_name": "RETAIL_3",
+          "description": "Retail ордера (группа 3)",
+          "priority": 3,
+          "volume": 29.19,
+          "orders_count": 1,
+          "orders": [
+            {
+              "id": 1554,
+              "trader_id": 876,
+              "price": 65096.74,
+              "size": 29.19,
+              "side": "BUY"
+            }
+          ]
+        }
+      ],
+      "hash": "bb0973682ef202889a2746414b7b45fad50fd5042e0eae3dba4d7e743f8ad1f0"
+    },
+    {
+      "price": 64903.83,
+      "total_volume": 6.89,
+      "slots": [
+        {
+          "slot_index": 2,
+          "slot_name": "SMALL_RETAIL",
+          "description": "Мелкие retail (\u003c$10)",
+          "priority": 2,
+          "volume": 6.89,
+          "orders_count": 1,
+          "orders": [
+            {
+              "id": 3387,
+              "trader_id": 444,
+              "price": 64903.83,
+              "size": 6.89,
+              "side": "BUY"
+            }
+          ]
+        }
+      ],
+      "hash": "8ff8e568a7ce56246555b2b3eccdc29c11673022d7fea6c276e114dd978cd87c"
+    },
+    {
+      "price": 64949.57,
+      "total_volume": 93.57,
+      "slots": [
+        {
+          "slot_index": 5,
+          "slot_name": "RETAIL_5",
+          "description": "Retail ордера (группа 5)",
+          "priority": 3,
+          "volume": 93.57,
+          "orders_count": 1,
+          "orders": [
+            {
+              "id": 3392,
+              "trader_id": 998,
+              "price": 64949.57,
+              "size": 93.57,
+              "side": "BUY"
+            }
+          ]
+        }
+      ],
+      "hash": "a5b81d5552c30bd48989519762645555875e368ff6d4db1a8f7cf467faae69f9"
+    },
+    {
+      "price": 64996.63,
+      "total_volume": 46.5,
+      "slots": [
+        {
+          "slot_index": 8,
+          "slot_name": "RETAIL_8",
+          "description": "Retail ордера (группа 8)",
+          "priority": 3,
+          "volume": 46.5,
+          "orders_count": 1,
+          "orders": [
+            {
+              "id": 3341,
+              "trader_id": 113,
+              "price": 64996.63,
+              "size": 46.5,
+              "side": "BUY"
+            }
+          ]
+        }
+      ],
+      "hash": "797a33cf647be773fa6e8cec94692e90d1328d6344b271f0779bb5052f55974b"
+    },
+    {
+      "price": 65081.33,
+      "total_volume": 64.94,
+      "slots": [
+        {
+          "slot_index": 4,
+          "slot_name": "RETAIL_4",
+          "description": "Retail ордера (группа 4)",
+          "priority": 3,
+          "volume": 64.94,
+          "orders_count": 1,
+          "orders": [
+            {
+              "id": 3062,
+              "trader_id": 913,
+              "price": 65081.33,
+              "size": 64.94,
+              "side": "BUY"
+            }
+          ]
+        }
+      ],
+      "hash": "e173efb0168a6fbf0c9eed814eeae4bea105c6fd6a1aa785b557f319246b44a4"
+    }
+  ],
+  "sell_levels": [
+    {
+      "price": 65013.68,
+      "total_volume": 38.48,
+      "slots": [
+        {
+          "slot_index": 4,
+          "slot_name": "RETAIL_4",
+          "description": "Retail ордера (группа 4)",
+          "priority": 3,
+          "volume": 38.48,
+          "orders_count": 1,
+          "orders": [
+            {
+              "id": 3038,
+              "trader_id": 613,
+              "price": 65013.68,
+              "size": 38.48,
               "side": "SELL"
             }
           ]
         }
       ],
-      "hash": "3b96f622d79a0c3a169a2b09b8cbd77e2cbe489b2feed12bb46e66f84422fb9b"
+      "hash": "1840ff6730ea22a66b5c94cd08918d182196b13749caf73e066a1b2be34ff3f3"
+    },
+    {
+      "price": 64961.15,
+      "total_volume": 2.18,
+      "slots": [
+        {
+          "slot_index": 2,
+          "slot_name": "SMALL_RETAIL",
+          "description": "Мелкие retail (\u003c$10)",
+          "priority": 2,
+          "volume": 2.18,
+          "orders_count": 1,
+          "orders": [
+            {
+              "id": 2789,
+              "trader_id": 778,
+              "price": 64961.15,
+              "size": 2.18,
+              "side": "SELL"
+            }
+          ]
+        }
+      ],
+      "hash": "59ce54884cbf6825a0743543845fc9a3c1cc95cd30c98928e13c6f9d20900161"
+    },
+    {
+      "price": 65047.58,
+      "total_volume": 89.73,
+      "slots": [
+        {
+          "slot_index": 12,
+          "slot_name": "RETAIL_12",
+          "description": "Retail ордера (группа 12)",
+          "priority": 3,
+          "volume": 89.73,
+          "orders_count": 1,
+          "orders": [
+            {
+              "id": 2326,
+              "trader_id": 177,
+              "price": 65047.58,
+              "size": 89.73,
+              "side": "SELL"
+            }
+          ]
+        }
+      ],
+      "hash": "bb193a615b0fca4f4808479421a88387a5cf3c8462edcf5fbf48edac292f0124"
+    },
+    {
+      "price": 65099.78,
+      "total_volume": 39.11,
+      "slots": [
+        {
+          "slot_index": 9,
+          "slot_name": "RETAIL_9",
+          "description": "Retail ордера (группа 9)",
+          "priority": 3,
+          "volume": 39.11,
+          "orders_count": 1,
+          "orders": [
+            {
+              "id": 3036,
+              "trader_id": 570,
+              "price": 65099.78,
+              "size": 39.11,
+              "side": "SELL"
+            }
+          ]
+        }
+      ],
+      "hash": "bd5875a07d82abe108426012bf905d1f27dd408808574a946c68292a9e059ccf"
+    },
+    {
+      "price": 64911.97,
+      "total_volume": 67.34,
+      "slots": [
+        {
+          "slot_index": 14,
+          "slot_name": "RETAIL_14",
+          "description": "Retail ордера (группа 14)",
+          "priority": 3,
+          "volume": 67.34,
+          "orders_count": 1,
+          "orders": [
+            {
+              "id": 1142,
+              "trader_id": 767,
+              "price": 64911.97,
+              "size": 67.34,
+              "side": "SELL"
+            }
+          ]
+        }
+      ],
+      "hash": "14df7afc4eea6ab4f3a9aec4432888320c599cf70d9396f94b82dbbe5724eb2d"
+    },
+    {
+      "price": 64919.97,
+      "total_volume": 97.1,
+      "slots": [
+        {
+          "slot_index": 12,
+          "slot_name": "RETAIL_12",
+          "description": "Retail ордера (группа 12)",
+          "priority": 3,
+          "volume": 97.1,
+          "orders_count": 1,
+          "orders": [
+            {
+              "id": 2234,
+              "trader_id": 537,
+              "price": 64919.97,
+              "size": 97.1,
+              "side": "SELL"
+            }
+          ]
+        }
+      ],
+      "hash": "c5ee38fc02ce3da62740ae23951358c27b20de6f26eddc80f2dc08520d13486e"
+    },
+    {
+      "price": 65085.51,
+      "total_volume": 89.97,
+      "slots": [
+        {
+          "slot_index": 5,
+          "slot_name": "RETAIL_5",
+          "description": "Retail ордера (группа 5)",
+          "priority": 3,
+          "volume": 89.97,
+          "orders_count": 1,
+          "orders": [
+            {
+              "id": 2444,
+              "trader_id": 710,
+              "price": 65085.51,
+              "size": 89.97,
+              "side": "SELL"
+            }
+          ]
+        }
+      ],
+      "hash": "b5242b5caf207d3bfa8558fbd2d4261e8672f60da93e85a0bb62caae72cc3751"
+    },
+    {
+      "price": 65016.75,
+      "total_volume": 38.69,
+      "slots": [
+        {
+          "slot_index": 1,
+          "slot_name": "VIP",
+          "description": "VIP-трейдеры",
+          "priority": 1,
+          "volume": 38.69,
+          "orders_count": 1,
+          "orders": [
+            {
+              "id": 2506,
+              "trader_id": 96,
+              "price": 65016.75,
+              "size": 38.69,
+              "side": "SELL"
+            }
+          ]
+        }
+      ],
+      "hash": "244a2009323b832dbf33801818ec4996482a4c8d00e33d02db10ecd546862480"
+    },
+    {
+      "price": 65085.01,
+      "total_volume": 81.15,
+      "slots": [
+        {
+          "slot_index": 3,
+          "slot_name": "RETAIL_3",
+          "description": "Retail ордера (группа 3)",
+          "priority": 3,
+          "volume": 81.15,
+          "orders_count": 1,
+          "orders": [
+            {
+              "id": 2823,
+              "trader_id": 708,
+              "price": 65085.01,
+              "size": 81.15,
+              "side": "SELL"
+            }
+          ]
+        }
+      ],
+      "hash": "bc5b936e4129f8cf6368fd858b5c9e38bf68c3d239d86ab325ef6b3d93182039"
+    },
+    {
+      "price": 64900.67,
+      "total_volume": 39.96,
+      "slots": [
+        {
+          "slot_index": 1,
+          "slot_name": "VIP",
+          "description": "VIP-трейдеры",
+          "priority": 1,
+          "volume": 39.96,
+          "orders_count": 1,
+          "orders": [
+            {
+              "id": 3195,
+              "trader_id": 83,
+              "price": 64900.67,
+              "size": 39.96,
+              "side": "SELL"
+            }
+          ]
+        }
+      ],
+      "hash": "d5c4c123a790788327d1587920e2aaa0549434d99a173cc4d068549a8624d8d4"
+    },
+    {
+      "price": 65027.25,
+      "total_volume": 18.53,
+      "slots": [
+        {
+          "slot_index": 9,
+          "slot_name": "RETAIL_9",
+          "description": "Retail ордера (группа 9)",
+          "priority": 3,
+          "volume": 18.53,
+          "orders_count": 1,
+          "orders": [
+            {
+              "id": 3312,
+              "trader_id": 726,
+              "price": 65027.25,
+              "size": 18.53,
+              "side": "SELL"
+            }
+          ]
+        }
+      ],
+      "hash": "443fdae8d79d6ad2f142f55572d01e2a3d102ed61ca4954338e32e0188c26907"
+    },
+    {
+      "price": 64993,
+      "total_volume": 184467440737095500,
+      "slots": [],
+      "hash": "e56661292faddcd0f918a0b9fa0be1353ccb09dc9a0c9106195df30acbf2f9fb"
+    },
+    {
+      "price": 65087.89,
+      "total_volume": 7.85,
+      "slots": [
+        {
+          "slot_index": 2,
+          "slot_name": "SMALL_RETAIL",
+          "description": "Мелкие retail (\u003c$10)",
+          "priority": 2,
+          "volume": 7.85,
+          "orders_count": 1,
+          "orders": [
+            {
+              "id": 2714,
+              "trader_id": 549,
+              "price": 65087.89,
+              "size": 7.85,
+              "side": "SELL"
+            }
+          ]
+        }
+      ],
+      "hash": "9f5e17c438b1f15ed750a5b6a95b05c998ec633e33c94628859df68d4ae55ceb"
+    },
+    {
+      "price": 64923.1,
+      "total_volume": 73.35,
+      "slots": [
+        {
+          "slot_index": 14,
+          "slot_name": "RETAIL_14",
+          "description": "Retail ордера (группа 14)",
+          "priority": 3,
+          "volume": 73.35,
+          "orders_count": 1,
+          "orders": [
+            {
+              "id": 3339,
+              "trader_id": 215,
+              "price": 64923.1,
+              "size": 73.35,
+              "side": "SELL"
+            }
+          ]
+        }
+      ],
+      "hash": "45a7517e38c35fb3edf72e364dc1761089229e180e773ffcd0ef2cc76cbd44fe"
+    },
+    {
+      "price": 64948.96,
+      "total_volume": 4.34,
+      "slots": [
+        {
+          "slot_index": 2,
+          "slot_name": "SMALL_RETAIL",
+          "description": "Мелкие retail (\u003c$10)",
+          "priority": 2,
+          "volume": 4.34,
+          "orders_count": 1,
+          "orders": [
+            {
+              "id": 2886,
+              "trader_id": 195,
+              "price": 64948.96,
+              "size": 4.34,
+              "side": "SELL"
+            }
+          ]
+        }
+      ],
+      "hash": "843755040e923b35998b8107ab7b847642b6760d28fd55f16dcde507d5fc21ca"
+    },
+    {
+      "price": 65027.16,
+      "total_volume": 5.6,
+      "slots": [
+        {
+          "slot_index": 2,
+          "slot_name": "SMALL_RETAIL",
+          "description": "Мелкие retail (\u003c$10)",
+          "priority": 2,
+          "volume": 5.6,
+          "orders_count": 1,
+          "orders": [
+            {
+              "id": 2280,
+              "trader_id": 631,
+              "price": 65027.16,
+              "size": 5.6,
+              "side": "SELL"
+            }
+          ]
+        }
+      ],
+      "hash": "44d21992206d0605d179d587cc1eded708fa8b099eb74921f18c59f0bfad37b5"
+    },
+    {
+      "price": 65016.92,
+      "total_volume": 87.89,
+      "slots": [
+        {
+          "slot_index": 13,
+          "slot_name": "RETAIL_13",
+          "description": "Retail ордера (группа 13)",
+          "priority": 3,
+          "volume": 87.89,
+          "orders_count": 1,
+          "orders": [
+            {
+              "id": 2113,
+              "trader_id": 826,
+              "price": 65016.92,
+              "size": 87.89,
+              "side": "SELL"
+            }
+          ]
+        }
+      ],
+      "hash": "2dde40a0dbd8121e67b74066795508c586e243b12082ebe52e4ea5b901835f51"
+    },
+    {
+      "price": 65055.15,
+      "total_volume": 8.41,
+      "slots": [
+        {
+          "slot_index": 2,
+          "slot_name": "SMALL_RETAIL",
+          "description": "Мелкие retail (\u003c$10)",
+          "priority": 2,
+          "volume": 8.41,
+          "orders_count": 1,
+          "orders": [
+            {
+              "id": 2246,
+              "trader_id": 881,
+              "price": 65055.15,
+              "size": 8.41,
+              "side": "SELL"
+            }
+          ]
+        }
+      ],
+      "hash": "fa096504afedf01c4337d40ad0693ff7a41d77559058f64ec4dcd8fc41c8e032"
+    },
+    {
+      "price": 65061.75,
+      "total_volume": 58.54,
+      "slots": [
+        {
+          "slot_index": 11,
+          "slot_name": "RETAIL_11",
+          "description": "Retail ордера (группа 11)",
+          "priority": 3,
+          "volume": 58.54,
+          "orders_count": 1,
+          "orders": [
+            {
+              "id": 3435,
+              "trader_id": 812,
+              "price": 65061.75,
+              "size": 58.54,
+              "side": "SELL"
+            }
+          ]
+        }
+      ],
+      "hash": "9e68108f4a8cf20a80a1cff43a5561208dd5e14419d716e69be6400fddb53961"
+    },
+    {
+      "price": 65082.34,
+      "total_volume": 14.47,
+      "slots": [
+        {
+          "slot_index": 5,
+          "slot_name": "RETAIL_5",
+          "description": "Retail ордера (группа 5)",
+          "priority": 3,
+          "volume": 14.47,
+          "orders_count": 1,
+          "orders": [
+            {
+              "id": 2963,
+              "trader_id": 962,
+              "price": 65082.34,
+              "size": 14.47,
+              "side": "SELL"
+            }
+          ]
+        }
+      ],
+      "hash": "d3a60306f684932ec8710ff4249bdb2c49785c5618728a4548981325e208cb54"
     }
   ]
 }
