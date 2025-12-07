@@ -151,16 +151,104 @@ func generatePriceWithMagnetism(basePrice uint64, profile TraderProfile, side Si
 	// 40% шанс использовать "магнитную" цену
 	if rand.Float32() < 0.4 {
 		magnets := getPriceMagnet(basePrice)
-		magnetPrice := magnets[rand.Intn(len(magnets))]
 		
-		// Добавляем небольшой offset
-		offset := rand.Intn(100) - 50
-		return uint64(int64(magnetPrice) + int64(offset))
+		// Выбираем магнитную цену в зависимости от стороны
+		var magnetPrice uint64
+		
+		if side == BUY {
+			// Для BUY выбираем магниты НИЖЕ basePrice
+			lowerMagnets := make([]uint64, 0)
+			for _, m := range magnets {
+				if m < basePrice {
+					lowerMagnets = append(lowerMagnets, m)
+				}
+			}
+			if len(lowerMagnets) > 0 {
+				magnetPrice = lowerMagnets[rand.Intn(len(lowerMagnets))]
+			} else {
+				magnetPrice = basePrice - 5000 // Fallback
+			}
+			
+			// Небольшой offset вниз
+			offset := rand.Intn(100)
+			price := int64(magnetPrice) - int64(offset)
+			if price < 100 {
+				price = 100
+			}
+			return uint64(price)
+			
+		} else { // SELL
+			// Для SELL выбираем магниты ВЫШЕ basePrice
+			higherMagnets := make([]uint64, 0)
+			for _, m := range magnets {
+				if m > basePrice {
+					higherMagnets = append(higherMagnets, m)
+				}
+			}
+			if len(higherMagnets) > 0 {
+				magnetPrice = higherMagnets[rand.Intn(len(higherMagnets))]
+			} else {
+				magnetPrice = basePrice + 5000 // Fallback
+			}
+			
+			// Небольшой offset вверх
+			offset := rand.Intn(100)
+			price := int64(magnetPrice) + int64(offset)
+			return uint64(price)
+		}
 	}
 	
 	// Иначе используем обычную генерацию
 	return generatePrice(basePrice, profile, side)
 }
+
+
+// generatePrice генерирует цену для трейдера с учетом профиля
+// generatePrice генерирует цену для трейдера с учетом профиля
+func generatePrice(basePrice uint64, profile TraderProfile, side Side) uint64 {
+	spread := profile.PriceSpread
+	
+	if side == BUY {
+		// ═══════════════════════════════════════════════════════════════
+		// BUY ордера ВСЕГДА НИЖЕ базовой цены
+		// ═══════════════════════════════════════════════════════════════
+		var offset int
+		
+		if profile.Type == TRADER_MARKET_MAKER {
+			// MM размещают очень близко к середине рынка
+			offset = rand.Intn(50) + 1 // 0.01 - 0.50 ниже
+		} else {
+			// Обычные трейдеры размещают дальше
+			offset = rand.Intn(spread) + 1 // 1 до spread ниже
+		}
+		
+		price := int64(basePrice) - int64(offset)
+		if price < 100 {
+			price = 100
+		}
+		
+		return uint64(price)
+		
+	} else { // SELL
+		// ═══════════════════════════════════════════════════════════════
+		// SELL ордера ВСЕГДА ВЫШЕ базовой цены
+		// ═══════════════════════════════════════════════════════════════
+		var offset int
+		
+		if profile.Type == TRADER_MARKET_MAKER {
+			// MM размещают очень близко к середине рынка
+			offset = rand.Intn(50) + 1 // 0.01 - 0.50 выше
+		} else {
+			// Обычные трейдеры размещают дальше
+			offset = rand.Intn(spread) + 1 // 1 до spread выше
+		}
+		
+		price := int64(basePrice) + int64(offset)
+		
+		return uint64(price)
+	}
+}
+
 
 // Вспомогательные функции для работы с пулами
 func getOrderFromPool() *Order {
@@ -1383,139 +1471,138 @@ func (ob *OrderBook) updateBestPrices() {
 
 // tryMatchUnsafe пытается совместить ордер (вызывается под lock)
 func (ob *OrderBook) tryMatchUnsafe(takerOrder *Order) {
-	if takerOrder.IsFilled() {
-		return // Ордер уже полностью исполнен
-	}
-	
-	bestBid := ob.bestBidAtomic.Load()
-    bestAsk := ob.bestAskAtomic.Load()
-    
-    var bestPrice 	uint64
-    var canMatch 	bool
-    
-    if takerOrder.Side == BUY {
-        bestPrice = bestAsk
-        canMatch = bestAsk > 0 && bestPrice <= takerOrder.Price
-    } else {
-        bestPrice = bestBid
-        canMatch = bestBid > 0 && bestPrice >= takerOrder.Price
-    }
-	
-	if !canMatch {
-		return
-	}
-	
-	// Получаем противоположную сторону книги
-	oppositeLevels := ob.SellLevels
-	if takerOrder.Side == SELL {
-		oppositeLevels = ob.BuyLevels
-	}
-	
-	level := oppositeLevels[bestPrice]
-	if level == nil {
-		return
-	}
-	
-	// Исполняем ордер по приоритету слотов (0 -> 15)
-	for slotIdx := 0; slotIdx < VERKLE_WIDTH; slotIdx++ {
-		if takerOrder.IsFilled() {
-			break
+	for !takerOrder.IsFilled() {
+		// Получаем текущие best prices
+		bestBid := ob.bestBidAtomic.Load()
+		bestAsk := ob.bestAskAtomic.Load()
+		
+		var bestPrice uint64
+		var canMatch bool
+		
+		if takerOrder.Side == BUY {
+			bestPrice = bestAsk
+			canMatch = bestAsk > 0 && bestPrice <= takerOrder.Price
+		} else {
+			bestPrice = bestBid
+			canMatch = bestBid > 0 && bestPrice >= takerOrder.Price
 		}
 		
-		slot := level.Slots[slotIdx]
-		if len(slot.Orders) == 0 {
-			continue
+		if !canMatch {
+			break // Больше нет подходящей ликвидности
 		}
 		
-		// Обрабатываем ордера в слоте (FIFO)
-		i := 0
-		for i < len(slot.Orders) {
+		// Получаем противоположную сторону книги
+		oppositeLevels := ob.SellLevels
+		if takerOrder.Side == SELL {
+			oppositeLevels = ob.BuyLevels
+		}
+		
+		level := oppositeLevels[bestPrice]
+		if level == nil {
+			break // Уровень исчез (race condition защита)
+		}
+		
+		// Исполняем ордер по приоритету слотов (0 -> 15)
+		levelMatched := false
+		for slotIdx := 0; slotIdx < VERKLE_WIDTH; slotIdx++ {
 			if takerOrder.IsFilled() {
 				break
 			}
 			
-			makerOrder := slot.Orders[i]
-			
-			// Вычисляем объем для исполнения
-			takerRemaining := takerOrder.RemainingSize()
-			makerRemaining := makerOrder.RemainingSize()
-			executeSize := takerRemaining
-			if makerRemaining < executeSize {
-				executeSize = makerRemaining
+			slot := level.Slots[slotIdx]
+			if len(slot.Orders) == 0 {
+				continue
 			}
 			
-			// Создаем трейд
-			trade := &Trade{
-				TradeID:       atomic.AddUint64(&ob.nextTradeID, 1),
-				TakerOrderID:  takerOrder.ID,
-				MakerOrderID:  makerOrder.ID,
-				TakerTraderID: takerOrder.TraderID,
-				MakerTraderID: makerOrder.TraderID,
-				Price:         bestPrice,
-				Size:          executeSize,
-				TakerSide:     takerOrder.Side,
-				TakerPartial:  false,
-				MakerPartial:  false,
-				Timestamp:     time.Now().UnixNano(),
+			// Обрабатываем ордера в слоте (FIFO)
+			i := 0
+			for i < len(slot.Orders) {
+				if takerOrder.IsFilled() {
+					break
+				}
+				
+				makerOrder := slot.Orders[i]
+				
+				// Вычисляем объем для исполнения
+				takerRemaining := takerOrder.RemainingSize()
+				makerRemaining := makerOrder.RemainingSize()
+				executeSize := takerRemaining
+				if makerRemaining < executeSize {
+					executeSize = makerRemaining
+				}
+				
+				// Создаем трейд
+				trade := &Trade{
+					TradeID:       atomic.AddUint64(&ob.nextTradeID, 1),
+					TakerOrderID:  takerOrder.ID,
+					MakerOrderID:  makerOrder.ID,
+					TakerTraderID: takerOrder.TraderID,
+					MakerTraderID: makerOrder.TraderID,
+					Price:         bestPrice,
+					Size:          executeSize,
+					TakerSide:     takerOrder.Side,
+					TakerPartial:  false,
+					MakerPartial:  false,
+					Timestamp:     time.Now().UnixNano(),
+				}
+				
+				// Обновляем заполнение
+				takerOrder.FilledSize += executeSize
+				makerOrder.FilledSize += executeSize
+				
+				// Устанавливаем флаги частичного заполнения
+				if !takerOrder.IsFilled() {
+					takerOrder.IsPartialFill = true
+					trade.TakerPartial = true
+				}
+				
+				if !makerOrder.IsFilled() {
+					makerOrder.IsPartialFill = true
+					trade.MakerPartial = true
+				}
+				
+				// Обновляем объемы
+				slot.Volume = safeSubtract(slot.Volume, executeSize)
+				level.TotalVolume = safeSubtract(level.TotalVolume, executeSize)
+				
+				// Сохраняем трейд
+				ob.Trades = append(ob.Trades, trade)
+				atomic.AddUint64(&ob.stats.TotalMatches, 1)
+				
+				// Если maker ордер исполнен полностью - удаляем
+				if makerOrder.IsFilled() {
+					slot.Orders = append(slot.Orders[:i], slot.Orders[i+1:]...)
+					delete(ob.OrderIndex, makerOrder.ID)
+					putOrderToPool(makerOrder)
+					// i не увеличиваем, т.к. удалили элемент
+				} else {
+					i++
+				}
+				
+				levelMatched = true
 			}
 			
-			// Обновляем заполнение
-			takerOrder.FilledSize += executeSize
-			makerOrder.FilledSize += executeSize
-			
-			// Устанавливаем флаги частичного заполнения
-			if !takerOrder.IsFilled() {
-				takerOrder.IsPartialFill = true
-				trade.TakerPartial = true
+			// Если слот пуст, обнуляем volume
+			if len(slot.Orders) == 0 {
+				slot.Volume = 0
 			}
-			if !makerOrder.IsFilled() {
-				makerOrder.IsPartialFill = true
-				trade.MakerPartial = true
-			}
-			
-			// Обновляем объемы
-			//slot.Volume -= executeSize
-			//level.TotalVolume -= executeSize
-			
-			slot.Volume = safeSubtract(slot.Volume, executeSize)
-			level.TotalVolume = safeSubtract(level.TotalVolume, executeSize)
-			
-			// Сохраняем трейд
-			ob.Trades = append(ob.Trades, trade)
-			atomic.AddUint64(&ob.stats.TotalMatches, 1)
-			
-			// Если maker ордер исполнен полностью - удаляем
-			if makerOrder.IsFilled() {
-				slot.Orders = append(slot.Orders[:i], slot.Orders[i+1:]...)
-				delete(ob.OrderIndex, makerOrder.ID)
-				putOrderToPool(makerOrder)
-				// i не увеличиваем, т.к. удалили элемент
-			} else {
-				i++
-			}
-			
-			// Логируем трейд (закомментируйте для производительности)
-			// fmt.Printf("⚡ TRADE #%d: %s %.2f @ %.2f (taker:#%d maker:#%d) [partial: T=%v M=%v]\n",
-			// 	trade.TradeID, trade.TakerSide, float64(executeSize)/PRICE_DECIMALS,
-			// 	float64(bestPrice)/PRICE_DECIMALS, takerOrder.ID, makerOrder.ID,
-			// 	trade.TakerPartial, trade.MakerPartial)
 		}
 		
-		// Если слот пуст, обнуляем volume
-		if len(slot.Orders) == 0 {
-			slot.Volume = 0
+		// Если уровень стал пустым, удаляем
+		if level.TotalVolume == 0 {
+			delete(oppositeLevels, bestPrice)
+			putPriceLevelToPool(level)
+			ob.updateBestPrices()
+		}
+		
+		// Если на этом уровне ничего не исполнилось - выходим
+		// (защита от бесконечного цикла)
+		if !levelMatched {
+			break
 		}
 	}
 	
-	// Если уровень стал пустым, удаляем
-	if level.TotalVolume == 0 {
-		delete(oppositeLevels, bestPrice)
-		putPriceLevelToPool(level)
-		ob.updateBestPrices()
-	}
-	
-	// Если taker ордер не исполнен полностью - остается в книге
-	// Если исполнен полностью - удаляем из индекса
+	// Если taker ордер полностью исполнен - удаляем из индекса
 	if takerOrder.IsFilled() {
 		delete(ob.OrderIndex, takerOrder.ID)
 		// НЕ возвращаем в пул - он еще используется в вызывающем коде
@@ -1691,28 +1778,6 @@ func generateTraderProfiles(numTraders int) []TraderProfile {
 	}
 	
 	return profiles
-}
-
-// generatePrice генерирует цену для трейдера с учетом профиля
-func generatePrice(basePrice uint64, profile TraderProfile, side Side) uint64 {
-	offset := int64(rand.Intn(profile.PriceSpread*2) - profile.PriceSpread)
-	
-	// Маркет-мейкеры размещают ордера близко к лучшей цене
-	if profile.Type == TRADER_MARKET_MAKER {
-		// Добавляем небольшое смещение для создания спреда
-		if side == BUY {
-			offset -= int64(rand.Intn(10) + 1) // BUY чуть ниже
-		} else {
-			offset += int64(rand.Intn(10) + 1) // SELL чуть выше
-		}
-	}
-	
-	price := int64(basePrice) + offset
-	if price < 100 {
-		price = 100
-	}
-	
-	return uint64(price)
 }
 
 // generateSize генерирует размер ордера с учетом профиля
@@ -2404,12 +2469,19 @@ func (ob *OrderBook) PrintStats() {
     fmt.Println("─────────────────────────────────────────")
     fmt.Printf("  • Best Bid: %.2f\n", float64(bestBid)/PRICE_DECIMALS)
     fmt.Printf("  • Best Ask: %.2f\n", float64(bestAsk)/PRICE_DECIMALS)
-    if bestAsk > 0 && bestBid > 0 {
-        spread := float64(bestAsk-bestBid) / PRICE_DECIMALS
-        fmt.Printf("  • Spread: %.2f\n", spread)
-    }
     
-    fmt.Println("═══════════════════════════════════════════")
+	// ИСПРАВЛЕННОЕ вычисление spread:
+    if bestAsk > 0 && bestBid > 0 {
+        if bestAsk > bestBid {
+            spread := float64(bestAsk-bestBid) / PRICE_DECIMALS
+            fmt.Printf("  • Spread: %.2f\n", spread)
+        } else {
+            // ДИАГНОСТИКА: Bid > Ask - некорректное состояние!
+            spread := float64(bestBid-bestAsk) / PRICE_DECIMALS
+            fmt.Printf("  • Spread: %.2f (⚠️ CROSSED MARKET: Bid > Ask!)\n", spread)
+        }
+    }
+	
 	fmt.Printf("═══════════════════════════════════════════\n\n")
 	fmt.Printf("  • updateBestPrices calls: %d\n", atomic.LoadUint64(&updateBestPricesCallCount))
 	
@@ -2561,6 +2633,7 @@ func main() {
 	
 	// Инициализация: создаем начальную ликвидность от MM
 	fmt.Println("💧 Создание начальной ликвидности...")
+	
 	addedOrders := make([]uint64, 0, numOperations)
 	
 	for i := 0; i < mmCount; i++ {
@@ -2585,6 +2658,16 @@ func main() {
 	}
 	
 	fmt.Printf("✓ Создано %d начальных ордеров\n\n", len(addedOrders))
+	fmt.Printf("✓ Base price: %.2f\n", float64(basePrice)/PRICE_DECIMALS)
+	
+	bestBid := ob.bestBidAtomic.Load()
+	bestAsk := ob.bestAskAtomic.Load()
+	fmt.Printf("  • Initial BestBid: %.2f\n", float64(bestBid)/PRICE_DECIMALS)
+	fmt.Printf("  • Initial BestAsk: %.2f\n", float64(bestAsk)/PRICE_DECIMALS)
+
+	if bestBid >= bestAsk {
+		fmt.Printf("⚠️ ОШИБКА: BestBid >= BestAsk! Проверьте generatePrice()\n")
+	}
 	
 	startTime := time.Now()
 	
