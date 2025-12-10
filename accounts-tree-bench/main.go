@@ -61,19 +61,19 @@ type Node struct {
 type SparseMerklePatriciaTree struct {
 	Root      *Node
 	Accounts  map[uint64]*Account
-	Cache     *LRUCache
+	Cache     *ShardedLRUCache // Используем шардированный кеш
 	LeafArity int
 	MaxDepth  int
 	mu        sync.RWMutex
 }
 
-// LRUCache - простой LRU кеш
+// LRUCache - простой LRU кеш (один шард)
 type LRUCache struct {
 	capacity int
 	cache    map[uint64]*cacheEntry
 	head     *cacheEntry
 	tail     *cacheEntry
-	mu       sync.Mutex // Используем Mutex для кеша (быстрее RWMutex на мелких операциях)
+	mu       sync.Mutex
 }
 
 type cacheEntry struct {
@@ -92,7 +92,7 @@ func NewLRUCache(capacity int) *LRUCache {
 
 func (lru *LRUCache) Get(key uint64) (*Account, bool) {
 	lru.mu.Lock()
-	defer lru.mu.Unlock()
+	defer lru.mu.Unlock() // defer имеет небольшой оверхед (~50ns), но для надежности оставим
 	if entry, ok := lru.cache[key]; ok {
 		lru.moveToFront(entry)
 		return entry.value, true
@@ -157,16 +157,62 @@ func (lru *LRUCache) removeTail() {
 	lru.remove(lru.tail)
 }
 
+// ShardedLRUCache - обертка над несколькими LRUCache для снижения конкуренции
+type ShardedLRUCache struct {
+	shards    []*LRUCache
+	shardMask uint64
+}
+
+// NewShardedLRUCache создает кеш с 2^power шардами (например power=8 -> 256 шардов)
+func NewShardedLRUCache(totalCapacity int, power uint) *ShardedLRUCache {
+	numShards := 1 << power
+	shardCapacity := totalCapacity / numShards
+	if shardCapacity < 1 {
+		shardCapacity = 1
+	}
+
+	shards := make([]*LRUCache, numShards)
+	for i := 0; i < numShards; i++ {
+		shards[i] = NewLRUCache(shardCapacity)
+	}
+
+	return &ShardedLRUCache{
+		shards:    shards,
+		shardMask: uint64(numShards - 1),
+	}
+}
+
+func (s *ShardedLRUCache) GetShard(key uint64) *LRUCache {
+	// Простая хеш-функция для распределения.
+	// Для UID можно использовать просто key & mask, если UID распределены равномерно.
+	// Если UID идут подряд (0,1,2...), то это идеально размажет их по шардам.
+	idx := key & s.shardMask
+	return s.shards[idx]
+}
+
+func (s *ShardedLRUCache) Get(key uint64) (*Account, bool) {
+	return s.GetShard(key).Get(key)
+}
+
+func (s *ShardedLRUCache) Put(key uint64, value *Account) {
+	s.GetShard(key).Put(key, value)
+}
+
 // NewSparseMerklePatriciaTree создает новое дерево
 func NewSparseMerklePatriciaTree(leafArity int, cacheSize int) *SparseMerklePatriciaTree {
 	if leafArity == 0 {
 		leafArity = 64
 	}
 	maxDepth := 3
+
+	// Используем 256 шардов (2^8) для LRU кеша.
+	// Это должно практически устранить конкуренцию при < 64 ядрах.
+	shardedCache := NewShardedLRUCache(cacheSize, 8)
+
 	return &SparseMerklePatriciaTree{
 		Root:      &Node{Children: make(map[uint8]*Node)},
 		Accounts:  make(map[uint64]*Account),
-		Cache:     NewLRUCache(cacheSize),
+		Cache:     shardedCache,
 		LeafArity: leafArity,
 		MaxDepth:  maxDepth,
 	}
@@ -174,11 +220,16 @@ func NewSparseMerklePatriciaTree(leafArity int, cacheSize int) *SparseMerklePatr
 
 // Insert добавляет или обновляет аккаунт
 func (tree *SparseMerklePatriciaTree) Insert(account *Account) {
+	// Блокировка дерева нужна только для обновления основной структуры
 	tree.mu.Lock()
-	defer tree.mu.Unlock()
 	tree.Accounts[account.UID] = account
-	tree.Cache.Put(account.UID, account)
+	// Обновляем структуру дерева...
 	tree.insertNode(tree.Root, account, 0)
+	tree.mu.Unlock() // Разблокируем дерево как можно раньше
+
+	// Кеш можно обновить ВНЕ глобальной блокировки дерева!
+	// ShardedLRUCache потокобезопасен сам по себе.
+	tree.Cache.Put(account.UID, account)
 }
 
 func (tree *SparseMerklePatriciaTree) insertNode(node *Node, account *Account, depth int) {
@@ -212,16 +263,13 @@ func (tree *SparseMerklePatriciaTree) insertNode(node *Node, account *Account, d
 
 // Get получает аккаунт по UID
 func (tree *SparseMerklePatriciaTree) Get(uid uint64) (*Account, bool) {
-	// 1. Быстрый путь: LRU кеш
+	// 1. Быстрый путь: Sharded LRU кеш (lock-free относительно других шардов)
 	if acc, ok := tree.Cache.Get(uid); ok {
 		return acc, true
 	}
 
 	// 2. Медленный путь: RLock дерева
 	tree.mu.RLock()
-	// Важно: RUnlock нельзя делать defer, если мы хотим обновить кеш ПОСЛЕ чтения
-	// Но для простоты оставим defer, а Put в кеш сделаем после, это безопасно
-	// так как кеш имеет свой мьютекс.
 	acc, ok := tree.Accounts[uid]
 	tree.mu.RUnlock()
 
@@ -301,7 +349,12 @@ func (tree *SparseMerklePatriciaTree) EstimateMemory() uintptr {
 		}
 	}
 	walk(tree.Root)
+
+	// Оценка памяти шардированного кеша
 	size += unsafe.Sizeof(*tree.Cache)
+	size += unsafe.Sizeof(tree.Cache.shards) // slice header
+	// + сами структуры LRUCache
+	size += uintptr(len(tree.Cache.shards)) * unsafe.Sizeof(LRUCache{})
 	return size
 }
 
@@ -311,24 +364,24 @@ func runConcurrentReadTest(tree *SparseMerklePatriciaTree, numReaders int, durat
 	var ops atomic.Uint64
 	done := make(chan struct{})
 
-	// Запускаем читателей
 	for i := 0; i < numReaders; i++ {
 		go func() {
+			// Локальный генератор случайных чисел для каждого потока (PCG)
+			// Это важно, чтобы rand не был узким местом
+			seed := uint64(time.Now().UnixNano()) + uint64(i)*12345
+			rngState := seed
+
 			for {
 				select {
 				case <-done:
 					return
 				default:
-					// Читаем случайный аккаунт
-					// Используем простой генератор псевдослучайных чисел для скорости теста
-					// (в реальном коде rand.Intn, тут простая арифметика с atomic тоже ок, но лучше локальный rand)
-					// Чтобы не блокироваться на глобальном rand lock, используем время или простой счетчик
-					// Для теста просто возьмем i и ops.
+					// Xorshift подобный быстрый RNG
+					rngState ^= rngState << 13
+					rngState ^= rngState >> 7
+					rngState ^= rngState << 17
 
-					// Симуляция random access:
-					// В реальном бенчмарке лучше использовать PCG или SplitMix локально,
-					// но для простоты возьмем простое хеширование текущего времени
-					uid := uint64(time.Now().UnixNano()) % totalAccounts
+					uid := rngState % totalAccounts
 					tree.Get(uid)
 					ops.Add(1)
 				}
@@ -353,17 +406,23 @@ func runConcurrentReadWriteTest(tree *SparseMerklePatriciaTree, numReaders int, 
 
 	// Писатель (1 поток)
 	go func() {
+		rngState := uint64(time.Now().UnixNano())
 		for {
 			select {
 			case <-done:
 				return
 			default:
-				// Обновляем существующий
-				uid := uint64(time.Now().UnixNano()) % totalAccounts
+				rngState ^= rngState << 13
+				rngState ^= rngState >> 7
+				rngState ^= rngState << 17
+				uid := rngState % totalAccounts
+
 				tree.Insert(GenerateRandomAccount(uid, StatusAlgo))
 				writeOps.Add(1)
-				// Небольшая пауза чтобы не забивать Lock на 100% (симуляция реальной работы движка)
-				time.Sleep(10 * time.Microsecond)
+				// Небольшая задержка, чтобы симулировать реальную нагрузку,
+				// иначе один писатель может забить канал памяти.
+				// В HFT write ops обычно намного меньше read ops.
+				for k := 0; k < 100; k++ { } // busy wait ~few ns
 			}
 		}
 	}()
@@ -371,12 +430,17 @@ func runConcurrentReadWriteTest(tree *SparseMerklePatriciaTree, numReaders int, 
 	// Читатели
 	for i := 0; i < numReaders; i++ {
 		go func() {
+			rngState := uint64(time.Now().UnixNano()) + uint64(i)*99999
 			for {
 				select {
 				case <-done:
 					return
 				default:
-					uid := uint64(time.Now().UnixNano()) % totalAccounts
+					rngState ^= rngState << 13
+					rngState ^= rngState >> 7
+					rngState ^= rngState << 17
+					uid := rngState % totalAccounts
+
 					tree.Get(uid)
 					readOps.Add(1)
 				}
@@ -399,11 +463,11 @@ func runConcurrentReadWriteTest(tree *SparseMerklePatriciaTree, numReaders int, 
 // ================= MAIN =================
 
 func main() {
-	// Устанавливаем GOMAXPROCS для использования всех ядер
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
-	fmt.Println("=== Sparse Merkle Tree Concurrent Benchmark ===")
-	fmt.Printf("CPUs available: %d\n\n", runtime.NumCPU())
+	fmt.Println("=== Sharded LRU Sparse Merkle Tree Benchmark ===")
+	fmt.Printf("CPUs available: %d\n", runtime.NumCPU())
+	fmt.Printf("Cache Shards: 256\n\n")
 
 	tree := NewSparseMerklePatriciaTree(64, 100000)
 
@@ -419,23 +483,22 @@ func main() {
 	fmt.Println("10. Тест масштабируемости чтения (Pure Read)...")
 	threadCounts := []int{1, 2, 4, 8, 16, 32}
 	for _, threads := range threadCounts {
-		if threads > runtime.NumCPU()*2 {
-			break // Нет смысла запускать слишком много горутин
+		if threads > runtime.NumCPU()*4 {
+			break 
 		}
 		runConcurrentReadTest(tree, threads, 2*time.Second, 1_000_000)
 	}
 	fmt.Println()
 
-	// Тест 11: Чтение под нагрузкой записи (Readers vs Writer)
+	// Тест 11: Чтение под нагрузкой записи
 	fmt.Println("11. Тест чтения при активной записи (Readers + 1 Writer)...")
-	// Обновим дерево до 10M для реалистичности
 	fmt.Println("   Adding more accounts up to 2M for this test...")
 	for i := uint64(1_000_000); i < 2_000_000; i++ {
 		tree.Insert(GenerateRandomAccount(i, StatusUser))
 	}
 
 	for _, threads := range threadCounts {
-		if threads > runtime.NumCPU()*2 {
+		if threads > runtime.NumCPU()*4 {
 			break
 		}
 		runConcurrentReadWriteTest(tree, threads, 2*time.Second, 2_000_000)

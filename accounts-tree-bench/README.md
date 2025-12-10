@@ -167,3 +167,61 @@ After updates: Alloc = 1640 MB, HeapAlloc = 1640 MB, HeapObjects = 11138794
    Среднее время на одну модификацию: 0.918 µs
 
 === Тесты завершены ===
+
+
+
+=== Sharded LRU Sparse Merkle Tree Benchmark ===
+CPUs available: 48
+Cache Shards: 256
+
+Preparing data (1M accounts)...
+Data loaded in 2.824311305s
+
+10. Тест масштабируемости чтения (Pure Read)...
+   Readers: 1 | Total Ops: 3988713 | Speed: 1994356 ops/sec (Aggregate)
+   Avg per reader: 1994356 ops/sec
+   Readers: 2 | Total Ops: 4923498 | Speed: 2461749 ops/sec (Aggregate)
+   Avg per reader: 1230874 ops/sec
+   Readers: 4 | Total Ops: 7300738 | Speed: 3650369 ops/sec (Aggregate)
+   Avg per reader: 912592 ops/sec
+   Readers: 8 | Total Ops: 9222789 | Speed: 4611394 ops/sec (Aggregate)
+   Avg per reader: 576424 ops/sec
+   Readers: 16 | Total Ops: 9506169 | Speed: 4753084 ops/sec (Aggregate)
+   Avg per reader: 297068 ops/sec
+   Readers: 32 | Total Ops: 13164236 | Speed: 6582118 ops/sec (Aggregate)
+   Avg per reader: 205691 ops/sec
+
+11. Тест чтения при активной записи (Readers + 1 Writer)...
+   Adding more accounts up to 2M for this test...
+   Readers: 1 + 1 Writer
+   Read Speed:  268626 ops/sec
+   Write Speed: 254010 ops/sec
+   Total Speed: 522636 ops/sec
+   ---
+   Readers: 2 + 1 Writer
+   Read Speed:  410208 ops/sec
+   Write Speed: 184234 ops/sec
+   Total Speed: 594442 ops/sec
+   ---
+   Readers: 4 + 1 Writer
+   Read Speed:  605496 ops/sec
+   Write Speed: 126274 ops/sec
+   Total Speed: 731770 ops/sec
+   ---
+   Readers: 8 + 1 Writer
+   Read Speed:  849362 ops/sec
+   Write Speed: 76395 ops/sec
+   Total Speed: 925758 ops/sec
+   ---
+   Readers: 16 + 1 Writer
+   Read Speed:  1030993 ops/sec
+   Write Speed: 39327 ops/sec
+   Total Speed: 1070320 ops/sec
+   ---
+   Readers: 32 + 1 Writer
+   Read Speed:  1244212 ops/sec
+   Write Speed: 20315 ops/sec
+   Total Speed: 1264528 ops/sec
+   ---
+
+=== Тесты завершены ===
