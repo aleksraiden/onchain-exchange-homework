@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
-//	"testing"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -30,11 +30,11 @@ func (s AccountStatus) String() string {
 
 // Account - структура аккаунта в листе дерева
 type Account struct {
-	UID       uint64        // Уникальный ID
-	Email     [64]byte      // Email (64 байта)
-	Status    AccountStatus // Статус аккаунта
-	PublicKey [32]byte      // Публичный ключ (blake3 хеш)
-	Key       [8]byte       // BigEndian(UID)
+	UID       uint64
+	Email     [64]byte
+	Status    AccountStatus
+	PublicKey [32]byte
+	Key       [8]byte // BigEndian(UID)
 }
 
 // Hash возвращает blake3 хеш аккаунта
@@ -73,7 +73,7 @@ type LRUCache struct {
 	cache    map[uint64]*cacheEntry
 	head     *cacheEntry
 	tail     *cacheEntry
-	mu       sync.RWMutex
+	mu       sync.Mutex // Используем Mutex для кеша (быстрее RWMutex на мелких операциях)
 }
 
 type cacheEntry struct {
@@ -83,7 +83,6 @@ type cacheEntry struct {
 	next  *cacheEntry
 }
 
-// NewLRUCache создает новый LRU кеш
 func NewLRUCache(capacity int) *LRUCache {
 	return &LRUCache{
 		capacity: capacity,
@@ -91,7 +90,6 @@ func NewLRUCache(capacity int) *LRUCache {
 	}
 }
 
-// Get получает значение из кеша
 func (lru *LRUCache) Get(key uint64) (*Account, bool) {
 	lru.mu.Lock()
 	defer lru.mu.Unlock()
@@ -102,7 +100,6 @@ func (lru *LRUCache) Get(key uint64) (*Account, bool) {
 	return nil, false
 }
 
-// Put добавляет значение в кеш
 func (lru *LRUCache) Put(key uint64, value *Account) {
 	lru.mu.Lock()
 	defer lru.mu.Unlock()
@@ -165,7 +162,7 @@ func NewSparseMerklePatriciaTree(leafArity int, cacheSize int) *SparseMerklePatr
 	if leafArity == 0 {
 		leafArity = 64
 	}
-	maxDepth := 3 // Для ~11M аккаунтов
+	maxDepth := 3
 	return &SparseMerklePatriciaTree{
 		Root:      &Node{Children: make(map[uint8]*Node)},
 		Accounts:  make(map[uint64]*Account),
@@ -215,27 +212,24 @@ func (tree *SparseMerklePatriciaTree) insertNode(node *Node, account *Account, d
 
 // Get получает аккаунт по UID
 func (tree *SparseMerklePatriciaTree) Get(uid uint64) (*Account, bool) {
+	// 1. Быстрый путь: LRU кеш
 	if acc, ok := tree.Cache.Get(uid); ok {
 		return acc, true
 	}
+
+	// 2. Медленный путь: RLock дерева
 	tree.mu.RLock()
-	defer tree.mu.RUnlock()
-	if acc, ok := tree.Accounts[uid]; ok {
+	// Важно: RUnlock нельзя делать defer, если мы хотим обновить кеш ПОСЛЕ чтения
+	// Но для простоты оставим defer, а Put в кеш сделаем после, это безопасно
+	// так как кеш имеет свой мьютекс.
+	acc, ok := tree.Accounts[uid]
+	tree.mu.RUnlock()
+
+	if ok {
 		tree.Cache.Put(uid, acc)
 		return acc, true
 	}
 	return nil, false
-}
-
-// GetBatch получает несколько аккаунтов
-func (tree *SparseMerklePatriciaTree) GetBatch(uids []uint64) []*Account {
-	result := make([]*Account, 0, len(uids))
-	for _, uid := range uids {
-		if acc, ok := tree.Get(uid); ok {
-			result = append(result, acc)
-		}
-	}
-	return result
 }
 
 // ComputeRoot вычисляет корневой хеш
@@ -257,6 +251,7 @@ func (tree *SparseMerklePatriciaTree) computeNodeHash(node *Node) [32]byte {
 	for k := range node.Children {
 		keys = append(keys, k)
 	}
+	// Сортировка для детерминизма
 	for i := 1; i < len(keys); i++ {
 		key := keys[i]
 		j := i - 1
@@ -277,7 +272,6 @@ func (tree *SparseMerklePatriciaTree) computeNodeHash(node *Node) [32]byte {
 	return result
 }
 
-// GenerateRandomAccount создает случайный аккаунт
 func GenerateRandomAccount(uid uint64, status AccountStatus) *Account {
 	acc := &Account{UID: uid, Status: status}
 	binary.BigEndian.PutUint64(acc.Key[:], uid)
@@ -286,7 +280,6 @@ func GenerateRandomAccount(uid uint64, status AccountStatus) *Account {
 	return acc
 }
 
-// EstimateMemory оценивает память дерева
 func (tree *SparseMerklePatriciaTree) EstimateMemory() uintptr {
 	tree.mu.RLock()
 	defer tree.mu.RUnlock()
@@ -309,136 +302,145 @@ func (tree *SparseMerklePatriciaTree) EstimateMemory() uintptr {
 	}
 	walk(tree.Root)
 	size += unsafe.Sizeof(*tree.Cache)
-	for _, e := range tree.Cache.cache {
-		size += unsafe.Sizeof(*e)
-	}
 	return size
 }
 
-// printMemUsage печатает статистику памяти
-func printMemUsage(prefix string) {
-	var m runtime.MemStats
-	runtime.GC()
-	runtime.ReadMemStats(&m)
-	fmt.Printf("%s: Alloc = %v MB, HeapAlloc = %v MB, HeapObjects = %v\n",
-		prefix, m.Alloc/1024/1024, m.HeapAlloc/1024/1024, m.HeapObjects)
+// ================= TEST HELPERS =================
+
+func runConcurrentReadTest(tree *SparseMerklePatriciaTree, numReaders int, duration time.Duration, totalAccounts uint64) {
+	var ops atomic.Uint64
+	done := make(chan struct{})
+
+	// Запускаем читателей
+	for i := 0; i < numReaders; i++ {
+		go func() {
+			for {
+				select {
+				case <-done:
+					return
+				default:
+					// Читаем случайный аккаунт
+					// Используем простой генератор псевдослучайных чисел для скорости теста
+					// (в реальном коде rand.Intn, тут простая арифметика с atomic тоже ок, но лучше локальный rand)
+					// Чтобы не блокироваться на глобальном rand lock, используем время или простой счетчик
+					// Для теста просто возьмем i и ops.
+
+					// Симуляция random access:
+					// В реальном бенчмарке лучше использовать PCG или SplitMix локально,
+					// но для простоты возьмем простое хеширование текущего времени
+					uid := uint64(time.Now().UnixNano()) % totalAccounts
+					tree.Get(uid)
+					ops.Add(1)
+				}
+			}
+		}()
+	}
+
+	time.Sleep(duration)
+	close(done)
+
+	totalOps := ops.Load()
+	opsPerSec := float64(totalOps) / duration.Seconds()
+	fmt.Printf("   Readers: %d | Total Ops: %d | Speed: %.0f ops/sec (Aggregate)\n", 
+		numReaders, totalOps, opsPerSec)
+	fmt.Printf("   Avg per reader: %.0f ops/sec\n", opsPerSec/float64(numReaders))
 }
 
-// Бенчмарки (без изменений)
+func runConcurrentReadWriteTest(tree *SparseMerklePatriciaTree, numReaders int, duration time.Duration, totalAccounts uint64) {
+	var readOps atomic.Uint64
+	var writeOps atomic.Uint64
+	done := make(chan struct{})
+
+	// Писатель (1 поток)
+	go func() {
+		for {
+			select {
+			case <-done:
+				return
+			default:
+				// Обновляем существующий
+				uid := uint64(time.Now().UnixNano()) % totalAccounts
+				tree.Insert(GenerateRandomAccount(uid, StatusAlgo))
+				writeOps.Add(1)
+				// Небольшая пауза чтобы не забивать Lock на 100% (симуляция реальной работы движка)
+				time.Sleep(10 * time.Microsecond)
+			}
+		}
+	}()
+
+	// Читатели
+	for i := 0; i < numReaders; i++ {
+		go func() {
+			for {
+				select {
+				case <-done:
+					return
+				default:
+					uid := uint64(time.Now().UnixNano()) % totalAccounts
+					tree.Get(uid)
+					readOps.Add(1)
+				}
+			}
+		}()
+	}
+
+	time.Sleep(duration)
+	close(done)
+
+	rOps := readOps.Load()
+	wOps := writeOps.Load()
+
+	fmt.Printf("   Readers: %d + 1 Writer\n", numReaders)
+	fmt.Printf("   Read Speed:  %.0f ops/sec\n", float64(rOps)/duration.Seconds())
+	fmt.Printf("   Write Speed: %.0f ops/sec\n", float64(wOps)/duration.Seconds())
+	fmt.Printf("   Total Speed: %.0f ops/sec\n", float64(rOps+wOps)/duration.Seconds())
+}
+
+// ================= MAIN =================
 
 func main() {
-	fmt.Println("=== Sparse Merkle Tree Benchmark (BigEndian UID key) ===")
-	fmt.Println()
+	// Устанавливаем GOMAXPROCS для использования всех ядер
+	runtime.GOMAXPROCS(runtime.NumCPU())
+
+	fmt.Println("=== Sparse Merkle Tree Concurrent Benchmark ===")
+	fmt.Printf("CPUs available: %d\n\n", runtime.NumCPU())
 
 	tree := NewSparseMerklePatriciaTree(64, 100000)
 
-	printMemUsage("Before fill")
-
-	// 1-2. Генерация аккаунтов
-	fmt.Println("1. Генерация 1M системных аккаунтов...")
+	// 1. Подготовка данных
+	fmt.Println("Preparing data (1M accounts)...")
 	start := time.Now()
 	for i := uint64(0); i < 1_000_000; i++ {
-		tree.Insert(GenerateRandomAccount(i, StatusSystem))
+		tree.Insert(GenerateRandomAccount(i, StatusUser))
 	}
-	fmt.Printf("   Время: %v\n", time.Since(start))
-	printMemUsage("After 1M system")
+	fmt.Printf("Data loaded in %v\n\n", time.Since(start))
 
-	fmt.Println("2. Генерация 10M случайных пользователей...")
-	start = time.Now()
-	for i := uint64(1_000_000); i < 11_000_000; i++ {
-		tree.Insert(GenerateRandomAccount(i, []AccountStatus{StatusUser, StatusMM, StatusAlgo, StatusBlocked}[i%4]))
-	}
-	fmt.Printf("   Время: %v\n", time.Since(start))
-	fmt.Printf("   Всего аккаунтов: %d\n", len(tree.Accounts))
-	printMemUsage("After 11M total")
-	fmt.Printf("   Оценка памяти по структурам: %.2f MB\n", float64(tree.EstimateMemory())/1024.0/1024.0)
-	
-	// 3-5. Тесты хеширования и обновлений
-	fmt.Println("\n3. Вычисление root hash...")
-	start = time.Now()
-	rootHash := tree.ComputeRoot()
-	fmt.Printf("   Root Hash: %x\n   Время: %v\n", rootHash[:16], time.Since(start))
-
-	fmt.Println("\n4. Обновление 1000 случайных аккаунтов...")
-	start = time.Now()
-	for i := 0; i < 1000; i++ {
-		tree.Insert(GenerateRandomAccount(uint64(i*11000), StatusAlgo))
-	}
-	rootHash = tree.ComputeRoot()
-	fmt.Printf("   Новый Root Hash: %x\n   Время (обновление + пересчет): %v\n", rootHash[:16], time.Since(start))
-
-	fmt.Println("\n5. Обновление 1000 + добавление 5000 новых...")
-	start = time.Now()
-	for i := 0; i < 1000; i++ {
-		tree.Insert(GenerateRandomAccount(uint64(i*10000), StatusMM))
-	}
-	baseUIDAfterBulk := uint64(11_000_000)
-	for i := uint64(0); i < 5000; i++ {
-		tree.Insert(GenerateRandomAccount(baseUIDAfterBulk+i, StatusUser))
-	}
-	rootHash = tree.ComputeRoot()
-	fmt.Printf("   Новый Root Hash: %x\n   Время: %v\n   Всего аккаунтов: %d\n", rootHash[:16], time.Since(start), len(tree.Accounts))
-	printMemUsage("After updates")
-
-	// 6. Тест одиночного чтения
-	fmt.Println("\n6. Тест получения случайного аккаунта (1M операций)...")
-	start = time.Now()
-	const singleReads = 1_000_000
-	for i := 0; i < singleReads; i++ {
-		_, _ = tree.Get(uint64(i % 11_005_000))
-	}
-	elapsed := time.Since(start)
-	avgUs := float64(elapsed.Nanoseconds()) / float64(singleReads) / 1000.0
-	fmt.Printf("   Время: %v\n   Скорость: %.0f ops/sec\n   Среднее на чтение: %.3f µs\n",
-		elapsed, float64(singleReads)/elapsed.Seconds(), avgUs)
-
-	// 7. Тест батч-чтения
-	fmt.Println("\n7. Тест батч чтения...")
-	for _, size := range []int{16, 32, 64, 128} {
-		start = time.Now()
-		const iterations = 10_000
-		for i := 0; i < iterations; i++ {
-			uids := make([]uint64, size)
-			for j := 0; j < size; j++ {
-				uids[j] = uint64((i*size + j) % 11_005_000)
-			}
-			_ = tree.GetBatch(uids)
+	// Тест 10: Многопоточное чтение (Pure Read Scalability)
+	fmt.Println("10. Тест масштабируемости чтения (Pure Read)...")
+	threadCounts := []int{1, 2, 4, 8, 16, 32}
+	for _, threads := range threadCounts {
+		if threads > runtime.NumCPU()*2 {
+			break // Нет смысла запускать слишком много горутин
 		}
-		elapsed := time.Since(start)
-		totalOps := iterations * size
-		avgUsPerAcc := float64(elapsed.Nanoseconds()) / float64(totalOps) / 1000.0
-		fmt.Printf("   Batch %d: %v (%.0f ops/sec), среднее на аккаунт: %.3f µs\n",
-			size, elapsed, float64(totalOps)/elapsed.Seconds(), avgUsPerAcc)
+		runConcurrentReadTest(tree, threads, 2*time.Second, 1_000_000)
+	}
+	fmt.Println()
+
+	// Тест 11: Чтение под нагрузкой записи (Readers vs Writer)
+	fmt.Println("11. Тест чтения при активной записи (Readers + 1 Writer)...")
+	// Обновим дерево до 10M для реалистичности
+	fmt.Println("   Adding more accounts up to 2M for this test...")
+	for i := uint64(1_000_000); i < 2_000_000; i++ {
+		tree.Insert(GenerateRandomAccount(i, StatusUser))
 	}
 
-	// 8. НОВЫЙ ТЕСТ: Среднее время вставки нового аккаунта
-	fmt.Println("\n8. Тест вставки одного нового аккаунта (10k операций)...")
-	const newInsertions = 10_000
-	var totalInsertTime time.Duration
-	baseUIDForNew := uint64(len(tree.Accounts))
-	for i := 0; i < newInsertions; i++ {
-		newAcc := GenerateRandomAccount(baseUIDForNew+uint64(i), StatusUser)
-		start = time.Now()
-		tree.Insert(newAcc)
-		totalInsertTime += time.Since(start)
+	for _, threads := range threadCounts {
+		if threads > runtime.NumCPU()*2 {
+			break
+		}
+		runConcurrentReadWriteTest(tree, threads, 2*time.Second, 2_000_000)
+		fmt.Println("   ---")
 	}
-	avgInsertUs := float64(totalInsertTime.Nanoseconds()) / float64(newInsertions) / 1000.0
-	fmt.Printf("   Всего аккаунтов после вставки: %d\n", len(tree.Accounts))
-	fmt.Printf("   Среднее время на одну вставку: %.3f µs\n", avgInsertUs)
 
-	// 9. НОВЫЙ ТЕСТ: Среднее время модификации существующего аккаунта
-	fmt.Println("\n9. Тест модификации одного существующего аккаунта (10k операций)...")
-	const modifications = 10_000
-	var totalModTime time.Duration
-	for i := 0; i < modifications; i++ {
-		modUID := uint64((i * 1000) % 11_000_000)
-		modAcc := GenerateRandomAccount(modUID, StatusBlocked)
-		start = time.Now()
-		tree.Insert(modAcc) // Insert на существующий UID = модификация
-		totalModTime += time.Since(start)
-	}
-	avgModUs := float64(totalModTime.Nanoseconds()) / float64(modifications) / 1000.0
-	fmt.Printf("   Среднее время на одну модификацию: %.3f µs\n", avgModUs)
-	
 	fmt.Println("\n=== Тесты завершены ===")
 }
