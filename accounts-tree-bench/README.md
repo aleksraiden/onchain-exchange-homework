@@ -247,3 +247,48 @@ CPUs: 48 | Leaf Arity: 64 | Shards: 256
 
 4. Final Root Computation...
    Root: 230cb4e6f3051e26af4a889c56a2115f | Time: 64.602µs
+   
+   
+   
+ОТКЛЮЧИВ КЕШ
+
+
+=== Fine-Grained Locking Merkle Tree Benchmark ===
+CPUs: 48 | Leaf Arity: 64 | Shards: 256
+1. Filling 2M accounts...
+   Time: 2.831719357s
+
+2. Test: Read Random Counter (Pure Read)...
+   Readers: 1 | Speed: 2101478 ops/sec
+   Readers: 4 | Speed: 1938616 ops/sec
+   Readers: 16 | Speed: 2401784 ops/sec
+   Readers: 32 | Speed: 4391580 ops/sec
+
+3. Test: Mixed Load (70% Read Counter, 30% Increment)...
+   Workers: 1 (70% R, 30% W) | Speed: 1396367 ops/sec
+   Workers: 4 (70% R, 30% W) | Speed: 866484 ops/sec
+   Workers: 16 (70% R, 30% W) | Speed: 869985 ops/sec
+   Workers: 32 (70% R, 30% W) | Speed: 502823 ops/sec
+
+4. Final Root Computation...
+   Root: 65ec255fae34c1dc0fb9b03684db0361 | Time: 24.114µs
+alex@Ubuntu-2404-noble-amd64-base:~/bench/accounts-tree-bench$ go run counters_bench.go
+=== Fine-Grained Locking Merkle Tree Benchmark ===
+CPUs: 48 | Leaf Arity: 64 | Shards: 256
+1. Filling 2M accounts...
+   Time: 2.090428187s
+
+2. Test: Read Random Counter (Pure Read)...
+   Readers: 1 | Speed: 8242122 ops/sec
+   Readers: 4 | Speed: 4288247 ops/sec
+   Readers: 16 | Speed: 4939030 ops/sec
+   Readers: 32 | Speed: 6094888 ops/sec
+
+3. Test: Mixed Load (70% Read Counter, 30% Increment)...
+   Workers: 1 (70% R, 30% W) | Speed: 2512750 ops/sec
+   Workers: 4 (70% R, 30% W) | Speed: 1948904 ops/sec
+   Workers: 16 (70% R, 30% W) | Speed: 2019582 ops/sec
+   Workers: 32 (70% R, 30% W) | Speed: 1745096 ops/sec
+
+4. Final Root Computation...
+   Root: 65ec255fae34c1dc0fb9b03684db0361 | Time: 24.832µs

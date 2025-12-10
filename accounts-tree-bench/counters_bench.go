@@ -232,7 +232,7 @@ func (tree *SparseMerklePatriciaTree) Insert(userData *UserData) {
 
 	tree.ShardLocks[shardIdx].Unlock()
 
-	tree.Cache.Put(userData.UID, userData)
+//TEST	tree.Cache.Put(userData.UID, userData)
 }
 
 func (tree *SparseMerklePatriciaTree) insertNode(node *Node, userData *UserData, depth int) {
@@ -299,7 +299,7 @@ func (tree *SparseMerklePatriciaTree) updateNodeHash(node *Node) {
 
 // Get теперь тоже использует ShardLocks
 func (tree *SparseMerklePatriciaTree) Get(uid uint64) (*UserData, bool) {
-	if acc, ok := tree.Cache.Get(uid); ok { return acc, true }
+//TEST	if acc, ok := tree.Cache.Get(uid); ok { return acc, true }
 
 	// Получаем ключ для определения шарда
 	var key [8]byte
@@ -336,7 +336,7 @@ func (tree *SparseMerklePatriciaTree) Get(uid uint64) (*UserData, bool) {
 	tree.ShardLocks[shardIdx].RUnlock()
 
 	if userData != nil {
-		tree.Cache.Put(uid, userData)
+//TEST		tree.Cache.Put(uid, userData)
 		return userData, true
 	}
 	return nil, false
