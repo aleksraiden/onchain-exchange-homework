@@ -225,3 +225,25 @@ Data loaded in 2.824311305s
    ---
 
 === Тесты завершены ===
+
+Тест дерева nonce:
+
+=== Nonce Counters Merkle Tree Benchmark ===
+CPUs: 48 | Leaf Arity: 64 | Shards: 256
+1. Filling 10M accounts with counters...
+   Time: 14.110373041s
+
+2. Test: Read Random Counter (Pure Read)...
+   Readers: 1 | Speed: 1980980 ops/sec
+   Readers: 4 | Speed: 3663832 ops/sec
+   Readers: 16 | Speed: 4351594 ops/sec
+   Readers: 32 | Speed: 6144588 ops/sec
+
+3. Test: Mixed Load (70% Read Counter, 30% Increment)...
+   Workers: 1 (70% R, 30% W) | Speed: 1502503 ops/sec
+   Workers: 4 (70% R, 30% W) | Speed: 967884 ops/sec
+   Workers: 16 (70% R, 30% W) | Speed: 943640 ops/sec
+   Workers: 32 (70% R, 30% W) | Speed: 777340 ops/sec
+
+4. Final Root Computation...
+   Root: 230cb4e6f3051e26af4a889c56a2115f | Time: 64.602µs
