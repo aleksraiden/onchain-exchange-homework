@@ -238,10 +238,10 @@ flush_throttle_timeout = "10ms"
 max_packet_msg_payload_size = 1024
 
 # Rate at which packets can be sent, in bytes/second
-send_rate = 51200000
+send_rate = 512000000
 
 # Rate at which packets can be received, in bytes/second
-recv_rate = 51200000
+recv_rate = 512000000
 
 # Set true to enable the peer-exchange reactor
 pex = true
@@ -322,7 +322,7 @@ broadcast = true
 wal_dir = ""
 
 # Maximum number of transactions in the mempool
-size = 5000
+size = 150000
 
 # Limit the total size of all txs in the mempool.
 # This only accounts for raw transactions (e.g. given 1MB transactions and
@@ -330,7 +330,7 @@ size = 5000
 max_txs_bytes = 1073741824
 
 # Size of the cache (used to filter transactions we saw earlier) in transactions
-cache_size = 10000
+cache_size = 25000
 
 # Do not remove invalid transactions from the cache (default: false)
 # Set to true if it's not possible for any invalid transaction to become valid
@@ -358,7 +358,7 @@ max_batch_bytes = 0
 # number of active connections to that group of peers is not bounded.
 # For non-persistent peers, if enabled, a value of 10 is recommended based on experimental
 # performance results using the default P2P configuration.
-experimental_max_gossip_connections_to_persistent_peers = 0
+experimental_max_gossip_connections_to_persistent_peers = 2
 experimental_max_gossip_connections_to_non_persistent_peers = 0
 
 #######################################################
@@ -441,7 +441,7 @@ timeout_commit = "100ms"
 double_sign_check_height = 0
 
 # Make progress as soon as we have all the precommits (as if TimeoutCommit = 0)
-skip_timeout_commit = true
+#skip_timeout_commit = true
 
 # EmptyBlocks mode and possible interval between empty blocks
 create_empty_blocks = true
