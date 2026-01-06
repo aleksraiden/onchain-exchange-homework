@@ -279,3 +279,35 @@ func BenchmarkFullBuild_100K(b *testing.B) {
 		}
 	}
 }
+
+// BenchmarkParallelGet проверяет масштабируемость чтения в несколько потоков
+func BenchmarkParallelGet(b *testing.B) {
+	count := 100_000
+	store := NewMemoryStore()
+	// Создаем SMT с большим кэшем, чтобы работать из памяти
+	smt := NewSMT(store, 100000) 
+	keys := make([][]byte, count)
+	val := []byte("data")
+	
+	// Подготовка данных
+	for i := 0; i < count; i++ {
+		keys[i] = randomKey()
+		smt.Update(keys[i], val)
+	}
+
+	b.ResetTimer()
+	
+	// Запускаем параллельные горутины
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0
+		for pb.Next() {
+			// Читаем случайные ключи по кругу
+			key := keys[i % count]
+			_, err := smt.Get(key)
+			if err != nil {
+				b.Fatal(err)
+			}
+			i++
+		}
+	})
+}

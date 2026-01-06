@@ -11,19 +11,20 @@ import (
 const (
 	HashSize = 32
 	KeySize  = 32
+	// Количество шардов для кэша (2^8 = 256).
+	// Используем первый байт ключа для маршрутизации.
+	ShardCount = 256
 )
 
-// Типы узлов для сериализации
+// Типы узлов
 const (
 	NodeTypeInternal = 0
 	NodeTypeLeaf     = 1
 )
 
 var (
-	// EmptyHash - хеш пустого узла (нули)
 	EmptyHash = make([]byte, HashSize)
-	
-	// ОПТИМИЗАЦИЯ 1: Пул хешеров для переиспользования
+
 	hasherPool = sync.Pool{
 		New: func() interface{} {
 			return blake3.New()
@@ -31,25 +32,23 @@ var (
 	}
 )
 
-// Store - интерфейс для хранения узлов
-type Store interface {
-	Get(key []byte) ([]byte, error)
-	Set(key, value []byte) error
-	Delete(key []byte) error
-}
-
-// --- Helper для конвертации ---
-// Превращает срез в массив без аллокации (копирование на стеке)
 func toArray(b []byte) [32]byte {
 	var a [32]byte
 	copy(a[:], b)
 	return a
 }
 
-// MemoryStore - простая реализация хранилища в памяти
+// --- Store ---
+
+type Store interface {
+	Get(key []byte) ([]byte, error)
+	Set(key, value []byte) error
+	Delete(key []byte) error
+}
+
 type MemoryStore struct {
 	sync.RWMutex
-	data map[[32]byte][]byte // Изменено с string на [32]byte
+	data map[[32]byte][]byte
 }
 
 func NewMemoryStore() *MemoryStore {
@@ -59,7 +58,6 @@ func NewMemoryStore() *MemoryStore {
 func (m *MemoryStore) Get(k []byte) ([]byte, error) {
 	m.RLock()
 	defer m.RUnlock()
-	// toArray не вызывает аллокации в куче
 	if v, ok := m.data[toArray(k)]; ok {
 		return v, nil
 	}
@@ -80,10 +78,8 @@ func (m *MemoryStore) Delete(k []byte) error {
 	return nil
 }
 
-// --- LRU Cache Optimized (Custom List + Pool) ---
+// --- Sharded LRU Cache ---
 
-// lruNode - узел двусвязного списка.
-// Мы не используем container/list, чтобы иметь строгую типизацию и переиспользовать узлы.
 type lruNode struct {
 	key   [32]byte
 	value []byte
@@ -91,77 +87,96 @@ type lruNode struct {
 	next  *lruNode
 }
 
-// Пул для узлов списка кэша, чтобы снизить нагрузку на GC
 var lruNodePool = sync.Pool{
 	New: func() interface{} {
 		return &lruNode{}
 	},
 }
 
-type NodeCache struct {
+// cacheShard - это отдельный независимый LRU кэш со своим мьютексом
+type cacheShard struct {
 	capacity int
 	items    map[[32]byte]*lruNode
-	head     *lruNode // MRU (Most Recently Used)
-	tail     *lruNode // LRU (Least Recently Used)
+	head     *lruNode
+	tail     *lruNode
 	lock     sync.Mutex
 }
 
-func NewNodeCache(capacity int) *NodeCache {
-	return &NodeCache{
+func newCacheShard(capacity int) *cacheShard {
+	return &cacheShard{
 		capacity: capacity,
 		items:    make(map[[32]byte]*lruNode, capacity),
 	}
 }
 
-func (c *NodeCache) Get(key []byte) ([]byte, bool) {
-	c.lock.Lock()
-	defer c.lock.Unlock()
+// ShardedNodeCache - обертка, содержащая 256 шардов
+type ShardedNodeCache struct {
+	shards [ShardCount]*cacheShard
+}
 
+func NewShardedNodeCache(totalCapacity int) *ShardedNodeCache {
+	sc := &ShardedNodeCache{}
+	// Распределяем общую емкость поровну между шардами
+	shardCap := totalCapacity / ShardCount
+	if shardCap < 1 {
+		shardCap = 1
+	}
+	for i := 0; i < ShardCount; i++ {
+		sc.shards[i] = newCacheShard(shardCap)
+	}
+	return sc
+}
+
+// Get выбирает шард по первому байту ключа
+func (sc *ShardedNodeCache) Get(key []byte) ([]byte, bool) {
+	// key[0] работает как идеальный балансировщик для криптографических хешей
+	shard := sc.shards[key[0]]
+	
+	shard.lock.Lock()
+	defer shard.lock.Unlock()
+
+	// Внутри шарда логика старая (toArray делаем тут, чтобы не делать снаружи)
 	k := toArray(key)
-	if node, ok := c.items[k]; ok {
-		c.moveToFront(node)
+	if node, ok := shard.items[k]; ok {
+		shard.moveToFront(node)
 		return node.value, true
 	}
 	return nil, false
 }
 
-func (c *NodeCache) Add(key, value []byte) {
-	c.lock.Lock()
-	defer c.lock.Unlock()
+func (sc *ShardedNodeCache) Add(key, value []byte) {
+	shard := sc.shards[key[0]]
+	
+	shard.lock.Lock()
+	defer shard.lock.Unlock()
 
 	k := toArray(key)
 
-	// Если элемент уже есть, обновляем значение и двигаем вперед
-	if node, ok := c.items[k]; ok {
+	if node, ok := shard.items[k]; ok {
 		node.value = value
-		c.moveToFront(node)
+		shard.moveToFront(node)
 		return
 	}
 
-	// Если кэш полон, удаляем хвост (LRU)
-	if len(c.items) >= c.capacity {
-		c.removeTail()
+	if len(shard.items) >= shard.capacity {
+		shard.removeTail()
 	}
 
-	// Создаем новый узел (берем из пула)
 	node := lruNodePool.Get().(*lruNode)
 	node.key = k
 	node.value = value
 	node.prev = nil
 	node.next = nil
 
-	c.items[k] = node
-	c.addToFront(node)
+	shard.items[k] = node
+	shard.addToFront(node)
 }
 
-// --- Внутренние методы управления списком ---
-
-func (c *NodeCache) moveToFront(node *lruNode) {
+// Внутренние методы шарда (без блокировок, т.к. вызываются под локом шарда)
+func (c *cacheShard) moveToFront(node *lruNode) {
 	if c.head == node {
 		return
 	}
-
-	// Удаляем из текущей позиции
 	if node.prev != nil {
 		node.prev.next = node.next
 	}
@@ -171,8 +186,6 @@ func (c *NodeCache) moveToFront(node *lruNode) {
 	if node == c.tail && node.prev != nil {
 		c.tail = node.prev
 	}
-
-	// Вставляем в голову
 	node.next = c.head
 	node.prev = nil
 	if c.head != nil {
@@ -184,7 +197,7 @@ func (c *NodeCache) moveToFront(node *lruNode) {
 	}
 }
 
-func (c *NodeCache) addToFront(node *lruNode) {
+func (c *cacheShard) addToFront(node *lruNode) {
 	if c.head == nil {
 		c.head = node
 		c.tail = node
@@ -196,52 +209,43 @@ func (c *NodeCache) addToFront(node *lruNode) {
 	c.head = node
 }
 
-func (c *NodeCache) removeTail() {
+func (c *cacheShard) removeTail() {
 	if c.tail == nil {
 		return
 	}
-	
 	oldTail := c.tail
-	
-	// Удаляем из map
 	delete(c.items, oldTail.key)
 
-	// Обновляем список
 	if c.tail.prev != nil {
 		c.tail = c.tail.prev
 		c.tail.next = nil
 	} else {
-		// Список стал пустым
 		c.head = nil
 		c.tail = nil
 	}
 
-	// Очищаем и возвращаем узел в пул
 	oldTail.prev = nil
 	oldTail.next = nil
-	oldTail.value = nil // Важно занулить ссылки, чтобы GC мог собрать данные (value)
+	oldTail.value = nil
 	lruNodePool.Put(oldTail)
-} 
+}
 
 // --- SMT Implementation ---
 
 type SMT struct {
 	store Store
-	cache *NodeCache
+	cache *ShardedNodeCache // Используем шардированный кэш
 	root  []byte
 	lock  sync.RWMutex
 }
 
-// NewSMT создает новое дерево.
-// cacheSize <= 0 отключает кэширование.
-// cacheSize > 0 включает LRU кэш указанного размера.
 func NewSMT(store Store, cacheSize int) *SMT {
 	s := &SMT{
 		store: store,
 		root:  EmptyHash,
 	}
 	if cacheSize > 0 {
-		s.cache = NewNodeCache(cacheSize)
+		s.cache = NewShardedNodeCache(cacheSize)
 	}
 	return s
 }
@@ -312,19 +316,16 @@ func (s *SMT) update(root []byte, key, value []byte, depth int) ([]byte, error) 
 
 	if data[0] == NodeTypeLeaf {
 		storedKey := data[1 : 1+KeySize]
-		
 		if bytes.Equal(storedKey, key) {
 			if value == nil {
 				return EmptyHash, nil
 			}
 			return s.storeLeaf(key, value)
 		}
-
 		storedValue := data[1+KeySize:]
 		if value == nil {
 			return root, nil
 		}
-
 		return s.splitAndInsert(storedKey, storedValue, key, value, depth)
 	}
 
@@ -344,7 +345,6 @@ func (s *SMT) update(root []byte, key, value []byte, depth int) ([]byte, error) 
 		newRight = rightHash
 	}
 
-	// Optimization: Move Up Shortcut
 	if bytes.Equal(newLeft, EmptyHash) && !bytes.Equal(newRight, EmptyHash) {
 		rightNode, err := s.loadNode(newRight)
 		if err == nil && rightNode[0] == NodeTypeLeaf {
@@ -375,7 +375,6 @@ func (s *SMT) splitAndInsert(key1, val1, key2, val2 []byte, depth int) ([]byte, 
 	if bit1 == bit2 {
 		subNode, err := s.splitAndInsert(key1, val1, key2, val2, depth+1)
 		if err != nil { return nil, err }
-		
 		if bit1 {
 			left, right = EmptyHash, subNode
 		} else {
@@ -386,18 +385,14 @@ func (s *SMT) splitAndInsert(key1, val1, key2, val2 []byte, depth int) ([]byte, 
 		if err != nil { return nil, err }
 		node2, err := s.storeLeaf(key2, val2)
 		if err != nil { return nil, err }
-
 		if bit1 {
 			left, right = node2, node1
 		} else {
 			left, right = node1, node2
 		}
 	}
-
 	return s.storeInternal(left, right)
 }
-
-// Helpers
 
 func (s *SMT) loadNode(hash []byte) ([]byte, error) {
 	if s.cache != nil {
@@ -405,12 +400,10 @@ func (s *SMT) loadNode(hash []byte) ([]byte, error) {
 			return val, nil
 		}
 	}
-	
 	val, err := s.store.Get(hash)
 	if err != nil {
 		return nil, err
 	}
-
 	if s.cache != nil {
 		s.cache.Add(hash, val)
 	}
@@ -422,16 +415,14 @@ func (s *SMT) storeLeaf(key, value []byte) ([]byte, error) {
 	data[0] = NodeTypeLeaf
 	copy(data[1:], key)
 	copy(data[1+KeySize:], value)
-	
+
 	h := hash(data)
-	
 	if err := s.store.Set(h, data); err != nil {
 		return nil, err
 	}
 	if s.cache != nil {
 		s.cache.Add(h, data)
 	}
-	
 	return h, nil
 }
 
@@ -442,14 +433,12 @@ func (s *SMT) storeInternal(left, right []byte) ([]byte, error) {
 	copy(data[1+HashSize:], right)
 
 	h := hash(data)
-	
 	if err := s.store.Set(h, data); err != nil {
 		return nil, err
 	}
 	if s.cache != nil {
 		s.cache.Add(h, data)
 	}
-
 	return h, nil
 }
 
@@ -459,20 +448,12 @@ func bitIsSet(key []byte, idx int) bool {
 	return (key[byteIdx]>>bitIdx)&1 == 1
 }
 
-// hash - ОПТИМИЗИРОВАННАЯ ВЕРСИЯ С sync.Pool
 func hash(data ...[]byte) []byte {
-	// 1. Берем хешер из пула (без аллокации структуры)
 	hasher := hasherPool.Get().(*blake3.Hasher)
-	// 2. Обязательно возвращаем обратно
 	defer hasherPool.Put(hasher)
-	
-	// 3. Сбрасываем состояние хешера (обязательно при переиспользовании)
 	hasher.Reset()
-	
 	for _, d := range data {
 		hasher.Write(d)
 	}
-	
-	// 4. Возвращаем хеш
 	return hasher.Sum(nil)
 }
