@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"container/list"
 	"errors"
 	"sync"
 
@@ -24,7 +25,7 @@ var (
 	EmptyHash = make([]byte, HashSize)
 )
 
-// Store - интерфейс для хранения узлов (в памяти или БД)
+// Store - интерфейс для хранения узлов
 type Store interface {
 	Get(key []byte) ([]byte, error)
 	Set(key, value []byte) error
@@ -61,28 +62,94 @@ func (m *MemoryStore) Delete(k []byte) error {
 	return nil
 }
 
-// SMT - Sparse Merkle Trie с оптимизацией shortcuts
+// --- LRU Cache ---
+
+type cacheEntry struct {
+	key   string
+	value []byte
+}
+
+type NodeCache struct {
+	capacity int
+	list     *list.List
+	items    map[string]*list.Element
+	lock     sync.Mutex
+}
+
+func NewNodeCache(capacity int) *NodeCache {
+	return &NodeCache{
+		capacity: capacity,
+		list:     list.New(),
+		items:    make(map[string]*list.Element),
+	}
+}
+
+func (c *NodeCache) Get(key []byte) ([]byte, bool) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	k := string(key)
+	if elem, ok := c.items[k]; ok {
+		c.list.MoveToFront(elem)
+		return elem.Value.(*cacheEntry).value, true
+	}
+	return nil, false
+}
+
+func (c *NodeCache) Add(key, value []byte) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	k := string(key)
+	
+	if elem, ok := c.items[k]; ok {
+		c.list.MoveToFront(elem)
+		elem.Value.(*cacheEntry).value = value
+		return
+	}
+
+	if c.list.Len() >= c.capacity {
+		oldest := c.list.Back()
+		if oldest != nil {
+			c.list.Remove(oldest)
+			kv := oldest.Value.(*cacheEntry)
+			delete(c.items, kv.key)
+		}
+	}
+
+	elem := c.list.PushFront(&cacheEntry{key: k, value: value})
+	c.items[k] = elem
+}
+
+// --- SMT Implementation ---
+
 type SMT struct {
 	store Store
+	cache *NodeCache // Если nil, кэш отключен
 	root  []byte
 	lock  sync.RWMutex
 }
 
-func NewSMT(store Store) *SMT {
-	return &SMT{
+// NewSMT создает новое дерево.
+// cacheSize <= 0 отключает кэширование.
+// cacheSize > 0 включает LRU кэш указанного размера.
+func NewSMT(store Store, cacheSize int) *SMT {
+	s := &SMT{
 		store: store,
 		root:  EmptyHash,
 	}
+	if cacheSize > 0 {
+		s.cache = NewNodeCache(cacheSize)
+	}
+	return s
 }
 
-// Root возвращает текущий корень
 func (s *SMT) Root() []byte {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 	return s.root
 }
 
-// Get возвращает значение по ключу
 func (s *SMT) Get(key []byte) ([]byte, error) {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
@@ -94,13 +161,12 @@ func (s *SMT) get(root []byte, key []byte, depth int) ([]byte, error) {
 		return nil, errors.New("key not found")
 	}
 
-	data, err := s.store.Get(root)
+	data, err := s.loadNode(root)
 	if err != nil {
 		return nil, err
 	}
 
 	if data[0] == NodeTypeLeaf {
-		// Это Shortcut узел. Проверяем, совпадает ли ключ.
 		storedKey := data[1 : 1+KeySize]
 		if bytes.Equal(storedKey, key) {
 			return data[1+KeySize:], nil
@@ -108,7 +174,6 @@ func (s *SMT) get(root []byte, key []byte, depth int) ([]byte, error) {
 		return nil, errors.New("key not found (shortcut mismatch)")
 	}
 
-	// Internal узел
 	leftHash := data[1 : 1+HashSize]
 	rightHash := data[1+HashSize : 1+HashSize*2]
 
@@ -118,7 +183,6 @@ func (s *SMT) get(root []byte, key []byte, depth int) ([]byte, error) {
 	return s.get(leftHash, key, depth+1)
 }
 
-// Update обновляет или вставляет значение. Если value == nil, удаляет ключ.
 func (s *SMT) Update(key, value []byte) ([]byte, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -131,95 +195,72 @@ func (s *SMT) Update(key, value []byte) ([]byte, error) {
 	return s.root, nil
 }
 
-// update - рекурсивная функция вставки с логикой "Shortcuts"
 func (s *SMT) update(root []byte, key, value []byte, depth int) ([]byte, error) {
-	// 1. Если пришли в пустой узел
 	if bytes.Equal(root, EmptyHash) {
 		if value == nil {
-			return EmptyHash, nil // Удаление несуществующего
+			return EmptyHash, nil
 		}
-		// Создаем новый Shortcut (Leaf) здесь
 		return s.storeLeaf(key, value)
 	}
 
-	// Загружаем текущий узел
-	data, err := s.store.Get(root)
+	data, err := s.loadNode(root)
 	if err != nil {
 		return nil, err
 	}
 
-	// 2. Если текущий узел - Лист (Shortcut)
 	if data[0] == NodeTypeLeaf {
 		storedKey := data[1 : 1+KeySize]
 		
-		// А. Ключи совпадают -> Обновляем значение
 		if bytes.Equal(storedKey, key) {
 			if value == nil {
-				return EmptyHash, nil // Удаляем лист, возвращаем пустоту
+				return EmptyHash, nil
 			}
-			return s.storeLeaf(key, value) // Обновляем данные
+			return s.storeLeaf(key, value)
 		}
 
-		// Б. Ключи разные -> Коллизия shortcut. Нужно "разбить" shortcut.
-		// Мы превращаем текущий лист в ветку и спускаем оба ключа ниже.
-		// Важно: storedValue нам нужно, чтобы перезаписать старый лист ниже.
 		storedValue := data[1+KeySize:]
-		
-		// Если удаляем (value == nil), то мы просто не добавляем новый ключ,
-		// но старый shortcut нам трогать не надо было... стоп.
-		// Если ключи не равны и мы удаляем KEY, то старый ключ STORED_KEY остается как был.
 		if value == nil {
 			return root, nil
 		}
 
-		// Создаем новый внутренний узел, который разделит storedKey и key
 		return s.splitAndInsert(storedKey, storedValue, key, value, depth)
 	}
 
-	// 3. Если текущий узел - Внутренний (Internal)
+	// Internal
 	leftHash := data[1 : 1+HashSize]
 	rightHash := data[1+HashSize : 1+HashSize*2]
 
 	var newLeft, newRight []byte
 
 	if bitIsSet(key, depth) {
-		// Идем направо
 		newRight, err = s.update(rightHash, key, value, depth+1)
 		if err != nil { return nil, err }
 		newLeft = leftHash
 	} else {
-		// Идем налево
 		newLeft, err = s.update(leftHash, key, value, depth+1)
 		if err != nil { return nil, err }
 		newRight = rightHash
 	}
 
-	// OPTIMIZATION: Move Up Shortcut (Collapsing)
-	// Если один ребенок пустой, а второй - Лист, мы можем поднять Лист наверх.
+	// Optimization: Move Up Shortcut
 	if bytes.Equal(newLeft, EmptyHash) && !bytes.Equal(newRight, EmptyHash) {
-		// Проверяем, является ли правый ребенок Листом
-		rightNode, err := s.store.Get(newRight)
+		rightNode, err := s.loadNode(newRight)
 		if err == nil && rightNode[0] == NodeTypeLeaf {
-			return newRight, nil // Поднимаем shortcut наверх!
+			return newRight, nil
 		}
 	} else if bytes.Equal(newRight, EmptyHash) && !bytes.Equal(newLeft, EmptyHash) {
-		// Проверяем, является ли левый ребенок Листом
-		leftNode, err := s.store.Get(newLeft)
+		leftNode, err := s.loadNode(newLeft)
 		if err == nil && leftNode[0] == NodeTypeLeaf {
-			return newLeft, nil // Поднимаем shortcut наверх!
+			return newLeft, nil
 		}
 	} else if bytes.Equal(newLeft, EmptyHash) && bytes.Equal(newRight, EmptyHash) {
-		// Оба пустые -> этот узел тоже становится пустым
 		return EmptyHash, nil
 	}
 
-	// Иначе сохраняем как обычный внутренний узел
 	return s.storeInternal(newLeft, newRight)
 }
 
-// splitAndInsert рекурсивно создает внутренние узлы, пока ключи не разойдутся
 func (s *SMT) splitAndInsert(key1, val1, key2, val2 []byte, depth int) ([]byte, error) {
-	// Если достигли дна (маловероятно с хешами blake3), просто перезаписываем
 	if depth >= KeySize*8 {
 		return s.storeLeaf(key2, val2)
 	}
@@ -230,25 +271,23 @@ func (s *SMT) splitAndInsert(key1, val1, key2, val2 []byte, depth int) ([]byte, 
 	var left, right []byte
 
 	if bit1 == bit2 {
-		// Бит совпадает, копаем глубже
 		subNode, err := s.splitAndInsert(key1, val1, key2, val2, depth+1)
 		if err != nil { return nil, err }
 		
 		if bit1 {
-			left, right = EmptyHash, subNode // Оба пошли направо
+			left, right = EmptyHash, subNode
 		} else {
-			left, right = subNode, EmptyHash // Оба пошли налево
+			left, right = subNode, EmptyHash
 		}
 	} else {
-		// Биты разошлись! Создаем два листа на этом уровне.
 		node1, err := s.storeLeaf(key1, val1)
 		if err != nil { return nil, err }
 		node2, err := s.storeLeaf(key2, val2)
 		if err != nil { return nil, err }
 
-		if bit1 { // key1 -> Right, key2 -> Left
+		if bit1 {
 			left, right = node2, node1
-		} else {  // key1 -> Left, key2 -> Right
+		} else {
 			left, right = node1, node2
 		}
 	}
@@ -256,40 +295,73 @@ func (s *SMT) splitAndInsert(key1, val1, key2, val2 []byte, depth int) ([]byte, 
 	return s.storeInternal(left, right)
 }
 
-// Helpers для хеширования и хранения
+// Helpers
+
+func (s *SMT) loadNode(hash []byte) ([]byte, error) {
+	// 1. Check cache (if enabled)
+	if s.cache != nil {
+		if val, found := s.cache.Get(hash); found {
+			return val, nil
+		}
+	}
+	
+	// 2. Check DB
+	val, err := s.store.Get(hash)
+	if err != nil {
+		return nil, err
+	}
+
+	// 3. Update cache (if enabled)
+	if s.cache != nil {
+		s.cache.Add(hash, val)
+	}
+	return val, nil
+}
 
 func (s *SMT) storeLeaf(key, value []byte) ([]byte, error) {
-	// Format: [1][Key][Value]
 	data := make([]byte, 1+KeySize+len(value))
 	data[0] = NodeTypeLeaf
 	copy(data[1:], key)
 	copy(data[1+KeySize:], value)
 	
 	h := hash(data)
-	err := s.store.Set(h, data)
-	return h, err
+	
+	if err := s.store.Set(h, data); err != nil {
+		return nil, err
+	}
+	// Add to cache if enabled
+	if s.cache != nil {
+		s.cache.Add(h, data)
+	}
+	
+	return h, nil
 }
 
 func (s *SMT) storeInternal(left, right []byte) ([]byte, error) {
-	// Format: [0][LeftHash][RightHash]
 	data := make([]byte, 1+HashSize*2)
 	data[0] = NodeTypeInternal
 	copy(data[1:], left)
 	copy(data[1+HashSize:], right)
 
 	h := hash(data)
-	err := s.store.Set(h, data)
-	return h, err
+	
+	if err := s.store.Set(h, data); err != nil {
+		return nil, err
+	}
+	// Add to cache if enabled
+	if s.cache != nil {
+		s.cache.Add(h, data)
+	}
+
+	return h, nil
 }
 
-// bitIsSet возвращает true, если бит на позиции idx равен 1
 func bitIsSet(key []byte, idx int) bool {
 	byteIdx := idx / 8
 	bitIdx := 7 - (idx % 8)
 	return (key[byteIdx]>>bitIdx)&1 == 1
 }
 
-// hash использует BLAKE3
 func hash(data ...[]byte) []byte {
 	hasher := blake3.New()
 	for _, d := range data {
