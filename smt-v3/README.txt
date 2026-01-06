@@ -29,3 +29,38 @@ BenchmarkBatchInsert_100K-48                           7         490566913 ns/op
 BenchmarkParallelGet-48                          3419766              1013 ns/op               0 B/op          0 allocs/op
 PASS
 ok      smt-blake3      55.695s
+
+
+##### Arity-256
+
+
+goos: linux
+goarch: amd64
+pkg: smt-blake3
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkOperation_Insert_New-20                  208464             21396 ns/op           47876 B/op         20 allocs/op
+BenchmarkOperation_Update_Existing-20             228762             15875 ns/op           47167 B/op         19 allocs/op
+BenchmarkOperation_Get_Existing-20              13155746               266.7 ns/op             0 B/op          0 allocs/op
+BenchmarkOperation_Get_NonExisting-20           37488435                95.99 ns/op           16 B/op          1 allocs/op
+BenchmarkOperation_Delete_Existing-20             219944             16186 ns/op           45169 B/op         17 allocs/op
+BenchmarkFullBuild_100K-20                             2        2092136958 ns/op        4348497428 B/op  1985730 allocs/op
+BenchmarkBatchInsert_100K-20                          15         205390465 ns/op        420033940 B/op    393401 allocs/op
+BenchmarkParallelGet-20                          7055571               462.5 ns/op             1 B/op          0 allocs/op
+PASS
+ok      smt-blake3      62.417s
+
+
+goos: linux
+goarch: amd64
+pkg: smt-blake3
+cpu: Intel(R) Xeon(R) Gold 5412U
+BenchmarkOperation_Insert_New-48                   97756             45498 ns/op           43349 B/op         19 allocs/op
+BenchmarkOperation_Update_Existing-48             110811             32150 ns/op           47292 B/op         19 allocs/op
+BenchmarkOperation_Get_Existing-48               7758982               435.9 ns/op             0 B/op          0 allocs/op
+BenchmarkOperation_Get_NonExisting-48           28000296               131.3 ns/op            16 B/op          1 allocs/op
+BenchmarkOperation_Delete_Existing-48             103058             33622 ns/op           45208 B/op         17 allocs/op
+BenchmarkFullBuild_100K-48                             1        4474921193 ns/op        4348225296 B/op  1985682 allocs/op
+BenchmarkBatchInsert_100K-48                           9         360151214 ns/op        421588829 B/op    393785 allocs/op
+BenchmarkParallelGet-48                          4859954               621.7 ns/op             1 B/op          0 allocs/op
+PASS
+ok      smt-blake3      73.175s
