@@ -327,6 +327,118 @@ func TestFuzz(t *testing.T) {
 	}
 }
 
+func TestPebblePersistence(t *testing.T) {
+	// 1. Создаем временную директорию для теста (автоматически удалится после теста)
+	dbPath := t.TempDir()
+	t.Logf("Test DB Path: %s", dbPath)
+
+	// Данные для проверки
+	const numKeys = 5000
+	testData := make(map[[32]byte][]byte)
+	var originalRoot []byte
+
+	// === ФАЗА 1: Создание, Наполнение, Сохранение ===
+	{
+		t.Log("Phase 1: Open DB, Fill, Save, Close")
+		
+		store, err := NewPebbleStore(dbPath)
+		if err != nil {
+			t.Fatalf("Failed to create PebbleStore: %v", err)
+		}
+
+		// Создаем SMT
+		smt := NewSMT(store, 1000) // Кэш 1000 элементов
+
+		// Генерируем данные
+		for i := 0; i < numKeys; i++ {
+			k := randomKey()
+			v := make([]byte, 8)
+			rand.Read(v)
+			
+			// Сохраняем в мапу для проверки
+			var kArr [32]byte
+			copy(kArr[:], k)
+			testData[kArr] = v
+
+			// Добавляем в дерево (в память)
+			smt.Set(k, v)
+		}
+
+		// Начало транзакции на диске
+		store.StartBatch()
+
+		// Коммит дерева (вычисление хешей и запись узлов в batch)
+		root, err := smt.Commit()
+		if err != nil {
+			t.Fatalf("Commit failed: %v", err)
+		}
+		originalRoot = root
+		t.Logf("Tree Root: %x", root)
+
+		// Сохраняем корень (снапшот)
+		err = store.SaveRoot("latest", root)
+		if err != nil {
+			t.Fatalf("SaveRoot failed: %v", err)
+		}
+
+		// Сбрасываем батч на диск
+		err = store.FinishBatch()
+		if err != nil {
+			t.Fatalf("FinishBatch failed: %v", err)
+		}
+
+		// Закрываем БД (симуляция остановки сервера)
+		store.Close()
+	}
+
+	// === ФАЗА 2: Загрузка (Restart), Проверка ===
+	{
+		t.Log("Phase 2: Re-open DB, Load Root, Verify Data")
+
+		// Открываем БД заново
+		store, err := NewPebbleStore(dbPath)
+		if err != nil {
+			t.Fatalf("Failed to re-open PebbleStore: %v", err)
+		}
+		defer store.Close()
+
+		// Загружаем сохраненный корень
+		loadedRoot, err := store.LoadRoot("latest")
+		if err != nil {
+			t.Fatalf("Failed to load root: %v", err)
+		}
+
+		// Проверяем, что корень совпадает
+		if !bytes.Equal(loadedRoot, originalRoot) {
+			t.Fatalf("Root mismatch!\nWant: %x\nGot:  %x", originalRoot, loadedRoot)
+		}
+
+		// Инициализируем дерево с этим корнем
+		smt := NewSMT(store, 1000)
+		smt.LoadRoot(loadedRoot)
+
+		// Проверяем наличие всех ключей
+		for kArr, wantVal := range testData {
+			gotVal, err := smt.Get(kArr[:])
+			if err != nil {
+				t.Fatalf("Failed to get key %x: %v", kArr[:4], err)
+			}
+			if !bytes.Equal(gotVal, wantVal) {
+				t.Fatalf("Value mismatch for key %x", kArr[:4])
+			}
+		}
+
+		// Проверяем отсутствие случайного ключа
+		nonExistent := randomKey()
+		_, err = smt.Get(nonExistent)
+		if err == nil {
+			t.Fatal("Get should fail for non-existent key")
+		}
+
+		t.Logf("Successfully verified %d keys from disk", numKeys)
+	}
+}
+
 // === БЕНЧМАРКИ ОПЕРАЦИЙ ===
 
 // 1. BenchmarkInsertNew: Вставка АБСОЛЮТНО НОВЫХ ключей (Immediate Update).
