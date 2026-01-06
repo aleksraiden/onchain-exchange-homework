@@ -1,0 +1,53 @@
+{
+  "genesis_time": "2025-12-20T11:02:17.564319282Z",
+  "chain_id": "test-chain-buQXFS",
+  "initial_height": "0",
+  "consensus_params": {
+    "block": {
+      "max_bytes": "44040192",
+      "max_gas": "-1"
+    },
+    "evidence": {
+      "max_age_num_blocks": "100000",
+      "max_age_duration": "172800000000000",
+      "max_bytes": "1048576"
+    },
+    "validator": {
+      "pub_key_types": [
+        "ed25519"
+      ]
+    },
+    "version": {
+      "app": "0"
+    },
+    "synchrony": {
+      "precision": "505000000",
+      "message_delay": "15000000000"
+    },
+    "feature": {
+      "vote_extensions_enable_height": "0",
+      "pbts_enable_height": "0"
+    }
+  },
+  "validators": [
+    {
+      "address": "8C84D39642DBA47E10C5595E7460743574734B19",
+      "pub_key": {
+        "type": "tendermint/PubKeyEd25519",
+        "value": "XrTt83b5UxpRzm8AwXHMtuIm4tM1SBvI871jmQYh6cc="
+      },
+      "power": "10",
+      "name": ""
+    },
+	{
+      "address": "0E9B96ACFBA0739C23FC922588B863854AE75775",
+      "pub_key": {
+        "type": "tendermint/PubKeyEd25519",
+        "value": "bhDlQzY/oINZUCCyoDoaCPAc0vTTMkj9m7zgse+p8oU="
+      },
+      "power": "10",
+      "name": ""
+    }
+  ],
+  "app_hash": ""
+}

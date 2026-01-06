@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package benchmark;
+
+option go_package = "github.com/yourproject/benchmark";
+
+// Оптимизированная структура с группировкой полей по размеру
+// для лучшего выравнивания памяти
+message Order {
+  // 64-bit fields grouped together
+  uint64 uid = 1;
+  uint64 nonce = 2;
+  uint64 price = 3;
+  uint64 amount = 4;
+  uint64 linked_order_id = 5;
+  
+  // Fixed-size byte arrays
+  bytes signature = 6;  // 32 bytes
+  string user_order_id = 7;  // 16 bytes string
+  
+  // Symbol as 4-byte fixed string
+  bytes symbol = 8;  // 4 bytes
+  
+  // Single byte fields at the end
+  uint32 op_code = 9;  // 1 byte as uint32
+  uint32 flags = 10;  // 1 byte as uint32
+  uint32 orders_flag = 11;  // 1 byte as uint32
+}

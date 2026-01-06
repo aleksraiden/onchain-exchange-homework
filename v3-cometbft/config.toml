@@ -42,7 +42,8 @@ db_backend = "goleveldb"
 db_dir = "data"
 
 # Output level for logging, including package level options
-log_level = "info"
+##log_level = "info"
+log_level = "*:info"
 
 # Output format: 'plain' (colored text) or 'json'
 log_format = "plain"
@@ -232,7 +233,7 @@ unconditional_peer_ids = ""
 persistent_peers_max_dial_period = "0s"
 
 # Time to wait before flushing messages out on the connection
-flush_throttle_timeout = "10ms"
+flush_throttle_timeout = "50ms"
 
 # Maximum size of a message packet payload, in bytes
 max_packet_msg_payload_size = 1024
@@ -244,7 +245,7 @@ send_rate = 512000000
 recv_rate = 512000000
 
 # Set true to enable the peer-exchange reactor
-pex = true
+pex = false
 
 # Seed mode, in which node constantly crawls the network and looks for
 # peers. If another node asks it for addresses, it responds and disconnects.
@@ -322,7 +323,7 @@ broadcast = true
 wal_dir = ""
 
 # Maximum number of transactions in the mempool
-size = 150000
+size = 1000000
 
 # Limit the total size of all txs in the mempool.
 # This only accounts for raw transactions (e.g. given 1MB transactions and
@@ -330,7 +331,7 @@ size = 150000
 max_txs_bytes = 1073741824
 
 # Size of the cache (used to filter transactions we saw earlier) in transactions
-cache_size = 25000
+cache_size = 50000
 
 # Do not remove invalid transactions from the cache (default: false)
 # Set to true if it's not possible for any invalid transaction to become valid
@@ -339,7 +340,7 @@ keep-invalid-txs-in-cache = false
 
 # Maximum size of a single transaction.
 # NOTE: the max size of a tx transmitted over the network is {max_tx_bytes}.
-max_tx_bytes = 1048576
+max_tx_bytes = 10485760 #up to 10 Mb
 
 # Maximum size of a batch of transactions to send to a peer
 # Including space needed by encoding (one varint per transaction).
@@ -358,8 +359,12 @@ max_batch_bytes = 0
 # number of active connections to that group of peers is not bounded.
 # For non-persistent peers, if enabled, a value of 10 is recommended based on experimental
 # performance results using the default P2P configuration.
-experimental_max_gossip_connections_to_persistent_peers = 2
+experimental_max_gossip_connections_to_persistent_peers = 0
 experimental_max_gossip_connections_to_non_persistent_peers = 0
+
+dog_protocol_enabled = true 
+dog_adjust_interval = 1000
+dog_target_redundancy = 1
 
 #######################################################
 ###         State Sync Configuration Options        ###
@@ -422,17 +427,17 @@ timeout_propose = "200ms"
 # How much timeout_propose increases with each round
 timeout_propose_delta = "50ms"
 # How long we wait after receiving +2/3 prevotes for “anything” (ie. not a single block or nil)
-timeout_prevote = "150ms"
+timeout_prevote = "100ms"
 # How much the timeout_prevote increases with each round
 timeout_prevote_delta = "50ms"
 # How long we wait after receiving +2/3 precommits for “anything” (ie. not a single block or nil)
-timeout_precommit = "150ms"
+timeout_precommit = "100ms"
 # How much the timeout_precommit increases with each round
 timeout_precommit_delta = "50ms"
 # How long we wait after committing a block, before starting on the new
 # height (this gives us a chance to receive some more precommits, even
 # though we already have +2/3).
-timeout_commit = "100ms"
+timeout_commit = "400ms"
 
 # How many blocks to look back to check existence of the node's consensus votes before joining consensus
 # When non-zero, the node will panic upon restart
@@ -445,11 +450,11 @@ double_sign_check_height = 0
 
 # EmptyBlocks mode and possible interval between empty blocks
 create_empty_blocks = true
-create_empty_blocks_interval = "0s"
+create_empty_blocks_interval = "400ms"
 
 # Reactor sleep duration parameters
-peer_gossip_sleep_duration = "20ms"
-peer_query_maj23_sleep_duration = "500ms"
+peer_gossip_sleep_duration = "25ms"
+peer_query_maj23_sleep_duration = "400ms"
 
 #######################################################
 ###         Storage Configuration Options           ###
@@ -478,7 +483,7 @@ discard_abci_responses = true
 # 		- When "kv" is chosen "tx.height" and "tx.hash" will always be indexed.
 #   3) "psql" - the indexer services backed by PostgreSQL.
 # When "kv" or "psql" is chosen "tx.height" and "tx.hash" will always be indexed.
-indexer = "kv"
+indexer = "null"
 
 # The PostgreSQL connection configuration, the connection format:
 #   postgresql://<user>:<password>@<host>:<port>/<db>?<opts>
