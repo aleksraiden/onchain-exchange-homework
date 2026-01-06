@@ -3,9 +3,6 @@ package main
 import (
 	"bytes"
 	"crypto/rand"
-	"encoding/binary"
-	"fmt"
-	"math/big"
 	"testing"
 )
 

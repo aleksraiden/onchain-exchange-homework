@@ -23,6 +23,13 @@ const (
 var (
 	// EmptyHash - хеш пустого узла (нули)
 	EmptyHash = make([]byte, HashSize)
+	
+	// ОПТИМИЗАЦИЯ 1: Пул хешеров для переиспользования
+	hasherPool = sync.Pool{
+		New: func() interface{} {
+			return blake3.New()
+		},
+	}
 )
 
 // Store - интерфейс для хранения узлов
@@ -125,7 +132,7 @@ func (c *NodeCache) Add(key, value []byte) {
 
 type SMT struct {
 	store Store
-	cache *NodeCache // Если nil, кэш отключен
+	cache *NodeCache
 	root  []byte
 	lock  sync.RWMutex
 }
@@ -298,20 +305,17 @@ func (s *SMT) splitAndInsert(key1, val1, key2, val2 []byte, depth int) ([]byte, 
 // Helpers
 
 func (s *SMT) loadNode(hash []byte) ([]byte, error) {
-	// 1. Check cache (if enabled)
 	if s.cache != nil {
 		if val, found := s.cache.Get(hash); found {
 			return val, nil
 		}
 	}
 	
-	// 2. Check DB
 	val, err := s.store.Get(hash)
 	if err != nil {
 		return nil, err
 	}
 
-	// 3. Update cache (if enabled)
 	if s.cache != nil {
 		s.cache.Add(hash, val)
 	}
@@ -329,7 +333,6 @@ func (s *SMT) storeLeaf(key, value []byte) ([]byte, error) {
 	if err := s.store.Set(h, data); err != nil {
 		return nil, err
 	}
-	// Add to cache if enabled
 	if s.cache != nil {
 		s.cache.Add(h, data)
 	}
@@ -348,7 +351,6 @@ func (s *SMT) storeInternal(left, right []byte) ([]byte, error) {
 	if err := s.store.Set(h, data); err != nil {
 		return nil, err
 	}
-	// Add to cache if enabled
 	if s.cache != nil {
 		s.cache.Add(h, data)
 	}
@@ -362,10 +364,20 @@ func bitIsSet(key []byte, idx int) bool {
 	return (key[byteIdx]>>bitIdx)&1 == 1
 }
 
+// hash - ОПТИМИЗИРОВАННАЯ ВЕРСИЯ С sync.Pool
 func hash(data ...[]byte) []byte {
-	hasher := blake3.New()
+	// 1. Берем хешер из пула (без аллокации структуры)
+	hasher := hasherPool.Get().(*blake3.Hasher)
+	// 2. Обязательно возвращаем обратно
+	defer hasherPool.Put(hasher)
+	
+	// 3. Сбрасываем состояние хешера (обязательно при переиспользовании)
+	hasher.Reset()
+	
 	for _, d := range data {
 		hasher.Write(d)
 	}
+	
+	// 4. Возвращаем хеш
 	return hasher.Sum(nil)
 }
