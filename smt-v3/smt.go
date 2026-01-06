@@ -326,6 +326,15 @@ func (s *SMT) Update(key, value []byte) ([]byte, error) {
 	return s.root, nil
 }
 
+// LoadRoot устанавливает корень дерева (для загрузки из БД)
+func (s *SMT) LoadRoot(root []byte) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	// Копируем, чтобы избежать внешних изменений
+	s.root = make([]byte, len(root))
+	copy(s.root, root)
+}
+
 // updateBatchParallel для Arity-256
 // depth увеличивается на 1 при каждом шаге (всего макс 32 шага)
 // updateBatchParallel для Arity-256
@@ -474,170 +483,6 @@ func (s *SMT) updateBatchParallel(root []byte, batch []kv, depth int) ([]byte, e
 	if activeCount == 1 {
 		child := children[lastChildIdx]
 		data, err := s.loadNode(child)
-		if err == nil && data[0] == NodeTypeLeaf {
-			return child, nil
-		}
-	}
-
-	return s.storeInternal(children)
-}
-
-func (s *SMT) updateBatchParallel_v1(root []byte, batch []kv, depth int) ([]byte, error) {
-	if len(batch) == 0 {
-		return root, nil
-	}
-	
-	// FIX: Защита от переполнения глубины.
-	// Если мы дошли до 32, значит мы исчерпали ключи.
-	// Это случается, если в батче есть дубликаты полных ключей или коллизии.
-	// В таком случае "побеждает" последний элемент батча (перезапись).
-	if depth >= KeySize {
-		last := batch[len(batch)-1]
-		if last.v == nil {
-			return EmptyHash, nil
-		}
-		return s.storeLeaf(last.k[:], last.v)
-	}
-
-	// 1. Пустые узлы и Shortcuts
-	if bytes.Equal(root, EmptyHash) {
-		if len(batch) == 1 {
-			if batch[0].v == nil {
-				return EmptyHash, nil
-			}
-			return s.storeLeaf(batch[0].k[:], batch[0].v)
-		}
-		// Если ключей > 1, продолжаем, считая узел пустым Internal
-	} else {
-		data, err := s.loadNode(root)
-		if err != nil { return nil, err }
-
-		if data[0] == NodeTypeLeaf {
-			storedKey := toArray(data[1 : 1+KeySize])
-			storedVal := data[1+KeySize:]
-
-			// Ищем ключ в батче
-			found := false
-			for i := range batch {
-				if batch[i].k == storedKey {
-					found = true
-					break
-				}
-			}
-			if !found {
-				batch = append(batch, kv{storedKey, storedVal})
-				// Пересортируем для корректной работы батчинга
-				sort.Slice(batch, func(i, j int) bool {
-					return bytes.Compare(batch[i].k[:], batch[j].k[:]) < 0
-				})
-			}
-		}
-	}
-
-	// 2. Обработка Internal (Arity-256)
-	
-	// Загружаем существующих детей
-	children := [256][]byte{}
-	// Инициализируем EmptyHash (не обязательно, если Go делает zero value nil, но для ясности)
-	for i := 0; i < 256; i++ { children[i] = EmptyHash }
-
-	if !bytes.Equal(root, EmptyHash) {
-		data, _ := s.loadNode(root)
-		if data[0] == NodeTypeInternal {
-			// Формат: [Type 1] [Bitmap 32] [Hash 32]...
-			var bitmap [4]uint64
-			for i := 0; i < 4; i++ {
-				bitmap[i] = binary.LittleEndian.Uint64(data[1+i*8:])
-			}
-			
-			offset := 33
-			for i := 0; i < 256; i++ {
-				segment := i / 64
-				bit := i % 64
-				if (bitmap[segment]>>bit)&1 == 1 {
-					children[i] = data[offset : offset+HashSize]
-					offset += HashSize
-				}
-			}
-		}
-	}
-
-	// 3. Распределение по 256 ведрам
-	// Т.к. batch отсортирован, ключи с одинаковым байтом [depth] идут подряд.
-	// Сканируем линейно.
-	
-	var wg sync.WaitGroup
-	// Запускаем параллелизм только если батч реально большой
-	useParallel := len(batch) > ParallelThreshold
-	errChan := make(chan error, 256) // буфер с запасом
-
-	start := 0
-	for start < len(batch) {
-		// Индекс ребенка = байт ключа на текущей глубине
-		childIdx := int(batch[start].k[depth])
-		end := start + 1
-		
-		// Ищем конец диапазона для этого байта
-		for end < len(batch) && int(batch[end].k[depth]) == childIdx {
-			end++
-		}
-		
-		subBatch := batch[start:end]
-		childRoot := children[childIdx]
-		
-		// Запуск рекурсии
-		if useParallel {
-			wg.Add(1)
-			go func(idx int, r []byte, b []kv) {
-				defer wg.Done()
-				// Передаем depth+1
-				res, err := s.updateBatchParallel(r, b, depth+1)
-				if err != nil {
-					errChan <- err
-				} else {
-					// Запись в массив по уникальному индексу безопасна
-					children[idx] = res
-				}
-			}(childIdx, childRoot, subBatch)
-		} else {
-			res, err := s.updateBatchParallel(childRoot, subBatch, depth+1)
-			if err != nil { return nil, err }
-			children[childIdx] = res
-		}
-		
-		start = end
-	}
-
-	if useParallel {
-		wg.Wait()
-		close(errChan)
-		if len(errChan) > 0 {
-			return nil, <-errChan
-		}
-	}
-
-	// 4. Схлопывание (Collapse) и Сохранение
-	
-	activeCount := 0
-	lastChildIdx := -1
-	
-	for i := 0; i < 256; i++ {
-		if !bytes.Equal(children[i], EmptyHash) {
-			activeCount++
-			lastChildIdx = i
-		}
-	}
-
-	if activeCount == 0 {
-		return EmptyHash, nil
-	}
-	
-	if activeCount == 1 {
-		// Проверяем, является ли единственный ребенок Листом
-		// Если да -> поднимаем его (Shortcutting)
-		child := children[lastChildIdx]
-		data, err := s.loadNode(child)
-		// Если child в кэше/БД и он Leaf -> возвращаем child
 		if err == nil && data[0] == NodeTypeLeaf {
 			return child, nil
 		}
