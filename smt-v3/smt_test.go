@@ -15,7 +15,7 @@ func randomKey() []byte {
 
 // === ФУНКЦИОНАЛЬНЫЕ ТЕСТЫ ===
 
-// TestCRUD покрывает полный жизненный цикл ключа
+// TestCRUD покрывает полный жизненный цикл ключа (используя Atomic Update)
 func TestCRUD(t *testing.T) {
 	store := NewMemoryStore()
 	smt := NewSMT(store, 100) // Включаем кэш
@@ -49,6 +49,49 @@ func TestCRUD(t *testing.T) {
 	_, err = smt.Get(key)
 	if err == nil {
 		t.Fatal("Get after Delete should fail, but it returned a value")
+	}
+}
+
+// TestBatchingLogic проверяет работу отложенного коммита (Set + Commit)
+func TestBatchingLogic(t *testing.T) {
+	store := NewMemoryStore()
+	smt := NewSMT(store, 100)
+
+	key1 := hash([]byte("batch_k1"))
+	val1 := []byte("batch_v1")
+	key2 := hash([]byte("batch_k2"))
+	val2 := []byte("batch_v2")
+
+	// 1. Делаем Set. Root НЕ должен измениться.
+	emptyRoot := make([]byte, 32)
+	copy(emptyRoot, smt.Root())
+
+	smt.Set(key1, val1)
+	smt.Set(key2, val2)
+
+	if !bytes.Equal(smt.Root(), emptyRoot) {
+		t.Fatal("Root changed before Commit!")
+	}
+
+	// 2. Проверяем, что Get видит незакоммиченные данные (pending)
+	got, err := smt.Get(key1)
+	if err != nil || !bytes.Equal(got, val1) {
+		t.Fatalf("Get fail on pending data. Got %s, err %v", got, err)
+	}
+
+	// 3. Commit. Root должен измениться.
+	newRoot, err := smt.Commit()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(newRoot, emptyRoot) {
+		t.Fatal("Root did not change after Commit")
+	}
+
+	// 4. Проверяем данные после коммита
+	got, err = smt.Get(key2)
+	if err != nil || !bytes.Equal(got, val2) {
+		t.Fatal("Get failed after Commit")
 	}
 }
 
@@ -102,28 +145,23 @@ func TestDeleteCollapse(t *testing.T) {
 	store := NewMemoryStore()
 	smt := NewSMT(store, 0) // Без кэша, чтобы проверить состояние store
 
-	// Генерируем два ключа, отличающихся только последним битом (глубокая коллизия)
-	// Для blake3 это сложно подобрать вручную, поэтому используем детерминированные значения для теста логики
-	// Но так как у нас есть реализация bitIsSet, мы просто возьмем
-	// два ключа, которые точно разделятся.
-	
 	keyA := make([]byte, 32) // все нули
 	keyB := make([]byte, 32)
-	keyB[0] = 128            // первый бит 1 (10000000...)
+	keyB[0] = 128            // первый бит 1
 
 	// 1. Вставка A
 	smt.Update(keyA, []byte("A"))
 	rootA := make([]byte, 32)
 	copy(rootA, smt.Root())
 
-	// 2. Вставка B (Дерево разрастается: Root -> Internal -> (LeafA, LeafB))
+	// 2. Вставка B (Дерево разрастается)
 	smt.Update(keyB, []byte("B"))
 
 	if bytes.Equal(smt.Root(), rootA) {
 		t.Fatal("Root must change")
 	}
 
-	// 3. Удаление B (Дерево должно схлопнуться обратно: Root -> LeafA)
+	// 3. Удаление B (Дерево должно схлопнуться обратно)
 	smt.Update(keyB, nil)
 
 	if !bytes.Equal(smt.Root(), rootA) {
@@ -133,14 +171,12 @@ func TestDeleteCollapse(t *testing.T) {
 
 // === БЕНЧМАРКИ ОПЕРАЦИЙ ===
 
-// 1. BenchmarkInsertNew: Вставка АБСОЛЮТНО НОВЫХ ключей.
-// Это самая "тяжелая" вставка, т.к. вызывает аллокации и рост структуры.
+// 1. BenchmarkInsertNew: Вставка АБСОЛЮТНО НОВЫХ ключей (Immediate Update).
 func BenchmarkOperation_Insert_New(b *testing.B) {
 	store := NewMemoryStore()
 	smt := NewSMT(store, 10000)
 	val := []byte("payload")
 	
-	// Предгенерация ключей, чтобы не тратить время в таймере
 	keys := make([][]byte, b.N)
 	for i := 0; i < b.N; i++ {
 		keys[i] = randomKey()
@@ -153,9 +189,7 @@ func BenchmarkOperation_Insert_New(b *testing.B) {
 }
 
 // 2. BenchmarkUpdateExisting: Перезапись СУЩЕСТВУЮЩИХ ключей.
-// Структура дерева не меняется, меняются только значения в листьях и пересчитываются хеши.
 func BenchmarkOperation_Update_Existing(b *testing.B) {
-	// Setup: заполняем дерево 10K элементами
 	count := 10_000
 	store := NewMemoryStore()
 	smt := NewSMT(store, 10000)
@@ -170,14 +204,13 @@ func BenchmarkOperation_Update_Existing(b *testing.B) {
 	newVal := []byte("updated_value")
 	
 	b.ResetTimer()
-	// В цикле постоянно обновляем одни и те же ключи по кругу
 	for i := 0; i < b.N; i++ {
 		key := keys[i % count]
 		smt.Update(key, newVal)
 	}
 }
 
-// 3. BenchmarkGetExisting: Чтение существующих ключей (с кэшем)
+// 3. BenchmarkGetExisting: Чтение существующих ключей
 func BenchmarkOperation_Get_Existing(b *testing.B) {
 	count := 10_000
 	store := NewMemoryStore()
@@ -197,18 +230,16 @@ func BenchmarkOperation_Get_Existing(b *testing.B) {
 }
 
 // 4. BenchmarkGetNonExisting: Попытка чтения несуществующих ключей.
-// Должно быть быстро, если дерево разреженное (быстрый отказ).
 func BenchmarkOperation_Get_NonExisting(b *testing.B) {
 	store := NewMemoryStore()
 	smt := NewSMT(store, 10000)
-	// Заполняем немного, чтобы дерево не было пустым
 	for i := 0; i < 1000; i++ {
 		smt.Update(randomKey(), []byte("data"))
 	}
 
 	keys := make([][]byte, b.N)
 	for i := 0; i < b.N; i++ {
-		keys[i] = randomKey() // Вероятность коллизии с существующими почти 0
+		keys[i] = randomKey()
 	}
 
 	b.ResetTimer()
@@ -217,13 +248,8 @@ func BenchmarkOperation_Get_NonExisting(b *testing.B) {
 	}
 }
 
-// 5. BenchmarkDelete: Удаление существующих ключей.
-// Самый сложный бенчмарк, т.к. дерево пустеет.
-// Мы заполняем дерево пачками, а потом замеряем время удаления.
+// 5. BenchmarkDelete: Удаление.
 func BenchmarkOperation_Delete_Existing(b *testing.B) {
-	// Чтобы замер был честным, мы не можем удалить ключ дважды.
-	// Поэтому стратегия: StopTimer -> Наполнить дерево -> StartTimer -> Удалить всё.
-	
 	batchSize := 10_000
 	val := []byte("trash")
 	
@@ -231,8 +257,6 @@ func BenchmarkOperation_Delete_Existing(b *testing.B) {
 	
 	for i := 0; i < b.N; {
 		b.StopTimer()
-		
-		// Создаем новое дерево и наполняем ключами
 		store := NewMemoryStore()
 		smt := NewSMT(store, 10000)
 		keys := make([][]byte, batchSize)
@@ -240,11 +264,8 @@ func BenchmarkOperation_Delete_Existing(b *testing.B) {
 			keys[k] = randomKey()
 			smt.Update(keys[k], val)
 		}
-		
 		b.StartTimer()
 		
-		// Замеряем удаление
-		// Важно: мы инкрементим i внутри, но цикл ограничен batchSize или остатком b.N
 		limit := batchSize
 		if b.N - i < batchSize {
 			limit = b.N - i
@@ -258,7 +279,7 @@ func BenchmarkOperation_Delete_Existing(b *testing.B) {
 	}
 }
 
-// 6. BenchmarkMerkleRoot: Полное построение (уже было, но для полноты картины)
+// 6. BenchmarkFullBuild_100K: Построение дерева по одному (старый метод).
 func BenchmarkFullBuild_100K(b *testing.B) {
 	n := 100_000
 	keys := make([][]byte, n)
@@ -280,28 +301,52 @@ func BenchmarkFullBuild_100K(b *testing.B) {
 	}
 }
 
-// BenchmarkParallelGet проверяет масштабируемость чтения в несколько потоков
+// 7. BenchmarkBatchInsert_100K: Построение дерева через Set + Commit (НОВЫЙ МЕТОД).
+// Ожидается значительное ускорение по сравнению с BenchmarkFullBuild_100K.
+func BenchmarkBatchInsert_100K(b *testing.B) {
+	n := 100_000
+	keys := make([][]byte, n)
+	for i := 0; i < n; i++ {
+		keys[i] = randomKey()
+	}
+	val := []byte("data")
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		store := NewMemoryStore()
+		smt := NewSMT(store, 10000)
+		b.StartTimer()
+		
+		// Фаза 1: Set (просто в память)
+		for _, k := range keys {
+			smt.Set(k, val)
+		}
+		// Фаза 2: Commit (один проход по дереву)
+		smt.Commit()
+	}
+}
+
+// BenchmarkParallelGet проверяет масштабируемость чтения
 func BenchmarkParallelGet(b *testing.B) {
 	count := 100_000
 	store := NewMemoryStore()
-	// Создаем SMT с большим кэшем, чтобы работать из памяти
 	smt := NewSMT(store, 100000) 
 	keys := make([][]byte, count)
 	val := []byte("data")
 	
-	// Подготовка данных
+	// Используем быстрый Commit для подготовки теста
 	for i := 0; i < count; i++ {
 		keys[i] = randomKey()
-		smt.Update(keys[i], val)
+		smt.Set(keys[i], val)
 	}
+	smt.Commit()
 
 	b.ResetTimer()
 	
-	// Запускаем параллельные горутины
 	b.RunParallel(func(pb *testing.PB) {
 		i := 0
 		for pb.Next() {
-			// Читаем случайные ключи по кругу
 			key := keys[i % count]
 			_, err := smt.Get(key)
 			if err != nil {
