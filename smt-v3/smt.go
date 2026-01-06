@@ -328,9 +328,175 @@ func (s *SMT) Update(key, value []byte) ([]byte, error) {
 
 // updateBatchParallel для Arity-256
 // depth увеличивается на 1 при каждом шаге (всего макс 32 шага)
+// updateBatchParallel для Arity-256
+// depth увеличивается на 1 при каждом шаге (всего макс 32 шага)
 func (s *SMT) updateBatchParallel(root []byte, batch []kv, depth int) ([]byte, error) {
 	if len(batch) == 0 {
 		return root, nil
+	}
+
+	// 1. Guard: Reached max depth (Leaf creation)
+	// Если мы здесь, значит мы прошли весь путь (32 байта).
+	// Если ключей несколько, берем последний (Overwrite).
+	if depth >= KeySize {
+		last := batch[len(batch)-1]
+		if last.v == nil {
+			return EmptyHash, nil
+		}
+		return s.storeLeaf(last.k[:], last.v)
+	}
+
+	// 2. Обработка пустого узла (Creation)
+	if bytes.Equal(root, EmptyHash) {
+		// Оптимизация: 1 ключ -> создаем Leaf
+		if len(batch) == 1 {
+			if batch[0].v == nil {
+				return EmptyHash, nil
+			}
+			return s.storeLeaf(batch[0].k[:], batch[0].v)
+		}
+		// Если ключей много, пропускаем шаг загрузки узла и сразу идем к распределению (Step 4)
+		// Мы как бы создаем новый Internal узел с нуля.
+		goto Distribution
+	}
+
+	// 3. Обработка существующего узла (Update)
+	{
+		data, err := s.loadNode(root)
+		if err != nil { return nil, err }
+
+		if data[0] == NodeTypeLeaf {
+			storedKey := toArray(data[1 : 1+KeySize])
+			storedVal := data[1+KeySize:]
+
+			// Проверяем, есть ли этот ключ уже в батче (перезапись)
+			found := false
+			for i := range batch {
+				if batch[i].k == storedKey {
+					found = true
+					break
+				}
+			}
+			// Если ключа нет в батче (это "сосед" или коллизия), добавляем его для перераспределения
+			if !found {
+				batch = append(batch, kv{storedKey, storedVal})
+				// Обязательно пересортируем, так как порядок важен для Distribution
+				sort.Slice(batch, func(i, j int) bool {
+					return bytes.Compare(batch[i].k[:], batch[j].k[:]) < 0
+				})
+			}
+		}
+	}
+
+	Distribution:
+	// 4. Загружаем детей (если это был Internal) или создаем пустых
+	children := [256][]byte{}
+	for i := 0; i < 256; i++ { children[i] = EmptyHash }
+
+	if !bytes.Equal(root, EmptyHash) {
+		data, _ := s.loadNode(root)
+		if data[0] == NodeTypeInternal {
+			// [Type 1] [Bitmap 32] [Hash 32]...
+			var bitmap [4]uint64
+			for i := 0; i < 4; i++ {
+				bitmap[i] = binary.LittleEndian.Uint64(data[1+i*8:])
+			}
+			offset := 33
+			for i := 0; i < 256; i++ {
+				segment := i / 64
+				bit := i % 64
+				if (bitmap[segment]>>bit)&1 == 1 {
+					children[i] = data[offset : offset+HashSize]
+					offset += HashSize
+				}
+			}
+		}
+	}
+
+	// 5. Распределение по 256 ведрам
+	var wg sync.WaitGroup
+	useParallel := len(batch) > ParallelThreshold
+	errChan := make(chan error, 256)
+
+	start := 0
+	for start < len(batch) {
+		childIdx := int(batch[start].k[depth]) // Теперь здесь безопасно благодаря проверке в начале
+		end := start + 1
+		for end < len(batch) && int(batch[end].k[depth]) == childIdx {
+			end++
+		}
+		
+		subBatch := batch[start:end]
+		childRoot := children[childIdx]
+		
+		if useParallel {
+			wg.Add(1)
+			go func(idx int, r []byte, b []kv) {
+				defer wg.Done()
+				res, err := s.updateBatchParallel(r, b, depth+1)
+				if err != nil {
+					errChan <- err
+				} else {
+					children[idx] = res
+				}
+			}(childIdx, childRoot, subBatch)
+		} else {
+			res, err := s.updateBatchParallel(childRoot, subBatch, depth+1)
+			if err != nil { return nil, err }
+			children[childIdx] = res
+		}
+		start = end
+	}
+
+	if useParallel {
+		wg.Wait()
+		close(errChan)
+		if len(errChan) > 0 {
+			return nil, <-errChan
+		}
+	}
+
+	// 6. Схлопывание (Collapse) и Сохранение
+	activeCount := 0
+	lastChildIdx := -1
+	
+	for i := 0; i < 256; i++ {
+		if !bytes.Equal(children[i], EmptyHash) {
+			activeCount++
+			lastChildIdx = i
+		}
+	}
+
+	if activeCount == 0 {
+		return EmptyHash, nil
+	}
+	
+	if activeCount == 1 {
+		child := children[lastChildIdx]
+		data, err := s.loadNode(child)
+		if err == nil && data[0] == NodeTypeLeaf {
+			return child, nil
+		}
+	}
+
+	return s.storeInternal(children)
+}
+
+func (s *SMT) updateBatchParallel_v1(root []byte, batch []kv, depth int) ([]byte, error) {
+	if len(batch) == 0 {
+		return root, nil
+	}
+	
+	// FIX: Защита от переполнения глубины.
+	// Если мы дошли до 32, значит мы исчерпали ключи.
+	// Это случается, если в батче есть дубликаты полных ключей или коллизии.
+	// В таком случае "побеждает" последний элемент батча (перезапись).
+	if depth >= KeySize {
+		last := batch[len(batch)-1]
+		if last.v == nil {
+			return EmptyHash, nil
+		}
+		return s.storeLeaf(last.k[:], last.v)
 	}
 
 	// 1. Пустые узлы и Shortcuts

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"crypto/rand"
 	"testing"
+	
+	mrand "math/rand"
 )
 
 // Helper: генерация случайного ключа
@@ -166,6 +168,162 @@ func TestDeleteCollapse(t *testing.T) {
 
 	if !bytes.Equal(smt.Root(), rootA) {
 		t.Fatalf("Collapse failed. Root should match state before B insert.\nExpected: %x\nGot:      %x", rootA, smt.Root())
+	}
+}
+
+func TestDeepPrefixCollision(t *testing.T) {
+	store := NewMemoryStore()
+	smt := NewSMT(store, 0)
+
+	// Создаем два ключа, одинаковые везде, кроме последнего байта
+	key1 := make([]byte, 32) // Все нули
+	key2 := make([]byte, 32) // Все нули...
+	key2[31] = 1             // ...кроме конца
+
+	val1 := []byte("value1")
+	val2 := []byte("value2")
+
+	smt.Update(key1, val1)
+	smt.Update(key2, val2)
+
+	// Проверяем, что оба ключа на месте
+	got1, _ := smt.Get(key1)
+	got2, _ := smt.Get(key2)
+
+	if !bytes.Equal(got1, val1) || !bytes.Equal(got2, val2) {
+		t.Fatal("Failed to retrieve deep collision keys")
+	}
+
+	// Проверяем удаление одного из них (должен произойти Collapse)
+	smt.Update(key1, nil)
+	
+	got2after, _ := smt.Get(key2)
+	if !bytes.Equal(got2after, val2) {
+		t.Fatal("Remaining key corrupted after deep sibling deletion")
+	}
+	
+	// Проверяем, что удаленный ключ исчез
+	if _, err := smt.Get(key1); err == nil {
+		t.Fatal("Deleted key still exists")
+	}
+}
+
+func TestFullNode(t *testing.T) {
+	store := NewMemoryStore()
+	smt := NewSMT(store, 0)
+
+	// Вставляем 256 ключей, которые отличаются только первым байтом.
+	// Это создаст один корневой узел с 256 детьми.
+	for i := 0; i < 256; i++ {
+		key := make([]byte, 32)
+		key[0] = byte(i) // 0x00, 0x01 ... 0xFF
+		val := []byte{byte(i)}
+		smt.Update(key, val)
+	}
+
+	// Проверяем чтение всех 256 ключей
+	for i := 0; i < 256; i++ {
+		key := make([]byte, 32)
+		key[0] = byte(i)
+		got, err := smt.Get(key)
+		if err != nil {
+			t.Fatalf("Failed to get key index %d", i)
+		}
+		if got[0] != byte(i) {
+			t.Fatalf("Value mismatch at index %d", i)
+		}
+	}
+}
+
+func TestPersistence(t *testing.T) {
+	// 1. Создаем дерево и пишем данные
+	store := NewMemoryStore()
+	smt1 := NewSMT(store, 0)
+	
+	key := hash([]byte("persistance_key"))
+	val := []byte("persistance_val")
+	
+	smt1.Update(key, val)
+	rootHash := smt1.Root()
+
+	// 2. "Выбрасываем" smt1 и создаем smt2 НА ТОМ ЖЕ store
+	smt2 := NewSMT(store, 0)
+	
+	// ВАЖНО: В реальном коде нужен метод smt.SetRoot(rootHash)
+	// Здесь хак для теста (т.к. мы в том же пакете main)
+	smt2.root = rootHash 
+
+	// 3. Пытаемся прочитать данные
+	got, err := smt2.Get(key)
+	if err != nil {
+		t.Fatal("Failed to load key from persistent store")
+	}
+	if !bytes.Equal(got, val) {
+		t.Fatal("Value corrupted after reload")
+	}
+}
+
+func TestFuzz(t *testing.T) {
+	store := NewMemoryStore()
+	smt := NewSMT(store, 100)
+	
+	// Эталон данных (Ground Truth)
+	mirror := make(map[[32]byte][]byte)
+	
+	// Набор ключей для теста
+	keys := make([][32]byte, 100)
+	for i := range keys {
+		k := randomKey()
+		copy(keys[i][:], k)
+	}
+
+	// 10,000 случайных операций
+	nOps := 10000
+	for i := 0; i < nOps; i++ {
+		// Выбираем случайный ключ и операцию
+		idx := mrand.Intn(len(keys))
+		keyArr := keys[idx]
+		keySlice := keyArr[:]
+		
+		op := mrand.Intn(100)
+		
+		if op < 50 { 
+			// 50% UPDATE / INSERT
+			val := make([]byte, 8)
+			mrand.Read(val)
+			
+			// Обновляем SMT
+			if _, err := smt.Update(keySlice, val); err != nil {
+				t.Fatalf("Update failed iter %d: %v", i, err)
+			}
+			// Обновляем эталон
+			mirror[keyArr] = val
+			
+		} else if op < 80 {
+			// 30% GET
+			got, err := smt.Get(keySlice)
+			expected, exists := mirror[keyArr]
+			
+			if exists {
+				if err != nil {
+					t.Fatalf("Get failed iter %d: key should exist", i)
+				}
+				if !bytes.Equal(got, expected) {
+					t.Fatalf("Value mismatch iter %d. Want %x, Got %x", i, expected, got)
+				}
+			} else {
+				if err == nil {
+					t.Fatalf("Get succeeded iter %d: key should NOT exist", i)
+				}
+			}
+			
+		} else {
+			// 20% DELETE
+			if _, err := smt.Update(keySlice, nil); err != nil {
+				t.Fatalf("Delete failed iter %d: %v", i, err)
+			}
+			delete(mirror, keyArr)
+		}
 	}
 }
 
