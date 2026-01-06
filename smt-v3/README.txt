@@ -64,3 +64,31 @@ BenchmarkBatchInsert_100K-48                           9         360151214 ns/op
 BenchmarkParallelGet-48                          4859954               621.7 ns/op             1 B/op          0 allocs/op
 PASS
 ok      smt-blake3      73.175s
+
+
+
+#### Syntetic multi-arity test 
+
+goos: linux
+goarch: amd64
+pkg: smt-blake3
+cpu: 13th Gen Intel(R) Core(TM) i5-13500
+BenchmarkArity_008_Bits3-20     39377294               183.4 ns/op               8.000 arity            85.00 depth           65 B/op          3 allocs/op
+BenchmarkArity_016_Bits4-20     29663491               184.0 ns/op              16.00 arity             64.00 depth           65 B/op          3 allocs/op
+BenchmarkArity_032_Bits5-20     30872430               186.2 ns/op              32.00 arity             51.00 depth           65 B/op          3 allocs/op
+BenchmarkArity_064_Bits6-20     32643594               191.2 ns/op              64.00 arity             42.00 depth           65 B/op          3 allocs/op
+BenchmarkArity_128_Bits7-20     39035148               179.5 ns/op             128.0 arity              36.00 depth           65 B/op          3 allocs/op
+BenchmarkArity_256_Bits8-20     37902601               182.5 ns/op             256.0 arity              32.00 depth           65 B/op          3 allocs/op
+PASS
+ok      smt-blake3      43.977s
+
+cpu: Intel(R) Xeon(R) Gold 5412U
+BenchmarkArity_008_Bits3-48     18902665               314.2 ns/op               8.000 arity            85.00 depth           65 B/op          3 allocs/op
+BenchmarkArity_016_Bits4-48     19362420               311.6 ns/op              16.00 arity             64.00 depth           65 B/op          3 allocs/op
+BenchmarkArity_032_Bits5-48     18844144               313.4 ns/op              32.00 arity             51.00 depth           65 B/op          3 allocs/op
+BenchmarkArity_064_Bits6-48     18863384               319.0 ns/op              64.00 arity             42.00 depth           65 B/op          3 allocs/op
+BenchmarkArity_128_Bits7-48     18787236               313.6 ns/op             128.0 arity              36.00 depth           65 B/op          3 allocs/op
+BenchmarkArity_256_Bits8-48     19802878               311.3 ns/op             256.0 arity              32.00 depth           65 B/op          3 allocs/op
+PASS
+ok      smt-blake3      37.924s
+
