@@ -1,6 +1,6 @@
 /**
- *  @file
- *  @copyright defined in aergo/LICENSE.txt
+ * @file
+ * @copyright MIT License
  */
 
 package trie
@@ -9,9 +9,6 @@ import (
 	"bytes"
 	"fmt"
 	"sync"
-
-	"github.com/aergoio/aergo-lib/db"
-	"github.com/aergoio/aergo/v2/types/dbkey"
 )
 
 // Trie is a modified sparse Merkle tree.
@@ -48,8 +45,8 @@ type Trie struct {
 	atomicUpdate bool
 }
 
-// NewSMT creates a new SMT given a keySize and a hash function.
-func NewTrie(root []byte, hash func(data ...[]byte) []byte, store db.DB) *Trie {
+// NewTrie creates a new trie given a hash function.
+func NewTrie(root []byte, hash func(data ...[]byte) []byte) *Trie {
 	s := &Trie{
 		hash:       hash,
 		TrieHeight: len(hash([]byte("height"))) * 8, // hash any string to get output length
@@ -58,8 +55,9 @@ func NewTrie(root []byte, hash func(data ...[]byte) []byte, store db.DB) *Trie {
 	s.db = &CacheDB{
 		liveCache:    make(map[Hash][][]byte),
 		updatedNodes: make(map[Hash][][]byte),
-		Store:        store,
+		Store:        NewMemoryStore(),
 	}
+
 	// don't store any cache by default (contracts state don't use cache)
 	s.CacheHeightLimit = s.TrieHeight + 1
 	s.Root = root
@@ -117,9 +115,8 @@ func (s *Trie) AtomicUpdate(keys, values [][]byte) ([]byte, error) {
 
 // mresult is used to contain the result of goroutines and is sent through a channel.
 type mresult struct {
-	update []byte
-	// flag if a node was deleted and a shortcut node maybe has to move up the tree
-	deleted bool
+	update  []byte
+	deleted bool // flag if a node was deleted and a shortcut node maybe has to move up the tree
 	err     error
 }
 
@@ -127,7 +124,7 @@ type mresult struct {
 // Adding and deleting can be simultaneous.
 // To delete, set the value to DefaultLeaf.
 // It returns the root of the updated tree.
-func (s *Trie) update(root []byte, keys, values, batch [][]byte, iBatch, height int, ch chan<- (mresult)) {
+func (s *Trie) update(root []byte, keys, values, batch [][]byte, iBatch, height int, ch chan<- mresult) {
 	if height == 0 {
 		if bytes.Equal(DefaultLeaf, values[0]) {
 			// Delete the key-value from the trie if it is being set to DefaultLeaf
@@ -151,9 +148,21 @@ func (s *Trie) update(root []byte, keys, values, batch [][]byte, iBatch, height 
 		ch <- mresult{nil, false, err}
 		return
 	}
+
 	// Check if the keys are updating the shortcut node
 	if isShortcut {
-		keys, values = s.maybeAddShortcutToKV(keys, values, lnode[:HashLength], rnode[:HashLength])
+		// [FIX 1/2]: Используем реальную длину (len-1) вместо фиксированной HashLength.
+		// Это предотвращает панику, если значение (v) короче 32 байт.
+		var k, v []byte
+		if len(lnode) > 0 {
+			k = lnode[:len(lnode)-1]
+		}
+		if len(rnode) > 0 {
+			v = rnode[:len(rnode)-1]
+		}
+		
+		keys, values = s.maybeAddShortcutToKV(keys, values, k, v)
+		
 		if iBatch == 0 {
 			// shortcut is moving so it's root will change
 			s.deleteOldNode(root, height, false)
@@ -169,6 +178,7 @@ func (s *Trie) update(root []byte, keys, values, batch [][]byte, iBatch, height 
 			return
 		}
 	}
+
 	// Store shortcut node
 	if (len(lnode) == 0) && (len(rnode) == 0) && (len(keys) == 1) {
 		// We are adding 1 key to an empty subtree so store it as a shortcut
@@ -185,7 +195,6 @@ func (s *Trie) update(root []byte, keys, values, batch [][]byte, iBatch, height 
 	lkeys, rkeys := s.splitKeys(keys, s.TrieHeight-height)
 	splitIndex := len(lkeys)
 	lvalues, rvalues := values[:splitIndex], values[splitIndex:]
-
 	switch {
 	case len(lkeys) == 0 && len(rkeys) > 0:
 		s.updateRight(lnode, rnode, root, keys, values, batch, iBatch, height, ch)
@@ -197,7 +206,7 @@ func (s *Trie) update(root []byte, keys, values, batch [][]byte, iBatch, height 
 }
 
 // updateRight updates the right side of the tree
-func (s *Trie) updateRight(lnode, rnode, root []byte, keys, values, batch [][]byte, iBatch, height int, ch chan<- (mresult)) {
+func (s *Trie) updateRight(lnode, rnode, root []byte, keys, values, batch [][]byte, iBatch, height int, ch chan<- mresult) {
 	// all the keys go in the right subtree
 	newch := make(chan mresult, 1)
 	s.update(rnode, keys, values, batch, 2*iBatch+2, height-1, newch)
@@ -217,7 +226,7 @@ func (s *Trie) updateRight(lnode, rnode, root []byte, keys, values, batch [][]by
 }
 
 // updateLeft updates the left side of the tree
-func (s *Trie) updateLeft(lnode, rnode, root []byte, keys, values, batch [][]byte, iBatch, height int, ch chan<- (mresult)) {
+func (s *Trie) updateLeft(lnode, rnode, root []byte, keys, values, batch [][]byte, iBatch, height int, ch chan<- mresult) {
 	// all the keys go in the left subtree
 	newch := make(chan mresult, 1)
 	s.update(lnode, keys, values, batch, 2*iBatch+1, height-1, newch)
@@ -237,7 +246,7 @@ func (s *Trie) updateLeft(lnode, rnode, root []byte, keys, values, batch [][]byt
 }
 
 // updateParallel updates both sides of the trie simultaneously
-func (s *Trie) updateParallel(lnode, rnode, root []byte, lkeys, rkeys, lvalues, rvalues, batch [][]byte, iBatch, height int, ch chan<- (mresult)) {
+func (s *Trie) updateParallel(lnode, rnode, root []byte, lkeys, rkeys, lvalues, rvalues, batch [][]byte, iBatch, height int, ch chan<- mresult) {
 	lch := make(chan mresult, 1)
 	rch := make(chan mresult, 1)
 	go s.update(lnode, lkeys, lvalues, batch, 2*iBatch+1, height-1, lch)
@@ -252,7 +261,6 @@ func (s *Trie) updateParallel(lnode, rnode, root []byte, lkeys, rkeys, lvalues, 
 		ch <- mresult{nil, false, rresult.err}
 		return
 	}
-
 	// Move up a shortcut node if it's sibling is default
 	if lresult.deleted || rresult.deleted {
 		if s.maybeMoveUpShortcut(lresult.update, rresult.update, root, batch, iBatch, height, ch) {
@@ -292,7 +300,7 @@ func (s *Trie) splitKeys(keys [][]byte, height int) ([][]byte, [][]byte) {
 }
 
 // maybeMoveUpShortcut moves up a shortcut if it's sibling node is default
-func (s *Trie) maybeMoveUpShortcut(left, right, root []byte, batch [][]byte, iBatch, height int, ch chan<- (mresult)) bool {
+func (s *Trie) maybeMoveUpShortcut(left, right, root []byte, batch [][]byte, iBatch, height int, ch chan<- mresult) bool {
 	if len(left) == 0 && len(right) == 0 {
 		// Both update and sibling are deleted subtrees
 		if iBatch == 0 {
@@ -306,13 +314,13 @@ func (s *Trie) maybeMoveUpShortcut(left, right, root []byte, batch [][]byte, iBa
 		return true
 	} else if len(left) == 0 {
 		// If right is a shortcut move it up
-		if right[HashLength] == 1 {
+		if len(right) > HashLength && right[HashLength] == 1 {
 			s.moveUpShortcut(right, root, batch, iBatch, 2*iBatch+2, height, ch)
 			return true
 		}
 	} else if len(right) == 0 {
 		// If left is a shortcut move it up
-		if left[HashLength] == 1 {
+		if len(left) > HashLength && left[HashLength] == 1 {
 			s.moveUpShortcut(left, root, batch, iBatch, 2*iBatch+1, height, ch)
 			return true
 		}
@@ -320,7 +328,7 @@ func (s *Trie) maybeMoveUpShortcut(left, right, root []byte, batch [][]byte, iBa
 	return false
 }
 
-func (s *Trie) moveUpShortcut(shortcut, root []byte, batch [][]byte, iBatch, iShortcut, height int, ch chan<- (mresult)) {
+func (s *Trie) moveUpShortcut(shortcut, root []byte, batch [][]byte, iBatch, iShortcut, height int, ch chan<- mresult) {
 	// it doesn't matter if atomic update is true or false since the batch is node modified
 	_, _, shortcutKey, shortcutVal, _, err := s.loadChildren(shortcut, height-1, iShortcut, batch)
 	if err != nil {
@@ -330,7 +338,6 @@ func (s *Trie) moveUpShortcut(shortcut, root []byte, batch [][]byte, iBatch, iSh
 	// when moving up the shortcut, it's hash will change because height is +1
 	newShortcut := s.hash(shortcutKey[:HashLength], shortcutVal[:HashLength], []byte{byte(height)})
 	newShortcut = append(newShortcut, byte(1))
-
 	if iBatch == 0 {
 		// Modify batch to a shortcut batch
 		batch[0] = []byte{1}
@@ -363,7 +370,6 @@ func (s *Trie) moveUpShortcut(shortcut, root []byte, batch [][]byte, iBatch, iSh
 func (s *Trie) maybeAddShortcutToKV(keys, values [][]byte, shortcutKey, shortcutVal []byte) ([][]byte, [][]byte) {
 	newKeys := make([][]byte, 0, len(keys)+1)
 	newVals := make([][]byte, 0, len(keys)+1)
-
 	if bytes.Compare(shortcutKey, keys[0]) < 0 {
 		newKeys = append(newKeys, shortcutKey)
 		newKeys = append(newKeys, keys...)
@@ -408,7 +414,7 @@ func (s *Trie) maybeAddShortcutToKV(keys, values [][]byte, shortcutKey, shortcut
 }
 
 // loadChildren looks for the children of a node.
-// if the node is not stored in cache, it will be loaded from db.
+// if the node is not stored in cache, it will be loaded from memory store.
 func (s *Trie) loadChildren(root []byte, height, iBatch int, batch [][]byte) ([][]byte, int, []byte, []byte, bool, error) {
 	isShortcut := false
 	if height%4 == 0 {
@@ -424,22 +430,21 @@ func (s *Trie) loadChildren(root []byte, height, iBatch int, batch [][]byte) ([]
 			}
 		}
 		iBatch = 0
-		if batch[0][0] == 1 {
+		if len(batch[0]) > 0 && batch[0][0] == 1 {
 			isShortcut = true
 		}
 	} else {
-		if len(batch[iBatch]) != 0 && batch[iBatch][HashLength] == 1 {
+		if len(batch[iBatch]) > HashLength && batch[iBatch][HashLength] == 1 {
 			isShortcut = true
 		}
 	}
 	return batch, iBatch, batch[2*iBatch+1], batch[2*iBatch+2], isShortcut, nil
 }
 
-// loadBatch fetches a batch of nodes in cache or db
+// loadBatch fetches a batch of nodes in cache or memory store
 func (s *Trie) loadBatch(root []byte) ([][]byte, error) {
 	var node Hash
 	copy(node[:], root)
-
 	s.db.liveMux.RLock()
 	val, exists := s.db.liveCache[node]
 	s.db.liveMux.RUnlock()
@@ -459,6 +464,7 @@ func (s *Trie) loadBatch(root []byte) ([][]byte, error) {
 		}
 		return val, nil
 	}
+
 	// checking updated nodes is useful if get() or update() is called twice in a row without db commit
 	s.db.updatedMux.RLock()
 	val, exists = s.db.updatedNodes[node]
@@ -473,41 +479,65 @@ func (s *Trie) loadBatch(root []byte) ([][]byte, error) {
 		}
 		return val, nil
 	}
-	//Fetch node in disk database
-	if s.db.Store == nil {
-		return nil, fmt.Errorf("DB not connected to trie")
-	}
+
+	// Fetch node in memory store
 	if s.counterOn {
 		s.loadDbMux.Lock()
 		s.LoadDbCounter++
 		s.loadDbMux.Unlock()
 	}
+
 	s.db.lock.Lock()
-	dbval := s.db.Store.Get(dbkey.Trie(root[:HashLength]))
+	dbval := s.db.Store.Get(root[:HashLength])
 	s.db.lock.Unlock()
 	nodeSize := len(dbval)
 	if nodeSize != 0 {
 		return s.parseBatch(dbval), nil
 	}
-	return nil, fmt.Errorf("the trie node %x is unavailable in the disk db, db may be corrupted", root)
+	return nil, fmt.Errorf("the trie node %x is unavailable in the memory store", root)
 }
 
 // parseBatch decodes the byte data into a slice of nodes and bitmap
 func (s *Trie) parseBatch(val []byte) [][]byte {
 	batch := make([][]byte, 31, 31)
+	if len(val) < 4 {
+		// Invalid data - return empty batch
+		batch[0] = []byte{0}
+		return batch
+	}
+
 	bitmap := val[:4]
 	// check if the batch root is a shortcut
 	if bitIsSet(val, 31) {
 		batch[0] = []byte{1}
-		batch[1] = val[4 : 4+33]
-		batch[2] = val[4+33 : 4+33*2]
+		// [FIX 2/2]: Разбираем данные, допуская произвольную длину значения.
+		// Ключ всегда HashLength + 1 (флаг).
+		// Значение занимает всё остальное место после ключа.
+		const KeySize = HashLength + 1
+
+		if len(val) >= 4+KeySize {
+			batch[1] = val[4 : 4+KeySize]
+			// Если после ключа есть еще данные — это значение.
+			// Раньше здесь было условие >= 4 + 33*2, что ломало работу с короткими значениями.
+			if len(val) > 4+KeySize {
+				batch[2] = val[4+KeySize:]
+			}
+		}
 	} else {
 		batch[0] = []byte{0}
 		j := 0
 		for i := 1; i <= 30; i++ {
 			if bitIsSet(bitmap, i-1) {
-				batch[i] = val[4+33*j : 4+33*(j+1)]
-				j++
+				start := 4 + 33*j
+				end := 4 + 33*(j+1)
+				// Check bounds before reading
+				if end <= len(val) {
+					batch[i] = val[start:end]
+					j++
+				} else {
+					// Not enough data, stop reading
+					break
+				}
 			}
 		}
 	}

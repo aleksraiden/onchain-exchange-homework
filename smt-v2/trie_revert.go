@@ -1,6 +1,6 @@
 /**
- *  @file
- *  @copyright defined in aergo/LICENSE.txt
+ * @file
+ * @copyright MIT License
  */
 
 package trie
@@ -8,12 +8,10 @@ package trie
 import (
 	"bytes"
 	"fmt"
-
-	"github.com/aergoio/aergo/v2/types/dbkey"
 )
 
 // Revert rewinds the state tree to a previous version
-// All the nodes (subtree roots and values) reverted are deleted from the database.
+// All the nodes (subtree roots and values) reverted are deleted from the memory store.
 func (s *Trie) Revert(toOldRoot []byte) error {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
@@ -36,10 +34,11 @@ func (s *Trie) Revert(toOldRoot []byte) error {
 		}
 	}
 	if !canRevert || bytes.Equal(s.Root, toOldRoot) {
-		return fmt.Errorf("The root cannot be reverted, because already latest of not in pastTries : current : %x, target : %x", s.Root, toOldRoot)
+		return fmt.Errorf("the root cannot be reverted: current: %x, target: %x", s.Root, toOldRoot)
 	}
 
-	// For every node of toOldRoot, compare it to the equivalent node in other pasttries between toOldRoot and current s.Root. If a node is different, delete the one from pasttries
+	// For every node of toOldRoot, compare it to the equivalent node in other pasttries between toOldRoot and current s.Root.
+	// If a node is different, delete the one from pasttries
 	s.db.nodesToRevert = make([][]byte, 0)
 	for i := toIndex + 1; i < len(s.pastTries); i++ {
 		ch := make(chan error, 1)
@@ -49,12 +48,11 @@ func (s *Trie) Revert(toOldRoot []byte) error {
 			return err
 		}
 	}
-	// NOTE The tx interface doesnt handle ErrTxnTooBig
-	txn := s.db.Store.NewTx()
+
+	// Delete nodes from memory store
 	for _, key := range s.db.nodesToRevert {
-		txn.Delete(dbkey.Trie(key[:HashLength]))
+		s.db.Store.Delete(key[:HashLength])
 	}
-	txn.Commit()
 
 	s.pastTries = s.pastTries[:toIndex+1]
 	s.Root = toOldRoot
@@ -64,13 +62,14 @@ func (s *Trie) Revert(toOldRoot []byte) error {
 		// If toOldRoot is a shortcut batch, it is possible that
 		// revert has deleted it if the key was ever stored at height0
 		// because in leafHash byte(0) = byte(256)
-		s.db.Store.Set(dbkey.Trie(toOldRoot), s.db.serializeBatch(batch))
+		s.db.Store.Set(toOldRoot, s.db.serializeBatch(batch))
 	}
+
 	return nil
 }
 
 // maybeDeleteSubTree compares the subtree nodes of 2 tries and keeps only the older one
-func (s *Trie) maybeDeleteSubTree(original, maybeDelete []byte, height, iBatch int, batch, batch2 [][]byte, ch chan<- (error)) {
+func (s *Trie) maybeDeleteSubTree(original, maybeDelete []byte, height, iBatch int, batch, batch2 [][]byte, ch chan<- error) {
 	if height == 0 {
 		if !bytes.Equal(original, maybeDelete) && len(maybeDelete) != 0 {
 			s.maybeDeleteRevertedNode(maybeDelete, 0)
@@ -78,10 +77,12 @@ func (s *Trie) maybeDeleteSubTree(original, maybeDelete []byte, height, iBatch i
 		ch <- nil
 		return
 	}
+
 	if bytes.Equal(original, maybeDelete) || len(maybeDelete) == 0 {
 		ch <- nil
 		return
 	}
+
 	// if this point os reached, then the root of the batch is same
 	// so the batch is also same.
 	batch, iBatch, lnode, rnode, isShortcut, lerr := s.loadChildren(original, height, iBatch, batch)
@@ -89,6 +90,7 @@ func (s *Trie) maybeDeleteSubTree(original, maybeDelete []byte, height, iBatch i
 		ch <- lerr
 		return
 	}
+
 	batch2, _, lnode2, rnode2, isShortcut2, rerr := s.loadChildren(maybeDelete, height, iBatch, batch2)
 	if rerr != nil {
 		ch <- rerr
@@ -135,7 +137,7 @@ func (s *Trie) maybeDeleteSubTree(original, maybeDelete []byte, height, iBatch i
 }
 
 // deleteSubTree deletes all the nodes contained in a tree
-func (s *Trie) deleteSubTree(root []byte, height, iBatch int, batch [][]byte, ch chan<- (error)) {
+func (s *Trie) deleteSubTree(root []byte, height, iBatch int, batch [][]byte, ch chan<- error) {
 	if len(root) == 0 || height == 0 {
 		if height == 0 {
 			s.maybeDeleteRevertedNode(root, 0)
@@ -143,11 +145,13 @@ func (s *Trie) deleteSubTree(root []byte, height, iBatch int, batch [][]byte, ch
 		ch <- nil
 		return
 	}
+
 	batch, iBatch, lnode, rnode, isShortcut, err := s.loadChildren(root, height, iBatch, batch)
 	if err != nil {
 		ch <- err
 		return
 	}
+
 	if !isShortcut {
 		ch1 := make(chan error, 1)
 		ch2 := make(chan error, 1)
@@ -155,7 +159,6 @@ func (s *Trie) deleteSubTree(root []byte, height, iBatch int, batch [][]byte, ch
 		go s.deleteSubTree(rnode, height-1, 2*iBatch+2, batch, ch2)
 		lerr := <-ch1
 		rerr := <-ch2
-
 		if lerr != nil {
 			ch <- lerr
 			return
@@ -169,7 +172,7 @@ func (s *Trie) deleteSubTree(root []byte, height, iBatch int, batch [][]byte, ch
 	ch <- nil
 }
 
-// maybeDeleteRevertedNode adds the node to updatedNodes to be reverted
+// maybeDeleteRevertedNode adds the node to nodesToRevert to be reverted
 // if it is a batch node at height%4 == 0
 func (s *Trie) maybeDeleteRevertedNode(root []byte, iBatch int) {
 	if iBatch == 0 {
