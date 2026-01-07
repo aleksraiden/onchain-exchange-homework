@@ -1,0 +1,124 @@
+syntax = "proto3";
+
+package tx;
+
+option go_package = "github.com/bonton/tx";
+
+// TransactionHeader defines the header for a transaction.
+message TransactionHeader {
+  // chainVersion determines the network and code version.
+  // First byte: network (devnet, testnet, mainnet, etc.)
+  // Bytes 2-4: code version
+  // Reserved: 0x0 and 0xFFFFFFFF
+  fixed32 chain_version = 1;
+
+  // payloadSize defines the length of the payload block.
+  // Default: 0x0 (no payload)
+  // Reserved: 0xFFFF
+  // Max size: 65,532 bytes
+  // Total tx size: fixed header size + payload
+  uint32 payload_size = 2;
+
+  // reservedFlag is reserved for future extensions.
+  // Default: 0x00
+  // Reserved: 0xFF
+  uint32 reserved_flag = 3;
+
+  // opCode is the command code.
+  uint32 op_code = 4;
+
+  // authType determines the transaction authorization method.
+  // 0x0: UID (default, most common)
+  // 0x1: public key (ed25519)
+  // 0x2: multisig (public keys and signatories in payload)
+  // 0x3: other possible methods
+  // Reserved: 0xFF
+  uint32 auth_type = 5;
+
+  // executionMode determines the execution mode and lifetime.
+  // 0x00: default, execute in normal mode
+  // 0x01: execute immediately, but before validBefore Height
+  // 0x02: execute only in current block
+  // 0x03: priority immediate execution, even if other txs
+  // 0x04: execute strictly in next block
+  // 0x05–0xFF: reserved
+  uint32 execution_mode = 6;
+
+  // reservedPadding is reserved for structure alignment.
+  // Default: 0x00
+  uint32 reserved_padding = 7;
+
+  // marketCode defines the market and trading pair.
+  // Default: 0x0 (global chain operation)
+  // First 4 bits: market (spot, perp, futures, options, tradfi, etc.)
+  // Remaining 28 bits: trading pair ID
+  // Reserved: 0xFFFFFFFF
+  fixed32 market_code = 8;
+
+  // signerUID is the internal user UID of the signer.
+  // 0x0 if authType > 0
+  fixed64 signer_uid = 9;
+
+  // nonce is the account nonce (0 allowed for some service commands).
+  fixed64 nonce = 10;
+
+  // minHeight or lastKnownHeight: last known block height by sender.
+  // Tx discarded if current height is lower.
+  // Default: 0x0
+  fixed64 min_height = 11;
+
+  // maxHeight or validBeforeHeight: height until tx is valid.
+  // Default: 0x0
+  fixed64 max_height = 12;
+
+  // signature is the ed25519 signature.
+  bytes signature = 13; // Fixed 64 bytes
+}
+
+
+// Transaction - основное сообщение для полной tx.
+// Состоит из header и payload (oneof для разных типов в зависимости от opCode).
+message Transaction {
+  TransactionHeader header = 1;
+
+  // Payload - oneof для типизированных сообщений.
+  // Каждый тип payload соответствует конкретному opCode (валидация в коде).
+  // Если payload_size == 0, то oneof пустой (nil в Go).
+  oneof payload {
+    // Пример: Для opCode = 1 (размещение лимит-ордера).
+    PlaceOrderPayload place_order = 2;
+
+    // Пример: Для opCode = 2 (отмена ордера).
+    CancelOrderPayload cancel_order = 3;
+
+    // Пример: Для opCode = 3 (трансфер токенов).
+    TransferPayload transfer = 4;
+
+    // ... Добавляйте другие по мере необходимости.
+    // Для мультисиг или других authType payload может включать доп. данные (pubkeys, signatures).
+  }
+}
+
+// Примеры payload-сообщений (адаптируйте под вашу логику CLOB).
+
+// PlaceOrderPayload - для размещения ордера в CLOB.
+message PlaceOrderPayload {
+  // ID пары уже в header.market_code, но можно добавить детали.
+  string asset = 1; // e.g., "BTC-USD"
+  bool is_buy = 2;  // Buy/Sell side.
+  uint64 quantity = 3; // In base units (e.g., satoshis for BTC).
+  uint64 price = 4;    // In quote units.
+  // Другие поля: leverage (для perp), expiration, etc.
+}
+
+// CancelOrderPayload - для отмены ордера.
+message CancelOrderPayload {
+  uint64 order_id = 1; // Internal order ID in CLOB.
+}
+
+// TransferPayload - для трансфера (on-chain или cross-margin).
+message TransferPayload {
+  string to_address = 1; // Or UID.
+  string asset = 2;
+  uint64 amount = 3;
+}
