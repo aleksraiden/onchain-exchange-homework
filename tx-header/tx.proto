@@ -85,40 +85,119 @@ message Transaction {
   // Каждый тип payload соответствует конкретному opCode (валидация в коде).
   // Если payload_size == 0, то oneof пустой (nil в Go).
   oneof payload {
-    // Пример: Для opCode = 1 (размещение лимит-ордера).
-    PlaceOrderPayload place_order = 2;
+    // META_NOOP (opCode 0x00): Просто 1 пустой байт (например, bytes с нулевым значением).
+    MetaNoopPayload meta_noop = 2;
 
-    // Пример: Для opCode = 2 (отмена ордера).
-    CancelOrderPayload cancel_order = 3;
+    // META_RESERVE (opCode 0xFF): Зарезервированная, 1 байт.
+    MetaReservePayload meta_reserve = 3;
 
-    // Пример: Для opCode = 3 (трансфер токенов).
-    TransferPayload transfer = 4;
+    // ORD_CREATE (opCode 0x60): Создание ордера.
+    OrderCreatePayload order_create = 4;
 
-    // ... Добавляйте другие по мере необходимости.
-    // Для мультисиг или других authType payload может включать доп. данные (pubkeys, signatures).
+    // ORD_CANCEL (opCode 0x64): Отмена одного ордера.
+    OrderCancelPayload order_cancel = 5;
+
+    // ORD_CANCEL_BATCH (opCode 0x65): Массовая отмена.
+    OrderCancelBatchPayload order_cancel_batch = 6;
+
+    // ORD_CANCEL_ALL (opCode 0x66): Отмена всех ордеров (payload пустой, но для oneof используем пустое сообщение).
+    OrderCancelAllPayload order_cancel_all = 7;
+
+    // ORD_CANCEL_REPLACE (opCode 0x6A): Атомарная отмена и создание.
+    OrderCancelReplacePayload order_cancel_replace = 8;
+
+    // ORD_AMEND (opCode 0x6B): Изменение ордера.
+    OrderAmendPayload order_amend = 9;
+
+    // ORD_AMEND_BATCH (opCode 0x6C): Массовое изменение.
+    OrderAmendBatchPayload order_amend_batch = 10;
+
+    //... Добавляйте другие по мере необходимости.
   }
 }
 
-// Примеры payload-сообщений (адаптируйте под вашу логику CLOB).
-
-// PlaceOrderPayload - для размещения ордера в CLOB.
-message PlaceOrderPayload {
-  // ID пары уже в header.market_code, но можно добавить детали.
-  string asset = 1; // e.g., "BTC-USD"
-  bool is_buy = 2;  // Buy/Sell side.
-  uint64 quantity = 3; // In base units (e.g., satoshis for BTC).
-  uint64 price = 4;    // In quote units.
-  // Другие поля: leverage (для perp), expiration, etc.
+// MetaNoopPayload - для META_NOOP (opCode 0x00).
+message MetaNoopPayload {
+  bytes payload = 1; // 1 байт, default пустой или 0x00.
 }
 
-// CancelOrderPayload - для отмены ордера.
-message CancelOrderPayload {
-  uint64 order_id = 1; // Internal order ID in CLOB.
+// MetaReservePayload - для META_RESERVE (opCode 0xFF).
+message MetaReservePayload {
+  bytes payload = 1; // 1 байт, reserved.
 }
 
-// TransferPayload - для трансфера (on-chain или cross-margin).
-message TransferPayload {
-  string to_address = 1; // Or UID.
-  string asset = 2;
-  uint64 amount = 3;
+// OrderID - унифицированный тип для orderID (16 байт, для совместимости).
+// Может быть внутренний orderID или userGeneratedID (как bytes фиксированной длины).
+message OrderID {
+  bytes id = 1; // Фиксированные 16 байт.
+}
+
+// OrderCreatePayload - для ORD_CREATE (opCode 0x60).
+message OrderCreatePayload {
+  bool is_buy = 1;          // Buy/Sell side.
+  bool is_market = 2;       // true: рыночный ордер, false: лимитный.
+  uint64 quantity = 3;      // Объем в base units.
+  uint64 price = 4;         // Цена в quote units (игнорируется для market).
+  uint32 flags = 5;         // Флаги: битовые (e.g., bit0: GTD, bit1: IOC, etc.). Определите маску в коде.
+  bytes user_generated_id = 6; // Опционально, 16 байт userGeneratedID (fixed size, pad if needed).
+  // uint64 timestamp = 7;  // Опционально, если нужен (e.g., для GTD expiration), но пока закомментировано.
+}
+
+// OrderCancelPayload - для ORD_CANCEL (opCode 0x64).
+message OrderCancelPayload {
+  oneof id_type {
+    OrderID order_id = 1;         // Внутренний orderID (16 байт).
+    bytes user_generated_id = 2;  // UserGeneratedID (16 байт).
+  }
+}
+
+// OrderCancelBatchPayload - для ORD_CANCEL_BATCH (opCode 0x65).
+message OrderCancelBatchPayload {
+  repeated OrderID order_ids = 1;            // Массив внутренних orderID (каждый 16 байт).
+  repeated bytes user_generated_ids = 2;     // Массив userGeneratedID (каждый 16 байт).
+}
+
+// OrderCancelAllPayload - для ORD_CANCEL_ALL (opCode 0x66).
+// Payload пустой, но для oneof нужно сообщение (может быть empty).
+message OrderCancelAllPayload {}
+
+// OrderCancelReplacePayload - для ORD_CANCEL_REPLACE (opCode 0x6A).
+message OrderCancelReplacePayload {
+  // Сначала отмена.
+  oneof cancel_id_type {
+    OrderID order_id = 1;
+    bytes user_generated_id = 2;
+  }
+  // Затем создание нового (аналогично OrderCreatePayload).
+  bool is_buy = 3;
+  bool is_market = 4;
+  uint64 quantity = 5;
+  uint64 price = 6;
+  uint32 flags = 7;
+  bytes new_user_generated_id = 8; // Опционально для нового ордера.
+}
+
+// OrderAmendPayload - для ORD_AMEND (opCode 0x6B).
+message OrderAmendPayload {
+  oneof id_type {
+    OrderID order_id = 1;
+    bytes user_generated_id = 2;
+  }
+  // Изменяемые поля (опционально, если не указано - не менять).
+  optional uint64 new_quantity = 3;
+  optional uint64 new_price = 4;
+}
+
+// OrderAmendBatchPayload - для ORD_AMEND_BATCH (opCode 0x6C).
+// Для каждого ордера: ID + изменения.
+message OrderAmendBatchPayload {
+  message AmendItem {
+    oneof id_type {
+      OrderID order_id = 1;
+      bytes user_generated_id = 2;
+    }
+    optional uint64 new_quantity = 3;
+    optional uint64 new_price = 4;
+  }
+  repeated AmendItem amends = 1;
 }
