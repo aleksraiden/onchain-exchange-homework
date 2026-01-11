@@ -570,6 +570,10 @@ func gzipDecompress(compressed []byte, dict []byte) ([]byte, error) {
 
 
 
+//Перегенерация прото 
+// protoc --go_out=. tx.proto
+
+
 //Тренировка словаря
 // zstd --train --maxdict=131072 --train-cover=k=32,d=8,steps=256 txs_pretrain.bin -o dictionary.zstd
 

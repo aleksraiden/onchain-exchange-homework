@@ -57,19 +57,19 @@ message TransactionHeader {
 
   // signerUID is the internal user UID of the signer.
   // 0x0 if authType > 0
-  fixed64 signer_uid = 9;
+  uint64 signer_uid = 9;
 
   // nonce is the account nonce (0 allowed for some service commands).
-  fixed64 nonce = 10;
+  uint64 nonce = 10;
 
   // minHeight or lastKnownHeight: last known block height by sender.
   // Tx discarded if current height is lower.
   // Default: 0x0
-  fixed64 min_height = 11;
+  uint64 min_height = 11;
 
   // maxHeight or validBeforeHeight: height until tx is valid.
   // Default: 0x0
-  fixed64 max_height = 12;
+  uint64 max_height = 12;
 
   // signature is the ed25519 signature.
   bytes signature = 13; // Fixed 64 bytes

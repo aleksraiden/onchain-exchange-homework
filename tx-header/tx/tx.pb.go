@@ -67,16 +67,16 @@ type TransactionHeader struct {
 	MarketCode uint32 `protobuf:"fixed32,8,opt,name=market_code,json=marketCode,proto3" json:"market_code,omitempty"`
 	// signerUID is the internal user UID of the signer.
 	// 0x0 if authType > 0
-	SignerUid uint64 `protobuf:"fixed64,9,opt,name=signer_uid,json=signerUid,proto3" json:"signer_uid,omitempty"`
+	SignerUid uint64 `protobuf:"varint,9,opt,name=signer_uid,json=signerUid,proto3" json:"signer_uid,omitempty"`
 	// nonce is the account nonce (0 allowed for some service commands).
-	Nonce uint64 `protobuf:"fixed64,10,opt,name=nonce,proto3" json:"nonce,omitempty"`
+	Nonce uint64 `protobuf:"varint,10,opt,name=nonce,proto3" json:"nonce,omitempty"`
 	// minHeight or lastKnownHeight: last known block height by sender.
 	// Tx discarded if current height is lower.
 	// Default: 0x0
-	MinHeight uint64 `protobuf:"fixed64,11,opt,name=min_height,json=minHeight,proto3" json:"min_height,omitempty"`
+	MinHeight uint64 `protobuf:"varint,11,opt,name=min_height,json=minHeight,proto3" json:"min_height,omitempty"`
 	// maxHeight or validBeforeHeight: height until tx is valid.
 	// Default: 0x0
-	MaxHeight uint64 `protobuf:"fixed64,12,opt,name=max_height,json=maxHeight,proto3" json:"max_height,omitempty"`
+	MaxHeight uint64 `protobuf:"varint,12,opt,name=max_height,json=maxHeight,proto3" json:"max_height,omitempty"`
 	// signature is the ed25519 signature.
 	Signature     []byte `protobuf:"bytes,13,opt,name=signature,proto3" json:"signature,omitempty"` // Fixed 64 bytes
 	unknownFields protoimpl.UnknownFields
@@ -1211,13 +1211,13 @@ const file_tx_proto_rawDesc = "" +
 	"\vmarket_code\x18\b \x01(\aR\n" +
 	"marketCode\x12\x1d\n" +
 	"\n" +
-	"signer_uid\x18\t \x01(\x06R\tsignerUid\x12\x14\n" +
+	"signer_uid\x18\t \x01(\x04R\tsignerUid\x12\x14\n" +
 	"\x05nonce\x18\n" +
-	" \x01(\x06R\x05nonce\x12\x1d\n" +
+	" \x01(\x04R\x05nonce\x12\x1d\n" +
 	"\n" +
-	"min_height\x18\v \x01(\x06R\tminHeight\x12\x1d\n" +
+	"min_height\x18\v \x01(\x04R\tminHeight\x12\x1d\n" +
 	"\n" +
-	"max_height\x18\f \x01(\x06R\tmaxHeight\x12\x1c\n" +
+	"max_height\x18\f \x01(\x04R\tmaxHeight\x12\x1c\n" +
 	"\tsignature\x18\r \x01(\fR\tsignature\"\x9d\x05\n" +
 	"\vTransaction\x12-\n" +
 	"\x06header\x18\x01 \x01(\v2\x15.tx.TransactionHeaderR\x06header\x122\n" +
