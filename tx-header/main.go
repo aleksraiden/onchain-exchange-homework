@@ -10,41 +10,46 @@ import (
 	mrand "math/rand"
 	"os"
 	"time"
+	"io"
 	"path/filepath"
 
-	"tx-generator/tx" // ← подставь свой реальный путь к пакету protobuf
+	"tx-generator/tx"
 	"google.golang.org/protobuf/proto"
 	
-	"github.com/klauspost/compress/flate"
+	"github.com/klauspost/compress/gzip"
 	"github.com/klauspost/compress/s2"
 	"github.com/klauspost/compress/zstd"
 	"github.com/pierrec/lz4/v4"
 )
 
+// CompressionFunc теперь принимает словарь (или nil)
 type CompressionFunc func(data []byte, dict []byte) ([]byte, error)
+
+// DecompressionFunc — функция распаковки (возвращает оригинальные байты)
+type DecompressionFunc func(compressed []byte, dict []byte) ([]byte, error)
 
 func main() {
 	var zstdDict []byte
-	if data, err := os.ReadFile("./dictionary_v3.zstd"); err == nil {
+	if data, err := os.ReadFile("./dictionary_v6.zstd"); err == nil {
 		zstdDict = data
-		fmt.Println("Словарь zstd загружен:", len(zstdDict), "байт")
+		fmt.Println("Словарь zstd_v6 загружен:", len(zstdDict), "байт")
 	} else {
-		fmt.Println("Словарь zstd не найден — сжимаем без него")
+		fmt.Println("Словарь zstd_v6 не найден — сжимаем без него")
 	}
 
 
 	mrand.Seed(time.Now().UnixNano())
 
 	txCounts := map[uint32]int{
-		0x00: 1000,  // META_NOOP
+		0x00: 100,  // META_NOOP
 		0xFF: 5,   // META_RESERVE
-		0x60: 7_000, // ORD_CREATE
-		0x64: 16_000,  // ORD_CANCEL
-		0x65: 1_000,  // ORD_CANCEL_BATCH
-		0x66: 1_000,  // ORD_CANCEL_ALL
-		0x6A: 9_000,  // ORD_CANCEL_REPLACE
-		0x6B: 15_000,  // ORD_AMEND
-		0x6C: 2_000,  // ORD_AMEND_BATCH
+		0x60: 13_000, // ORD_CREATE
+		0x64: 9_000,  // ORD_CANCEL
+		0x65: 100,  // ORD_CANCEL_BATCH
+		0x66: 100,  // ORD_CANCEL_ALL
+		0x6A: 3_000,  // ORD_CANCEL_REPLACE
+		0x6B: 25_000,  // ORD_AMEND
+		0x6C: 300,  // ORD_AMEND_BATCH
 	}
 
 	// Пул пользователей
@@ -268,25 +273,23 @@ func main() {
 	}
 
 	fmt.Printf("Сгенерировано %d транзакций → txs.bin\n", len(allTxBytes))
-	
-/**	// Генерация чанков для создания словарей для zstd
+/*	
+	// Генерация чанков для создания словарей для zstd
 	// Сохраняем по 10 транзакций в файл в папку blocks/
-	err2 := SplitAndSaveTxBlocks(allTxBytes, "samples2", "tx_")
+	err2 := SplitAndSaveTxBlocks(allTxBytes, "samples3", "tx_")
 	if err2 != nil {
 		fmt.Printf("Ошибка при разбиении на блоки: %v\n", err2)
 		os.Exit(1)
 	}
-**/	
+*/	
 	
 	
 	// Сжатие разными алгоритмами
-	compressAndSave(allTxBytes, "zstd",    zstdCompress,    nil)
-	compressAndSave(allTxBytes, "zstd-dict",    zstdCompress,    zstdDict)
-	compressAndSave(allTxBytes, "lz4",     lz4Compress,     nil)
-	compressAndSave(allTxBytes, "s2",      s2Compress,      nil)
-	compressAndSave(allTxBytes, "s2-better",      s2CompressBetter,      nil)
-	compressAndSave(allTxBytes, "s2-best",      s2CompressBest,      nil)
-	compressAndSave(allTxBytes, "gzip",    gzipCompress,    nil)
+	compressAndSave(allTxBytes, "zstd",    		zstdCompress,    zstdDecompress,	nil)
+	compressAndSave(allTxBytes, "zstd-dict",    zstdCompress,	zstdDecompress,    zstdDict)
+	compressAndSave(allTxBytes, "lz4",     		lz4Compress,	lz4Decompress,     nil)
+	compressAndSave(allTxBytes, "s2",      		s2Compress,		s2Decompress,      nil)
+	compressAndSave(allTxBytes, "gzip",    		gzipCompress,	gzipDecompress,    nil)
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -403,11 +406,12 @@ func SplitAndSaveTxBlocks(allTxBytes [][]byte, outputDir, prefix string) error {
 }
 
 
-
+// compressAndSave — теперь с замерами и сжатия, и распаковки
 func compressAndSave(
     allTxBytes [][]byte,
     algoName string,
     compressFunc CompressionFunc,
+    decompressFunc DecompressionFunc,
     dict []byte, // nil = без словаря
 ) {
     var buf bytes.Buffer
@@ -415,16 +419,35 @@ func compressAndSave(
         buf.Write(b)
     }
     raw := buf.Bytes()
+    origSize := len(raw)
 
-    start := time.Now()
-
+    // Сжатие
+    startCompress := time.Now()
     compressed, err := compressFunc(raw, dict)
     if err != nil {
         fmt.Printf("Ошибка сжатия %s: %v\n", algoName, err)
         return
     }
+    compressDuration := time.Since(startCompress).Milliseconds()
+    compSize := len(compressed)
 
-    duration := time.Since(start).Milliseconds()
+    // Распаковка (проверяем корректность + замер времени)
+    startDecompress := time.Now()
+    decompressed, err := decompressFunc(compressed, dict)
+    if err != nil {
+        fmt.Printf("Ошибка распаковки %s: %v\n", algoName, err)
+        return
+    }
+    decompressDuration := time.Since(startDecompress).Milliseconds()
+
+    // Проверка целостности
+    if !bytes.Equal(raw, decompressed) {
+        fmt.Printf("Ошибка: распакованные данные не совпадают с оригиналом (%s)!\n", algoName)
+        return
+    }
+
+    ratio := float64(origSize) / float64(compSize)
+    savings := 100 * (1 - float64(compSize)/float64(origSize))
 
     filename := fmt.Sprintf("txs.bin.%s", algoName)
     if len(dict) > 0 {
@@ -435,46 +458,9 @@ func compressAndSave(
         panic(err)
     }
 
-    origSize := len(raw)
-    compSize := len(compressed)
-    ratio := float64(origSize) / float64(compSize)
-    savings := 100 * (1 - float64(compSize)/float64(origSize))
-
-    fmt.Printf("Алгоритм %-8s → %s (%d байт)\n", algoName, filename, compSize)
+    fmt.Printf("Алгоритм %-10s → %s (%d байт)\n", algoName, filename, compSize)
     fmt.Printf("   Коэффициент: %.2fx   Экономия: %.1f%%\n", ratio, savings)
-    fmt.Printf("   Время: %d мс\n\n", duration)
-}
-
-// Универсальная функция сжатия + статистика
-func compressAndSave_Old(allTxBytes [][]byte, algoName string, compressFunc func([]byte) ([]byte, error)) {
-	var buf bytes.Buffer
-	for _, b := range allTxBytes {
-		buf.Write(b)
-	}
-	raw := buf.Bytes()
-	
-	start := time.Now()
-
-	compressed, err := compressFunc(raw)
-	if err != nil {
-		fmt.Printf("Ошибка сжатия %s: %v\n", algoName, err)
-		return
-	}
-	
-	duration := time.Since(start).Milliseconds()
-
-	filename := fmt.Sprintf("txs.bin.%s", algoName)
-	err = os.WriteFile(filename, compressed, 0644)
-	if err != nil {
-		panic(err)
-	}
-
-	ratio := float64(len(raw)) / float64(len(compressed))
-	savings := 100 * (1 - float64(len(compressed))/float64(len(raw)))
-
-	fmt.Printf("Алгоритм %-6s → %s (%d байт)\n", algoName, filename, len(compressed))
-	fmt.Printf("   Коэффициент сжатия: %.2fx   Экономия: %.1f%%\n", ratio, savings)
-	fmt.Printf("   Время сжатия:       %d мс\n\n", duration)
+    fmt.Printf("   Сжатие:   %4d мс    Распаковка: %4d мс\n\n", compressDuration, decompressDuration)
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -482,11 +468,12 @@ func compressAndSave_Old(allTxBytes [][]byte, algoName string, compressFunc func
 // ──────────────────────────────────────────────────────────────
 
 func zstdCompress(data []byte, dict []byte) ([]byte, error) {
-    opts := []zstd.EOption{zstd.WithEncoderLevel(zstd.SpeedDefault)}
+    opts := []zstd.EOption{zstd.WithEncoderLevel(zstd.SpeedFastest)}	//Default
     if dict != nil {
         opts = append(opts, zstd.WithEncoderDict(dict))
-		opts = append(opts, zstd.WithEncoderConcurrency(8))
-    }
+	}
+
+	opts = append(opts, zstd.WithEncoderConcurrency(8))
 
     enc, err := zstd.NewWriter(nil, opts...)
     if err != nil {
@@ -495,6 +482,22 @@ func zstdCompress(data []byte, dict []byte) ([]byte, error) {
     defer enc.Close()
 
     return enc.EncodeAll(data, nil), nil
+}
+
+func zstdDecompress(compressed, dict []byte) ([]byte, error) {
+    opts := []zstd.DOption{}
+    if len(dict) > 0 {
+        opts = append(opts, zstd.WithDecoderDicts(dict))		
+    }
+	
+	opts = append(opts, zstd.WithDecoderConcurrency(8))		
+	
+    dec, err := zstd.NewReader(nil, opts...)
+    if err != nil {
+        return nil, err
+    }
+    defer dec.Close()
+    return dec.DecodeAll(compressed, nil)
 }
 
 // LZ4 — не поддерживает словари → просто игнорируем dict
@@ -509,39 +512,67 @@ func lz4Compress(data []byte, dict []byte) ([]byte, error) {
     return dst[:n], nil
 }
 
+func lz4Decompress(compressed, dict []byte) ([]byte, error) {
+    //dst := make([]byte, 0, len(compressed)*10) // грубая оценка
+    
+	maxUncompressed := len(compressed) * 10
+    if maxUncompressed < 1024*1024 { // минимум 1 МБ для безопасности
+        maxUncompressed = 1024 * 1024
+    }
+	
+	// Шаг 2: Выделяем буфер достаточного размера
+    dst := make([]byte, maxUncompressed)
+	
+	//var d lz4.Decompressor
+    n, err := lz4.UncompressBlock(compressed, dst)
+    if err != nil {
+        return nil, err
+    }
+    return dst[:n], nil
+}
+
 // S2 — тоже не поддерживает → игнорируем
 func s2Compress(data []byte, dict []byte) ([]byte, error) {
     return s2.Encode(nil, data), nil
 }
 
-func s2CompressBetter(data []byte, dict []byte) ([]byte, error) {
-    return s2.EncodeBetter(nil, data), nil
-}
-
-func s2CompressBest(data []byte, dict []byte) ([]byte, error) {
-    return s2.EncodeBest(nil, data), nil
+func s2Decompress(compressed, dict []byte) ([]byte, error) {
+    return s2.Decode(nil, compressed)
 }
 
 func gzipCompress(data []byte, dict []byte) ([]byte, error) {
-	var buf bytes.Buffer
-	w, err := flate.NewWriter(&buf, flate.BestSpeed)
-	if err != nil {
-		return nil, err
-	}
-	_, err = w.Write(data)
-	if err != nil {
-		return nil, err
-	}
-	if err := w.Close(); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
+    var buf bytes.Buffer
+    w := gzip.NewWriter(&buf)
+    _, err := w.Write(data)
+    if err != nil {
+        return nil, err
+    }
+    if err := w.Close(); err != nil {
+        return nil, err
+    }
+    return buf.Bytes(), nil
 }
+
+func gzipDecompress(compressed []byte, dict []byte) ([]byte, error) {
+    r, err := gzip.NewReader(bytes.NewReader(compressed))
+    if err != nil {
+        return nil, err
+    }
+    defer r.Close()
+
+    var out bytes.Buffer
+    _, err = io.Copy(&out, r)
+    if err != nil {
+        return nil, err
+    }
+    return out.Bytes(), nil
+}
+
 
 
 //Тренировка словаря
 // zstd --train --maxdict=131072 --train-cover=k=32,d=8,steps=256 txs_pretrain.bin -o dictionary.zstd
 
-// zstd --train --maxdict=131072 --train-cover=k=32,d=8,steps=256 tx_* -o ../dictionary_v2.zstd
+// zstd --train --maxdict=131072 --train-cover=k=32,d=8,steps=256 tx_* -o ../dictionary_v4.zstd
 
 // 1048576
