@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package tx;
 
-option go_package = "github.com/bonton/tx";
+option go_package = "/tx";
 
 // TransactionHeader defines the header for a transaction.
 message TransactionHeader {
