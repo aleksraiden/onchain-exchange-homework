@@ -10,6 +10,7 @@ import (
 	mrand "math/rand"
 	"os"
 	"time"
+	"path/filepath"
 
 	"tx-generator/tx" // ← подставь свой реальный путь к пакету protobuf
 	"google.golang.org/protobuf/proto"
@@ -24,7 +25,7 @@ type CompressionFunc func(data []byte, dict []byte) ([]byte, error)
 
 func main() {
 	var zstdDict []byte
-	if data, err := os.ReadFile("./dictionary.zstd"); err == nil {
+	if data, err := os.ReadFile("./dictionary_v3.zstd"); err == nil {
 		zstdDict = data
 		fmt.Println("Словарь zstd загружен:", len(zstdDict), "байт")
 	} else {
@@ -268,9 +269,14 @@ func main() {
 
 	fmt.Printf("Сгенерировано %d транзакций → txs.bin\n", len(allTxBytes))
 	
-	
-	
-	
+/**	// Генерация чанков для создания словарей для zstd
+	// Сохраняем по 10 транзакций в файл в папку blocks/
+	err2 := SplitAndSaveTxBlocks(allTxBytes, "samples2", "tx_")
+	if err2 != nil {
+		fmt.Printf("Ошибка при разбиении на блоки: %v\n", err2)
+		os.Exit(1)
+	}
+**/	
 	
 	
 	// Сжатие разными алгоритмами
@@ -332,6 +338,71 @@ func saveBytes(filename string, data [][]byte) {
 		}
 	}
 }
+
+
+// SplitAndSaveTxBlocks разбивает транзакции на блоки по 10 штук и сохраняет каждый блок
+// в отдельный файл в указанной директории.
+//
+// Параметры:
+//   - allTxBytes: слайс всех сериализованных транзакций
+//   - outputDir: путь к папке, куда будут сохранены файлы (будет создана, если не существует)
+//   - prefix: префикс имени файлов (например "block-")
+//
+// Пример имён файлов: block-0001.bin, block-0002.bin, ...
+func SplitAndSaveTxBlocks(allTxBytes [][]byte, outputDir, prefix string) error {
+    const txPerBlock = 10
+
+    // Создаём директорию, если её нет
+    if err := os.MkdirAll(outputDir, 0755); err != nil {
+        return fmt.Errorf("не удалось создать директорию %s: %w", outputDir, err)
+    }
+
+    totalTx := len(allTxBytes)
+    if totalTx == 0 {
+        fmt.Println("Нет транзакций для сохранения")
+        return nil
+    }
+
+    blockNum := 1
+    for i := 0; i < totalTx; i += txPerBlock {
+        end := i + txPerBlock
+        if end > totalTx {
+            end = totalTx
+        }
+
+        // Формируем имя файла: block-0001.bin, block-0002.bin и т.д.
+        filename := filepath.Join(outputDir, fmt.Sprintf("%s%04d.bin", prefix, blockNum))
+        f, err := os.Create(filename)
+        if err != nil {
+            return fmt.Errorf("не удалось создать файл %s: %w", filename, err)
+        }
+
+        // Записываем транзакции блока подряд
+        blockSize := 0
+        for j := i; j < end; j++ {
+            n, err := f.Write(allTxBytes[j])
+            if err != nil {
+                f.Close()
+                return fmt.Errorf("ошибка записи в %s: %w", filename, err)
+            }
+            blockSize += n
+        }
+
+        f.Close()
+
+        fmt.Printf("Сохранён блок #%04d: %s (%d транзакций, %d байт)\n",
+            blockNum, filename, end-i, blockSize)
+
+        blockNum++
+    }
+
+    fmt.Printf("Всего создано блоков: %d (по %d транзакций в каждом, последний может быть меньше)\n",
+        blockNum-1, txPerBlock)
+
+    return nil
+}
+
+
 
 func compressAndSave(
     allTxBytes [][]byte,
@@ -471,4 +542,6 @@ func gzipCompress(data []byte, dict []byte) ([]byte, error) {
 //Тренировка словаря
 // zstd --train --maxdict=131072 --train-cover=k=32,d=8,steps=256 txs_pretrain.bin -o dictionary.zstd
 
-// zstd --train --maxdict=131072 --train-cover=k=32,d=8,steps=256 tx_* -o ../dictionary.zstd
+// zstd --train --maxdict=131072 --train-cover=k=32,d=8,steps=256 tx_* -o ../dictionary_v2.zstd
+
+// 1048576
