@@ -20,9 +20,10 @@ import (
 	"syscall"
 	"time"
 
+	"tx-generator/tx"
+
 	"github.com/gorilla/websocket"
 	"google.golang.org/protobuf/proto"
-	"tx-generator/tx"
 )
 
 const (
@@ -33,11 +34,11 @@ const (
 	baseQtyPerOrder = 0.001 // BTC
 	priceTickSize   = 0.1
 	outputFile      = "mm-txs.bin"
-	
-	priceDecimals = 2   // BTCUSDT-PERP → 2 знака
-    priceMultiplier = 100
-    qtyDecimals = 8     // BTC → 8 знаков
-    qtyMultiplier = 100_000_000
+
+	priceDecimals   = 2 // BTCUSDT-PERP → 2 знака
+	priceMultiplier = 100
+	qtyDecimals     = 8 // BTC → 8 знаков
+	qtyMultiplier   = 100_000_000
 )
 
 var lastRawMessage []byte
@@ -55,11 +56,11 @@ type OrderBook struct {
 }
 
 type ManagedOrder struct {
-	OrderID      []byte  // 16 байт user_generated_id
-	Side         bool    // true = buy
-	Price        float64
-	Quantity     float64
-	InTop10      bool    // флаг, находится ли сейчас в топ-10
+	OrderID  []byte // 16 байт user_generated_id
+	Side     bool   // true = buy
+	Price    float64
+	Quantity float64
+	InTop10  bool // флаг, находится ли сейчас в топ-10
 }
 
 var (
@@ -137,9 +138,9 @@ func subscribe(ws *websocket.Conn) {
 
 func processMessage(raw []byte) {
 	lastRawMu.Lock()
-    lastRawMessage = make([]byte, len(raw))
-    copy(lastRawMessage, raw)
-    lastRawMu.Unlock()
+	lastRawMessage = make([]byte, len(raw))
+	copy(lastRawMessage, raw)
+	lastRawMu.Unlock()
 
 	var msg struct {
 		Topic string          `json:"topic"`
@@ -169,65 +170,65 @@ func updateOrderBook(data json.RawMessage) {
 	}
 
 	ob.mu.Lock()
-	
+
 	if len(update.B) > 0 {
 		ob.Bids = convertLevels(update.B)
 	}
-	
+
 	if len(update.A) > 0 {
 		ob.Asks = convertLevels(update.A)
 	}
 	ob.mu.Unlock()
 
 	generateMirrorOrders()
-	
+
 	//вывод топ-1
 	logTop1Prices()
-	
+
 }
 
 // Новая функция для вывода топ-1
 func logTop1Prices() {
-    ob.mu.RLock()
-    bidsEmpty := len(ob.Bids) == 0
-    asksEmpty := len(ob.Asks) == 0
-    ob.mu.RUnlock()
+	ob.mu.RLock()
+	bidsEmpty := len(ob.Bids) == 0
+	asksEmpty := len(ob.Asks) == 0
+	ob.mu.RUnlock()
 
-    timestamp := time.Now().Format("15:04:05.000")
-    txCount := atomic.LoadUint64(&txCreated)
+	timestamp := time.Now().Format("15:04:05.000")
+	txCount := atomic.LoadUint64(&txCreated)
 
-    if bidsEmpty && asksEmpty {
-        // Стакан пустой → логируем полный последний JSON для отладки
-        lastRawMu.Lock()
-        rawCopy := make([]byte, len(lastRawMessage))
-        copy(rawCopy, lastRawMessage)
-        lastRawMu.Unlock()
+	if bidsEmpty && asksEmpty {
+		// Стакан пустой → логируем полный последний JSON для отладки
+		lastRawMu.Lock()
+		rawCopy := make([]byte, len(lastRawMessage))
+		copy(rawCopy, lastRawMessage)
+		lastRawMu.Unlock()
 
-        var pretty bytes.Buffer
-        if err := json.Indent(&pretty, rawCopy, "", "  "); err == nil {
-            log.Printf("\x1b[31m[%s] ПУСТОЙ СТАКАН! TX: %d | Последний JSON:\x1b[0m\n%s\n",
-                timestamp, txCount, pretty.String())
-        } else {
-            log.Printf("\x1b[31m[%s] ПУСТОЙ СТАКАН! TX: %d | Сырой (невалидный JSON):\x1b[0m %s\n",
-                timestamp, txCount, string(rawCopy))
-        }
-    } else {
-        // Нормальный стакан → обычный красивый лог
-        ob.mu.RLock()
-        bestBid := ob.Bids[0]
-        bestAsk := ob.Asks[0]
-        ob.mu.RUnlock()
+		var pretty bytes.Buffer
+		if err := json.Indent(&pretty, rawCopy, "", "  "); err == nil {
+			log.Printf("\x1b[31m[%s] ПУСТОЙ СТАКАН! TX: %d | Последний JSON:\x1b[0m\n%s\n",
+				timestamp, txCount, pretty.String())
+		} else {
+			log.Printf("\x1b[31m[%s] ПУСТОЙ СТАКАН! TX: %d | Сырой (невалидный JSON):\x1b[0m %s\n",
+				timestamp, txCount, string(rawCopy))
+		}
+	} else {
+		// Нормальный стакан → обычный красивый лог
+		ob.mu.RLock()
+		bestBid := ob.Bids[0]
+		bestAsk := ob.Asks[0]
+		ob.mu.RUnlock()
 
-        spread := bestAsk.Price - bestBid.Price
+		spread := bestAsk.Price - bestBid.Price
 
-        log.Printf("\x1b[32m[%s]\x1b[0m Top-1: \x1b[34mBid %10.2f\x1b[0m (qty %.6f) | \x1b[31mAsk %10.2f\x1b[0m (qty %.6f) | Spread %.2f | TX: %d",
-            timestamp,
-            bestBid.Price, bestBid.Qty,
-            bestAsk.Price, bestAsk.Qty,
-            spread,
-            txCount,
-        )
-    }
+		log.Printf("\x1b[32m[%s]\x1b[0m Top-1: \x1b[34mBid %10.2f\x1b[0m (qty %.6f) | \x1b[31mAsk %10.2f\x1b[0m (qty %.6f) | Spread %.2f | TX: %d",
+			timestamp,
+			bestBid.Price, bestBid.Qty,
+			bestAsk.Price, bestAsk.Qty,
+			spread,
+			txCount,
+		)
+	}
 }
 
 func convertLevels(levels [][]string) []Level {
@@ -270,55 +271,55 @@ func generateMirrorOrders() {
 }
 
 func createOrAmendOrders(isBuy bool, price, totalQty float64) {
-    const minQtyToSplit = 1.0 // BTC
+	const minQtyToSplit = 1.0 // BTC
 
-    var qtyPerOrder float64
-    var numOrders int
+	var qtyPerOrder float64
+	var numOrders int
 
-    if totalQty < minQtyToSplit {
-        // Если меньше 1 BTC — ставим одним ордером
-        qtyPerOrder = totalQty
-        numOrders = 1
-    } else {
-        // Делим на ordersPerLevel частей
-        qtyPerOrder = totalQty / float64(ordersPerLevel)
-        numOrders = ordersPerLevel
-    }
+	if totalQty < minQtyToSplit {
+		// Если меньше 1 BTC — ставим одним ордером
+		qtyPerOrder = totalQty
+		numOrders = 1
+	} else {
+		// Делим на ordersPerLevel частей
+		qtyPerOrder = totalQty / float64(ordersPerLevel)
+		numOrders = ordersPerLevel
+	}
 
-    if qtyPerOrder < 0.0001 { // минимальный фильтр Bybit
-        return
-    }
+	if qtyPerOrder < 0.0001 { // минимальный фильтр Bybit
+		return
+	}
 
-    for i := 0; i < numOrders; i++ {
-        // Небольшое рандомное смещение цены внутри тика (чтобы не пересекаться)
-        adjPrice := price
-        if i%2 == 0 {
-            adjPrice += priceTickSize * float64(i)/10
-        } else {
-            adjPrice -= priceTickSize * float64(i)/10
-        }
+	for i := 0; i < numOrders; i++ {
+		// Небольшое рандомное смещение цены внутри тика (чтобы не пересекаться)
+		adjPrice := price
+		if i%2 == 0 {
+			adjPrice += priceTickSize * float64(i) / 10
+		} else {
+			adjPrice -= priceTickSize * float64(i) / 10
+		}
 
-        // Ключ для хранения ордера (теперь без i, если numOrders == 1)
-        key := fmt.Sprintf("%t-%.8f", isBuy, adjPrice)
-        if numOrders > 1 {
-            key += fmt.Sprintf("-%d", i)
-        }
+		// Ключ для хранения ордера (теперь без i, если numOrders == 1)
+		key := fmt.Sprintf("%t-%.8f", isBuy, adjPrice)
+		if numOrders > 1 {
+			key += fmt.Sprintf("-%d", i)
+		}
 
-        uid := generateUserGeneratedID()
+		uid := generateUserGeneratedID()
 
-        if existing, ok := managedOrders[key]; ok {
-            amendOrder(existing, adjPrice, qtyPerOrder)
-        } else {
-            createNewOrder(uid, isBuy, adjPrice, qtyPerOrder)
-            managedOrders[key] = &ManagedOrder{
-                OrderID:  uid,
-                Side:     isBuy,
-                Price:    adjPrice,
-                Quantity: qtyPerOrder,
-                InTop10:  true,
-            }
-        }
-    }
+		if existing, ok := managedOrders[key]; ok {
+			amendOrder(existing, adjPrice, qtyPerOrder)
+		} else {
+			createNewOrder(uid, isBuy, adjPrice, qtyPerOrder)
+			managedOrders[key] = &ManagedOrder{
+				OrderID:  uid,
+				Side:     isBuy,
+				Price:    adjPrice,
+				Quantity: qtyPerOrder,
+				InTop10:  true,
+			}
+		}
+	}
 }
 
 func cancelOutdatedOrders(current map[string]bool) {
@@ -351,9 +352,9 @@ func createNewOrder(uid []byte, isBuy bool, price, qty float64) {
 
 func amendOrder(order *ManagedOrder, newPrice, newQty float64) {
 	// Конвертируем float64 → uint64
-    priceUint := uint64(math.Round(newPrice * priceMultiplier))   // 2 знака после точки
-    qtyUint   := uint64(math.Round(newQty * qtyMultiplier))       // 8 знаков, как для BTC
-	
+	priceUint := uint64(math.Round(newPrice * priceMultiplier)) // 2 знака после точки
+	qtyUint := uint64(math.Round(newQty * qtyMultiplier))       // 8 знаков, как для BTC
+
 	p := &tx.OrderAmendPayload{
 		IdType: &tx.OrderAmendPayload_UserGeneratedId{
 			UserGeneratedId: order.OrderID,
@@ -365,8 +366,8 @@ func amendOrder(order *ManagedOrder, newPrice, newQty float64) {
 	txx := buildTx(createHeader(0x6B), p)
 	appendTx(txx)
 
-	order.Price = 		newPrice
-	order.Quantity = 	newQty
+	order.Price = newPrice
+	order.Quantity = newQty
 }
 
 func cancelOrder(order *ManagedOrder) {
@@ -416,15 +417,15 @@ func saveAllTxs() {
 func createHeader(opCode uint32) *tx.TransactionHeader {
 	nonce++
 	return &tx.TransactionHeader{
-		ChainVersion:    0x01000001,
-		OpCode:          opCode,
-		AuthType:        0,
-		SignerUid:       signerUID,
-		Nonce:           nonce,
-		MarketCode:      0x00000001,
-		MinHeight:       0,
-		MaxHeight:       0,
-		Signature:       make([]byte, 64),
+		ChainVersion: 0x01000001,
+		OpCode:       opCode,
+		AuthType:     0,
+		SignerUid:    signerUID,
+		Nonce:        nonce,
+		MarketCode:   0x00000001,
+		MinHeight:    0,
+		MaxHeight:    0,
+		Signature:    make([]byte, 64),
 	}
 }
 

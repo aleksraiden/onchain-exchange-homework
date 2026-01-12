@@ -1,0 +1,8 @@
+github.com/GoWebProd/gip v0.0.0-20230623090727-b60d41d5d320 h1:lddR7TsA0fUX8Kh+oc01z4GwmCoBveT79zhNLK43xLk=
+github.com/GoWebProd/gip v0.0.0-20230623090727-b60d41d5d320/go.mod h1:eTC6ev1JFq+zoOOS5WKuHdBwtihV/9/Ouv3fZ3ufS0A=
+github.com/GoWebProd/uuid7 v0.0.0-20250513124731-a2de7bb12a24 h1:bvbDveIIMOkLI+OMxEy/lDowlDUCBIJIYG0fJKbiH/Q=
+github.com/GoWebProd/uuid7 v0.0.0-20250513124731-a2de7bb12a24/go.mod h1:YIx3++ypr3VYDYlz62Zs6zxq/iPT5e9vShuqxwL/5Us=
+github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
+github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
+github.com/pkg/errors v0.9.1 h1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=
+github.com/pkg/errors v0.9.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
