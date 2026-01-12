@@ -2,26 +2,27 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
-	"math"
 	"log"
+	"math"
 	"os"
 	"os/signal"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
-	"bytes"
 
 	"github.com/gorilla/websocket"
-	"tx-generator/tx"
 	"google.golang.org/protobuf/proto"
+	"tx-generator/tx"
 )
 
 const (
@@ -66,6 +67,7 @@ var (
 	managedOrders = make(map[string]*ManagedOrder) // key = user_generated_id hex
 	uidCounter    uint64
 	nonce         uint64
+	txCreated     uint64 // общее количество созданных транзакций
 	privKey       ed25519.PrivateKey
 	signerUID     uint64 = 123456789 // тестовый UID
 	allTxs        [][]byte
@@ -192,6 +194,7 @@ func logTop1Prices() {
     ob.mu.RUnlock()
 
     timestamp := time.Now().Format("15:04:05.000")
+    txCount := atomic.LoadUint64(&txCreated)
 
     if bidsEmpty && asksEmpty {
         // Стакан пустой → логируем полный последний JSON для отладки
@@ -202,11 +205,11 @@ func logTop1Prices() {
 
         var pretty bytes.Buffer
         if err := json.Indent(&pretty, rawCopy, "", "  "); err == nil {
-            log.Printf("\x1b[31m[%s] ПУСТОЙ СТАКАН! Последний JSON:\x1b[0m\n%s\n",
-                timestamp, pretty.String())
+            log.Printf("\x1b[31m[%s] ПУСТОЙ СТАКАН! TX: %d | Последний JSON:\x1b[0m\n%s\n",
+                timestamp, txCount, pretty.String())
         } else {
-            log.Printf("\x1b[31m[%s] ПУСТОЙ СТАКАН! Сырой (невалидный JSON):\x1b[0m %s\n",
-                timestamp, string(rawCopy))
+            log.Printf("\x1b[31m[%s] ПУСТОЙ СТАКАН! TX: %d | Сырой (невалидный JSON):\x1b[0m %s\n",
+                timestamp, txCount, string(rawCopy))
         }
     } else {
         // Нормальный стакан → обычный красивый лог
@@ -217,11 +220,12 @@ func logTop1Prices() {
 
         spread := bestAsk.Price - bestBid.Price
 
-        log.Printf("\x1b[32m[%s]\x1b[0m Top-1: \x1b[34mBid %10.2f\x1b[0m (qty %.6f) | \x1b[31mAsk %10.2f\x1b[0m (qty %.6f) | Spread %.2f",
+        log.Printf("\x1b[32m[%s]\x1b[0m Top-1: \x1b[34mBid %10.2f\x1b[0m (qty %.6f) | \x1b[31mAsk %10.2f\x1b[0m (qty %.6f) | Spread %.2f | TX: %d",
             timestamp,
             bestBid.Price, bestBid.Qty,
             bestAsk.Price, bestAsk.Qty,
             spread,
+            txCount,
         )
     }
 }
@@ -386,6 +390,7 @@ func cancelAllOrders() {
 func appendTx(tx []byte) {
 	muTxs.Lock()
 	allTxs = append(allTxs, tx)
+	atomic.AddUint64(&txCreated, 1)
 	muTxs.Unlock()
 }
 
@@ -404,7 +409,8 @@ func saveAllTxs() {
 		f.Write(b)
 	}
 
-	log.Printf("Сохранено %d транзакций в %s", len(allTxs), outputFile)
+	totalCreated := atomic.LoadUint64(&txCreated)
+	log.Printf("Сохранено %d транзакций (создано всего %d) в %s", len(allTxs), totalCreated, outputFile)
 }
 
 func createHeader(opCode uint32) *tx.TransactionHeader {
