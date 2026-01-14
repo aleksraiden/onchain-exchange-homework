@@ -118,86 +118,72 @@ message Transaction {
 
 // MetaNoopPayload - для META_NOOP (opCode 0x00).
 message MetaNoopPayload {
-  bytes payload = 1; // 1 байт, default пустой или 0x00.
+  bytes payload = 1; // 1 байт, default пустой (0x00)
 }
 
 // MetaReservePayload - для META_RESERVE (opCode 0xFF).
 message MetaReservePayload {
-  bytes payload = 1; // 1 байт, reserved.
+  bytes payload = 1; // 1 байт, default пустой
 }
 
-// OrderID - унифицированный тип для orderID (16 байт, для совместимости).
-// Может быть внутренний orderID или userGeneratedID (как bytes фиксированной длины).
+// OrderID - 16 байт, UUIDv7
 message OrderID {
   bytes id = 1; // Фиксированные 16 байт.
 }
 
 // OrderCreatePayload - для ORD_CREATE (opCode 0x60).
 message OrderCreatePayload {
-  bool is_buy = 1;          // Buy/Sell side.
-  bool is_market = 2;       // true: рыночный ордер, false: лимитный.
-  uint64 quantity = 3;      // Объем в base units.
-  uint64 price = 4;         // Цена в quote units (игнорируется для market).
-  uint32 flags = 5;         // Флаги: битовые (e.g., bit0: GTD, bit1: IOC, etc.). Определите маску в коде.
-  bytes user_generated_id = 6; // Опционально, 16 байт userGeneratedID (fixed size, pad if needed).
-  // uint64 timestamp = 7;  // Опционально, если нужен (e.g., для GTD expiration), но пока закомментировано.
+  OrderID 		order_id 	= 1;	// OrderID - 16 байт, UUIDv7
+  bool 			is_buy 		= 2;	// Buy/Sell side.
+  bool 			is_market 	= 3;	// true: рыночный ордер, false: лимитный.
+  uint64 		quantity 	= 4;	// Объем в base units.
+  uint64 		price 		= 5;	// Цена в quote units (игнорируется для market).
+  uint32 		flags 		= 6;	// Флаги: битовые (e.g., bit0: GTD, bit1: IOC, etc.). Определите маску в коде.
+  // uint64 timestamp 		= 7;	// Опционально, если нужен (e.g., для GTD expiration), но пока закомментировано.
 }
 
 // OrderCancelPayload - для ORD_CANCEL (opCode 0x64).
 message OrderCancelPayload {
-  oneof id_type {
-    OrderID order_id = 1;         // Внутренний orderID (16 байт).
-    bytes user_generated_id = 2;  // UserGeneratedID (16 байт).
-  }
+	OrderID 		order_id 	= 1;	// OrderID - 16 байт, UUIDv7
 }
 
 // OrderCancelBatchPayload - для ORD_CANCEL_BATCH (opCode 0x65).
 message OrderCancelBatchPayload {
-  repeated OrderID order_ids = 1;            // Массив внутренних orderID (каждый 16 байт).
-  repeated bytes user_generated_ids = 2;     // Массив userGeneratedID (каждый 16 байт).
+	repeated OrderID order_ids = 1;            // Массив orderID (каждый 16 байт)
 }
 
 // OrderCancelAllPayload - для ORD_CANCEL_ALL (opCode 0x66).
-// Payload пустой, но для oneof нужно сообщение (может быть empty).
-message OrderCancelAllPayload {}
+message OrderCancelAllPayload {
+	bytes payload = 1; // 1 байт, default пустой
+}
 
 // OrderCancelReplacePayload - для ORD_CANCEL_REPLACE (opCode 0x6A).
 message OrderCancelReplacePayload {
-  // Сначала отмена.
-  oneof cancel_id_type {
-    OrderID order_id = 1;
-    bytes user_generated_id = 2;
-  }
+  OrderID 		order_id 	= 1;	// OrderID - 16 байт, UUIDv7
   // Затем создание нового (аналогично OrderCreatePayload).
-  bool is_buy = 3;
-  bool is_market = 4;
-  uint64 quantity = 5;
-  uint64 price = 6;
-  uint32 flags = 7;
-  bytes new_user_generated_id = 8; // Опционально для нового ордера.
+  bool 			is_buy 		= 2;	// Buy/Sell side.
+  bool 			is_market 	= 3;	// true: рыночный ордер, false: лимитный.
+  uint64 		quantity 	= 4;	// Объем в base units.
+  uint64 		price 		= 5;	// Цена в quote units (игнорируется для market).
+  uint32 		flags 		= 6;	// Флаги: битовые (e.g., bit0: GTD, bit1: IOC, etc.). Определите маску в коде.
+  optional OrderID new_order_id 		= 7; 	// Опционально для нового ордера.
 }
 
 // OrderAmendPayload - для ORD_AMEND (opCode 0x6B).
 message OrderAmendPayload {
-  oneof id_type {
-    OrderID order_id = 1;
-    bytes user_generated_id = 2;
-  }
+  OrderID 		order_id 	= 1;	// OrderID - 16 байт, UUIDv7
   // Изменяемые поля (опционально, если не указано - не менять).
-  optional uint64 new_quantity = 3;
-  optional uint64 new_price = 4;
+  optional uint64 quantity 	= 2;
+  optional uint64 price 	= 3;
 }
 
 // OrderAmendBatchPayload - для ORD_AMEND_BATCH (opCode 0x6C).
 // Для каждого ордера: ID + изменения.
 message OrderAmendBatchPayload {
   message AmendItem {
-    oneof id_type {
-      OrderID order_id = 1;
-      bytes user_generated_id = 2;
-    }
-    optional uint64 new_quantity = 3;
-    optional uint64 new_price = 4;
+    OrderID 		order_id 	= 1;	// OrderID - 16 байт, UUIDv7
+    optional uint64 quantity 	= 2;
+    optional uint64 price 		= 3;
   }
   repeated AmendItem amends = 1;
 }

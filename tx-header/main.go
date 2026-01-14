@@ -12,7 +12,8 @@ import (
 	"time"
 	"io"
 	"path/filepath"
-
+	
+	"github.com/google/uuid"
 	"tx-generator/tx"
 	"google.golang.org/protobuf/proto"
 	
@@ -30,11 +31,11 @@ type DecompressionFunc func(compressed []byte, dict []byte) ([]byte, error)
 
 func main() {
 	var zstdDict []byte
-	if data, err := os.ReadFile("./dictionary_v6.zstd"); err == nil {
+	if data, err := os.ReadFile("./dictionary_v7.zstd"); err == nil {
 		zstdDict = data
-		fmt.Println("Словарь zstd_v6 загружен:", len(zstdDict), "байт")
+		fmt.Println("Словарь zstd_v7 загружен:", len(zstdDict), "байт")
 	} else {
-		fmt.Println("Словарь zstd_v6 не найден — сжимаем без него")
+		fmt.Println("Словарь zstd_v7 не найден — сжимаем без него")
 	}
 
 
@@ -72,6 +73,9 @@ func main() {
 	for opCode, count := range txCounts {
 		for i := 0; i < count; i++ {
 			u := users[mrand.Intn(len(users))]
+			
+			// Текущий таймстемп
+			now := uint64(time.Now().Unix())
 
 			header := &tx.TransactionHeader{
 				ChainVersion:    0x01000001,
@@ -84,8 +88,8 @@ func main() {
 				MarketCode:      randomUint32(),
 				SignerUid:       u.uid,
 				Nonce:           u.nonce,
-				MinHeight:       0,
-				MaxHeight:       0,
+				MinHeight:       now - 5, // now - 5
+				MaxHeight:       now + 5, // now + 5
 				Signature:       make([]byte, 64), // placeholder
 			}
 
@@ -110,100 +114,88 @@ func main() {
 					price = uint64(mrand.Intn(100000) + 1000)
 				}
 				p := &tx.OrderCreatePayload{
+					OrderId:  		 genUUIDv7(),
 					IsBuy:           mrand.Intn(2) == 0,
 					IsMarket:        isMarket,
 					Quantity:        uint64(mrand.Intn(10000) + 100),
 					Price:           price,
 					Flags:           uint32(mrand.Intn(16)),
-					UserGeneratedId: randomBytes(16),
 				}
 				realPayload = p
 				txx.Payload = &tx.Transaction_OrderCreate{OrderCreate: p}
 
 			case 0x64: // ORD_CANCEL
-				p := &tx.OrderCancelPayload{}
-				if mrand.Intn(2) == 0 {
-					p.IdType = &tx.OrderCancelPayload_OrderId{OrderId: &tx.OrderID{Id: randomBytes(16)}}
-				} else {
-					p.IdType = &tx.OrderCancelPayload_UserGeneratedId{UserGeneratedId: randomBytes(16)}
+				p := &tx.OrderCancelPayload{
+					OrderId: genUUIDv7(),
 				}
 				realPayload = p
 				txx.Payload = &tx.Transaction_OrderCancel{OrderCancel: p}
 
 			case 0x65: // ORD_CANCEL_BATCH
 				p := &tx.OrderCancelBatchPayload{}
-				for j := 0; j < mrand.Intn(5)+1; j++ {
-					p.OrderIds = append(p.OrderIds, &tx.OrderID{Id: randomBytes(16)})
-				}
-				for j := 0; j < mrand.Intn(4); j++ {
-					p.UserGeneratedIds = append(p.UserGeneratedIds, randomBytes(16))
+				count := mrand.Intn(5) + 1
+				for j := 0; j < count; j++ {
+					p.OrderIds = append(p.OrderIds, genUUIDv7())
 				}
 				realPayload = p
 				txx.Payload = &tx.Transaction_OrderCancelBatch{OrderCancelBatch: p}
 
 			case 0x66: // ORD_CANCEL_ALL
-				p := &tx.OrderCancelAllPayload{}
+				p := &tx.OrderCancelAllPayload{Payload: []byte{0x00}}
 				realPayload = p
 				txx.Payload = &tx.Transaction_OrderCancelAll{OrderCancelAll: p}
 
 			case 0x6A: // ORD_CANCEL_REPLACE
-				p := &tx.OrderCancelReplacePayload{}
-				if mrand.Intn(2) == 0 {
-					p.CancelIdType = &tx.OrderCancelReplacePayload_OrderId{OrderId: &tx.OrderID{Id: randomBytes(16)}}
-				} else {
-					p.CancelIdType = &tx.OrderCancelReplacePayload_UserGeneratedId{UserGeneratedId: randomBytes(16)}
+				p := &tx.OrderCancelReplacePayload{
+					OrderId:    genUUIDv7(), // ID отменяемого ордера
+					IsBuy:      mrand.Intn(2) == 0,
+					IsMarket:   mrand.Intn(2) == 0,
+					Quantity:   uint64(mrand.Intn(10000) + 100),
+					Price:      uint64(mrand.Intn(100000) + 1000),
+					Flags:      uint32(mrand.Intn(16)),
+					NewOrderId: genUUIDv7(), // ID нового ордера
 				}
-				p.IsBuy = mrand.Intn(2) == 0
-				p.IsMarket = mrand.Intn(2) == 0
-				p.Quantity = uint64(mrand.Intn(10000) + 100)
-				p.Price = uint64(mrand.Intn(100000) + 1000)
-				p.Flags = uint32(mrand.Intn(16))
-				p.NewUserGeneratedId = randomBytes(16)
 				realPayload = p
 				txx.Payload = &tx.Transaction_OrderCancelReplace{OrderCancelReplace: p}
 
 			case 0x6B: // ORD_AMEND
-				p := &tx.OrderAmendPayload{}
-				if mrand.Intn(2) == 0 {
-					p.IdType = &tx.OrderAmendPayload_OrderId{OrderId: &tx.OrderID{Id: randomBytes(16)}}
-				} else {
-					p.IdType = &tx.OrderAmendPayload_UserGeneratedId{UserGeneratedId: randomBytes(16)}
+				p := &tx.OrderAmendPayload{
+					OrderId: genUUIDv7(),
 				}
+				
 				if mrand.Intn(2) == 0 {
 					q := uint64(mrand.Intn(10000) + 100)
-					p.NewQuantity = &q
+					p.Quantity = &q
 				}
 				if mrand.Intn(2) == 0 {
 					pr := uint64(mrand.Intn(100000) + 1000)
-					p.NewPrice = &pr
+					p.Price = &pr
 				}
-				if p.NewQuantity == nil && p.NewPrice == nil {
+				if p.Quantity == nil && p.Price == nil {
 					q := uint64(mrand.Intn(10000) + 100)
-					p.NewQuantity = &q
+					p.Quantity = &q
 				}
 				realPayload = p
 				txx.Payload = &tx.Transaction_OrderAmend{OrderAmend: p}
 
 			case 0x6C: // ORD_AMEND_BATCH
 				p := &tx.OrderAmendBatchPayload{}
-				for j := 0; j < mrand.Intn(3)+1; j++ {
-					item := &tx.OrderAmendBatchPayload_AmendItem{}
-					if mrand.Intn(2) == 0 {
-						item.IdType = &tx.OrderAmendBatchPayload_AmendItem_OrderId{OrderId: &tx.OrderID{Id: randomBytes(16)}}
-					} else {
-						item.IdType = &tx.OrderAmendBatchPayload_AmendItem_UserGeneratedId{UserGeneratedId: randomBytes(16)}
+				count := mrand.Intn(3) + 1
+				for j := 0; j < count; j++ {
+					item := &tx.OrderAmendBatchPayload_AmendItem{
+						OrderId: genUUIDv7(),
 					}
 					if mrand.Intn(2) == 0 {
 						q := uint64(mrand.Intn(10000) + 100)
-						item.NewQuantity = &q
+						item.Quantity = &q
 					}
 					if mrand.Intn(2) == 0 {
 						pr := uint64(mrand.Intn(100000) + 1000)
-						item.NewPrice = &pr
+						item.Price = &pr
 					}
-					if item.NewQuantity == nil && item.NewPrice == nil {
+					if item.Quantity == nil && item.Price == nil {
 						q := uint64(mrand.Intn(10000) + 100)
-						item.NewQuantity = &q
+						item.Quantity = &q
 					}
 					p.Amends = append(p.Amends, item)
 				}
@@ -273,15 +265,15 @@ func main() {
 	}
 
 	fmt.Printf("Сгенерировано %d транзакций → txs.bin\n", len(allTxBytes))
-/*	
+/**	Раскоментировать для генерации обучающего словаря 
 	// Генерация чанков для создания словарей для zstd
 	// Сохраняем по 10 транзакций в файл в папку blocks/
-	err2 := SplitAndSaveTxBlocks(allTxBytes, "samples3", "tx_")
+	err2 := SplitAndSaveTxBlocks(allTxBytes, "samples4", "tx_")
 	if err2 != nil {
 		fmt.Printf("Ошибка при разбиении на блоки: %v\n", err2)
 		os.Exit(1)
 	}
-*/	
+**/	
 	
 	
 	// Сжатие разными алгоритмами
@@ -295,6 +287,16 @@ func main() {
 // ──────────────────────────────────────────────────────────────
 // Helpers
 // ──────────────────────────────────────────────────────────────
+// genUUIDv7 генерирует новый UUIDv7 и возвращает его в формате *tx.OrderID
+func genUUIDv7() *tx.OrderID {
+	id, err := uuid.NewV7()
+	if err != nil {
+		panic(fmt.Sprintf("failed to generate uuidv7: %v", err))
+	}
+	idBytes := id[:] // [16]byte -> []byte
+	return &tx.OrderID{Id: idBytes}
+}
+
 
 func randomUint32() uint32 {
 	for {
@@ -578,5 +580,7 @@ func gzipDecompress(compressed []byte, dict []byte) ([]byte, error) {
 // zstd --train --maxdict=131072 --train-cover=k=32,d=8,steps=256 txs_pretrain.bin -o dictionary.zstd
 
 // zstd --train --maxdict=131072 --train-cover=k=32,d=8,steps=256 tx_* -o ../dictionary_v4.zstd
+
+// zstd --train --maxdict=131072 --train-cover=k=32,d=8,steps=256 tx_* -o ../dictionary_v7.zstd
 
 // 1048576
