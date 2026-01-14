@@ -781,12 +781,12 @@ type OrderCancelReplacePayload struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
 	OrderId *OrderID               `protobuf:"bytes,1,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"` // OrderID - 16 байт, UUIDv7
 	// Затем создание нового (аналогично OrderCreatePayload).
-	IsBuy         bool     `protobuf:"varint,2,opt,name=is_buy,json=isBuy,proto3" json:"is_buy,omitempty"`                       // Buy/Sell side.
-	IsMarket      bool     `protobuf:"varint,3,opt,name=is_market,json=isMarket,proto3" json:"is_market,omitempty"`              // true: рыночный ордер, false: лимитный.
-	Quantity      uint64   `protobuf:"varint,4,opt,name=quantity,proto3" json:"quantity,omitempty"`                              // Объем в base units.
-	Price         uint64   `protobuf:"varint,5,opt,name=price,proto3" json:"price,omitempty"`                                    // Цена в quote units (игнорируется для market).
-	Flags         uint32   `protobuf:"varint,6,opt,name=flags,proto3" json:"flags,omitempty"`                                    // Флаги: битовые (e.g., bit0: GTD, bit1: IOC, etc.). Определите маску в коде.
-	NewOrderId    *OrderID `protobuf:"bytes,7,opt,name=new_order_id,json=newOrderId,proto3,oneof" json:"new_order_id,omitempty"` // Опционально для нового ордера.
+	IsBuy         bool     `protobuf:"varint,2,opt,name=is_buy,json=isBuy,proto3" json:"is_buy,omitempty"`                 // Buy/Sell side.
+	IsMarket      bool     `protobuf:"varint,3,opt,name=is_market,json=isMarket,proto3" json:"is_market,omitempty"`        // true: рыночный ордер, false: лимитный.
+	Quantity      uint64   `protobuf:"varint,4,opt,name=quantity,proto3" json:"quantity,omitempty"`                        // Объем в base units.
+	Price         uint64   `protobuf:"varint,5,opt,name=price,proto3" json:"price,omitempty"`                              // Цена в quote units (игнорируется для market).
+	Flags         uint32   `protobuf:"varint,6,opt,name=flags,proto3" json:"flags,omitempty"`                              // Флаги: битовые (e.g., bit0: GTD, bit1: IOC, etc.). Определите маску в коде.
+	NewOrderId    *OrderID `protobuf:"bytes,7,opt,name=new_order_id,json=newOrderId,proto3" json:"new_order_id,omitempty"` // Новый ордер
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1094,17 +1094,16 @@ const file_tx_proto_rawDesc = "" +
 	"\x17OrderCancelBatchPayload\x12(\n" +
 	"\torder_ids\x18\x01 \x03(\v2\v.tx.OrderIDR\borderIds\"1\n" +
 	"\x15OrderCancelAllPayload\x12\x18\n" +
-	"\apayload\x18\x01 \x01(\fR\apayload\"\x84\x02\n" +
+	"\apayload\x18\x01 \x01(\fR\apayload\"\xee\x01\n" +
 	"\x19OrderCancelReplacePayload\x12&\n" +
 	"\border_id\x18\x01 \x01(\v2\v.tx.OrderIDR\aorderId\x12\x15\n" +
 	"\x06is_buy\x18\x02 \x01(\bR\x05isBuy\x12\x1b\n" +
 	"\tis_market\x18\x03 \x01(\bR\bisMarket\x12\x1a\n" +
 	"\bquantity\x18\x04 \x01(\x04R\bquantity\x12\x14\n" +
 	"\x05price\x18\x05 \x01(\x04R\x05price\x12\x14\n" +
-	"\x05flags\x18\x06 \x01(\rR\x05flags\x122\n" +
-	"\fnew_order_id\x18\a \x01(\v2\v.tx.OrderIDH\x00R\n" +
-	"newOrderId\x88\x01\x01B\x0f\n" +
-	"\r_new_order_id\"\x8e\x01\n" +
+	"\x05flags\x18\x06 \x01(\rR\x05flags\x12-\n" +
+	"\fnew_order_id\x18\a \x01(\v2\v.tx.OrderIDR\n" +
+	"newOrderId\"\x8e\x01\n" +
 	"\x11OrderAmendPayload\x12&\n" +
 	"\border_id\x18\x01 \x01(\v2\v.tx.OrderIDR\aorderId\x12\x1f\n" +
 	"\bquantity\x18\x02 \x01(\x04H\x00R\bquantity\x88\x01\x01\x12\x19\n" +
@@ -1190,7 +1189,6 @@ func file_tx_proto_init() {
 		(*Transaction_OrderAmend)(nil),
 		(*Transaction_OrderAmendBatch)(nil),
 	}
-	file_tx_proto_msgTypes[9].OneofWrappers = []any{}
 	file_tx_proto_msgTypes[10].OneofWrappers = []any{}
 	file_tx_proto_msgTypes[12].OneofWrappers = []any{}
 	type x struct{}

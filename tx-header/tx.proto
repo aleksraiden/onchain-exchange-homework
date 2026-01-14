@@ -166,7 +166,7 @@ message OrderCancelReplacePayload {
   uint64 		quantity 	= 4;	// Объем в base units.
   uint64 		price 		= 5;	// Цена в quote units (игнорируется для market).
   uint32 		flags 		= 6;	// Флаги: битовые (e.g., bit0: GTD, bit1: IOC, etc.). Определите маску в коде.
-  optional OrderID new_order_id 		= 7; 	// Опционально для нового ордера.
+  OrderID 		new_order_id 		= 7; 	// Новый ордер
 }
 
 // OrderAmendPayload - для ORD_AMEND (opCode 0x6B).
