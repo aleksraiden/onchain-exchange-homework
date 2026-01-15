@@ -4,6 +4,20 @@ package tx;
 
 option go_package = "/tx";
 
+//Тип сети 
+enum ChainType {
+	DEVNET			= 0;
+	TESTNET			= 1;
+	PUBLIC_TESTNET  = 2;
+	MAINNET_V1		= 3;
+	MAINNET_V2		= 4;
+	MAINNET_V3		= 5;
+	DARKNET			= 6;
+	
+	CI_AUTOTEST		= 7;
+	LOCALNET		= 8;	
+}
+
 //Спецификация вариантов аутенфикации транзакции 
 enum TxAuthType {
   UID 				= 0;	//внутренний UID 
@@ -156,67 +170,50 @@ enum OpCode {
 
 // TransactionHeader defines the header for a transaction.
 message TransactionHeader {
-  // chainVersion determines the network and code version.
-  // First byte: network (devnet, testnet, mainnet, etc.)
-  // Bytes 2-4: code version
-  // Reserved: 0x0 and 0xFFFFFFFF
-  uint32 chain_version = 1;
+  ChainType chain_type = 1;
+  
+  // chainVersion determines the code version.
+  uint32 chain_version = 2;
 
   // opCode is the command code.
-  //uint32 op_code = 2;
-  OpCode 	op_code = 2;
+  OpCode 	op_code = 3;
 
   // authType determines the transaction authorization method.
-  // 0x0: UID (default, most common)
-  // 0x1: public key (ed25519)
-  // 0x2: multisig (public keys and signatories in payload)
-  // 0x3: other possible methods
-  // Reserved: 0xFF
-  //uint32 auth_type = 5;
-  TxAuthType auth_type = 3;
+  TxAuthType auth_type = 4;
 
   // executionMode determines the execution mode and lifetime.
-  // 0x00: default, execute in normal mode
-  // 0x01: execute immediately, but before validBefore Height
-  // 0x02: execute only in current block
-  // 0x03: priority immediate execution, even if other txs
-  // 0x04: execute strictly in next block
-  // 0x05–0xFF: reserved
-  //uint32 execution_mode = 6;
-  TxExecMode execution_mode = 4;
+  TxExecMode execution_mode = 5;
 
   // marketCode defines the market
   // Default: 0x0 (global chain operation)
-  Markets market_code = 5;
+  Markets market_code = 6;
   
   //И теперь отдельно код торговой пары  
-  uint32 market_symbol = 6;
+  uint32 market_symbol = 7;
 
   // signerUID is the internal user UID of the signer.
-  // 0x0 if authType > 0
-  uint64 signer_uid = 7;
+  uint64 signer_uid = 8;
 
   // nonce is the account nonce (0 allowed for some service commands).
-  uint64 nonce = 8;
+  uint64 nonce = 9;
 
   // minHeight or lastKnownHeight: last known block height by sender.
   // Tx discarded if current height is lower.
   // Default: 0x0
-  uint64 min_height = 9;
+  uint64 min_height = 10;
 
   // maxHeight or validBeforeHeight: height until tx is valid.
   // Default: 0x0
-  uint64 max_height = 10;
+  uint64 max_height = 11;
 
   // signature is the ed25519 signature. 
   // Опционально (для батча), но так как это bytes нет нужды указывать optional
-  bytes signature = 11; // Fixed 64 bytes
+  bytes signature = 12; // Fixed 64 bytes
 }
 
 // BatchedTransactionHeader defines the small header for a transaction, grouped at batch ONLY!
 message BatchedTransactionHeader {
   // opCode is the command code.
-  //uint32 op_code = 1;
   OpCode   op_code = 1;
 
   // marketCode defines the market

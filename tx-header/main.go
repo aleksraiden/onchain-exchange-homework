@@ -77,7 +77,8 @@ func main() {
 			now := uint64(time.Now().Unix())
 
 			header := &tx.TransactionHeader{
-				ChainVersion:    0x01000001,
+				ChainType:		 tx.ChainType_LOCALNET,
+				ChainVersion:    1,
 				OpCode:          opCode,
 				AuthType:        tx.TxAuthType_UID,
 				ExecutionMode:   tx.TxExecMode_DEFAULT,

@@ -642,7 +642,8 @@ func createHeader(opCode tx.OpCode, marketSymbol uint32) *tx.TransactionHeader {
 	now := uint64(time.Now().Unix())
 	
 	return &tx.TransactionHeader{
-		ChainVersion: 0x01000001,
+		ChainType:	  tx.ChainType_LOCALNET,
+		ChainVersion: 1,
 		OpCode:       opCode,
 		AuthType:     tx.TxAuthType_UID,
 		SignerUid:    signerUID,

@@ -21,6 +21,74 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Тип сети
+type ChainType int32
+
+const (
+	ChainType_DEVNET         ChainType = 0
+	ChainType_TESTNET        ChainType = 1
+	ChainType_PUBLIC_TESTNET ChainType = 2
+	ChainType_MAINNET_V1     ChainType = 3
+	ChainType_MAINNET_V2     ChainType = 4
+	ChainType_MAINNET_V3     ChainType = 5
+	ChainType_DARKNET        ChainType = 6
+	ChainType_CI_AUTOTEST    ChainType = 7
+	ChainType_LOCALNET       ChainType = 8
+)
+
+// Enum value maps for ChainType.
+var (
+	ChainType_name = map[int32]string{
+		0: "DEVNET",
+		1: "TESTNET",
+		2: "PUBLIC_TESTNET",
+		3: "MAINNET_V1",
+		4: "MAINNET_V2",
+		5: "MAINNET_V3",
+		6: "DARKNET",
+		7: "CI_AUTOTEST",
+		8: "LOCALNET",
+	}
+	ChainType_value = map[string]int32{
+		"DEVNET":         0,
+		"TESTNET":        1,
+		"PUBLIC_TESTNET": 2,
+		"MAINNET_V1":     3,
+		"MAINNET_V2":     4,
+		"MAINNET_V3":     5,
+		"DARKNET":        6,
+		"CI_AUTOTEST":    7,
+		"LOCALNET":       8,
+	}
+)
+
+func (x ChainType) Enum() *ChainType {
+	p := new(ChainType)
+	*p = x
+	return p
+}
+
+func (x ChainType) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ChainType) Descriptor() protoreflect.EnumDescriptor {
+	return file_tx_proto_enumTypes[0].Descriptor()
+}
+
+func (ChainType) Type() protoreflect.EnumType {
+	return &file_tx_proto_enumTypes[0]
+}
+
+func (x ChainType) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ChainType.Descriptor instead.
+func (ChainType) EnumDescriptor() ([]byte, []int) {
+	return file_tx_proto_rawDescGZIP(), []int{0}
+}
+
 // Спецификация вариантов аутенфикации транзакции
 type TxAuthType int32
 
@@ -67,11 +135,11 @@ func (x TxAuthType) String() string {
 }
 
 func (TxAuthType) Descriptor() protoreflect.EnumDescriptor {
-	return file_tx_proto_enumTypes[0].Descriptor()
+	return file_tx_proto_enumTypes[1].Descriptor()
 }
 
 func (TxAuthType) Type() protoreflect.EnumType {
-	return &file_tx_proto_enumTypes[0]
+	return &file_tx_proto_enumTypes[1]
 }
 
 func (x TxAuthType) Number() protoreflect.EnumNumber {
@@ -80,7 +148,7 @@ func (x TxAuthType) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use TxAuthType.Descriptor instead.
 func (TxAuthType) EnumDescriptor() ([]byte, []int) {
-	return file_tx_proto_rawDescGZIP(), []int{0}
+	return file_tx_proto_rawDescGZIP(), []int{1}
 }
 
 // Определяет режим исполнения транзакции и время ее жизни
@@ -123,11 +191,11 @@ func (x TxExecMode) String() string {
 }
 
 func (TxExecMode) Descriptor() protoreflect.EnumDescriptor {
-	return file_tx_proto_enumTypes[1].Descriptor()
+	return file_tx_proto_enumTypes[2].Descriptor()
 }
 
 func (TxExecMode) Type() protoreflect.EnumType {
-	return &file_tx_proto_enumTypes[1]
+	return &file_tx_proto_enumTypes[2]
 }
 
 func (x TxExecMode) Number() protoreflect.EnumNumber {
@@ -136,7 +204,7 @@ func (x TxExecMode) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use TxExecMode.Descriptor instead.
 func (TxExecMode) EnumDescriptor() ([]byte, []int) {
-	return file_tx_proto_rawDescGZIP(), []int{1}
+	return file_tx_proto_rawDescGZIP(), []int{2}
 }
 
 // Опишем рынки
@@ -200,11 +268,11 @@ func (x Markets) String() string {
 }
 
 func (Markets) Descriptor() protoreflect.EnumDescriptor {
-	return file_tx_proto_enumTypes[2].Descriptor()
+	return file_tx_proto_enumTypes[3].Descriptor()
 }
 
 func (Markets) Type() protoreflect.EnumType {
-	return &file_tx_proto_enumTypes[2]
+	return &file_tx_proto_enumTypes[3]
 }
 
 func (x Markets) Number() protoreflect.EnumNumber {
@@ -213,7 +281,7 @@ func (x Markets) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use Markets.Descriptor instead.
 func (Markets) EnumDescriptor() ([]byte, []int) {
-	return file_tx_proto_rawDescGZIP(), []int{2}
+	return file_tx_proto_rawDescGZIP(), []int{3}
 }
 
 // Опишем все наши команды
@@ -511,11 +579,11 @@ func (x OpCode) String() string {
 }
 
 func (OpCode) Descriptor() protoreflect.EnumDescriptor {
-	return file_tx_proto_enumTypes[3].Descriptor()
+	return file_tx_proto_enumTypes[4].Descriptor()
 }
 
 func (OpCode) Type() protoreflect.EnumType {
-	return &file_tx_proto_enumTypes[3]
+	return &file_tx_proto_enumTypes[4]
 }
 
 func (x OpCode) Number() protoreflect.EnumNumber {
@@ -524,7 +592,7 @@ func (x OpCode) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use OpCode.Descriptor instead.
 func (OpCode) EnumDescriptor() ([]byte, []int) {
-	return file_tx_proto_rawDescGZIP(), []int{3}
+	return file_tx_proto_rawDescGZIP(), []int{4}
 }
 
 // Группируем флаги в enum-ы
@@ -558,11 +626,11 @@ func (x Side) String() string {
 }
 
 func (Side) Descriptor() protoreflect.EnumDescriptor {
-	return file_tx_proto_enumTypes[4].Descriptor()
+	return file_tx_proto_enumTypes[5].Descriptor()
 }
 
 func (Side) Type() protoreflect.EnumType {
-	return &file_tx_proto_enumTypes[4]
+	return &file_tx_proto_enumTypes[5]
 }
 
 func (x Side) Number() protoreflect.EnumNumber {
@@ -571,7 +639,7 @@ func (x Side) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use Side.Descriptor instead.
 func (Side) EnumDescriptor() ([]byte, []int) {
-	return file_tx_proto_rawDescGZIP(), []int{4}
+	return file_tx_proto_rawDescGZIP(), []int{5}
 }
 
 // Тип ордера
@@ -617,11 +685,11 @@ func (x OrderType) String() string {
 }
 
 func (OrderType) Descriptor() protoreflect.EnumDescriptor {
-	return file_tx_proto_enumTypes[5].Descriptor()
+	return file_tx_proto_enumTypes[6].Descriptor()
 }
 
 func (OrderType) Type() protoreflect.EnumType {
-	return &file_tx_proto_enumTypes[5]
+	return &file_tx_proto_enumTypes[6]
 }
 
 func (x OrderType) Number() protoreflect.EnumNumber {
@@ -630,7 +698,7 @@ func (x OrderType) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use OrderType.Descriptor instead.
 func (OrderType) EnumDescriptor() ([]byte, []int) {
-	return file_tx_proto_rawDescGZIP(), []int{5}
+	return file_tx_proto_rawDescGZIP(), []int{6}
 }
 
 // Спецификация исполнения
@@ -667,11 +735,11 @@ func (x TimeInForce) String() string {
 }
 
 func (TimeInForce) Descriptor() protoreflect.EnumDescriptor {
-	return file_tx_proto_enumTypes[6].Descriptor()
+	return file_tx_proto_enumTypes[7].Descriptor()
 }
 
 func (TimeInForce) Type() protoreflect.EnumType {
-	return &file_tx_proto_enumTypes[6]
+	return &file_tx_proto_enumTypes[7]
 }
 
 func (x TimeInForce) Number() protoreflect.EnumNumber {
@@ -680,7 +748,7 @@ func (x TimeInForce) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use TimeInForce.Descriptor instead.
 func (TimeInForce) EnumDescriptor() ([]byte, []int) {
-	return file_tx_proto_rawDescGZIP(), []int{6}
+	return file_tx_proto_rawDescGZIP(), []int{7}
 }
 
 // Спецификация Trigger-price
@@ -720,11 +788,11 @@ func (x TriggerPrice) String() string {
 }
 
 func (TriggerPrice) Descriptor() protoreflect.EnumDescriptor {
-	return file_tx_proto_enumTypes[7].Descriptor()
+	return file_tx_proto_enumTypes[8].Descriptor()
 }
 
 func (TriggerPrice) Type() protoreflect.EnumType {
-	return &file_tx_proto_enumTypes[7]
+	return &file_tx_proto_enumTypes[8]
 }
 
 func (x TriggerPrice) Number() protoreflect.EnumNumber {
@@ -733,57 +801,40 @@ func (x TriggerPrice) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use TriggerPrice.Descriptor instead.
 func (TriggerPrice) EnumDescriptor() ([]byte, []int) {
-	return file_tx_proto_rawDescGZIP(), []int{7}
+	return file_tx_proto_rawDescGZIP(), []int{8}
 }
 
 // TransactionHeader defines the header for a transaction.
 type TransactionHeader struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// chainVersion determines the network and code version.
-	// First byte: network (devnet, testnet, mainnet, etc.)
-	// Bytes 2-4: code version
-	// Reserved: 0x0 and 0xFFFFFFFF
-	ChainVersion uint32 `protobuf:"varint,1,opt,name=chain_version,json=chainVersion,proto3" json:"chain_version,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	ChainType ChainType              `protobuf:"varint,1,opt,name=chain_type,json=chainType,proto3,enum=tx.ChainType" json:"chain_type,omitempty"`
+	// chainVersion determines the code version.
+	ChainVersion uint32 `protobuf:"varint,2,opt,name=chain_version,json=chainVersion,proto3" json:"chain_version,omitempty"`
 	// opCode is the command code.
-	// uint32 op_code = 2;
-	OpCode OpCode `protobuf:"varint,2,opt,name=op_code,json=opCode,proto3,enum=tx.OpCode" json:"op_code,omitempty"`
+	OpCode OpCode `protobuf:"varint,3,opt,name=op_code,json=opCode,proto3,enum=tx.OpCode" json:"op_code,omitempty"`
 	// authType determines the transaction authorization method.
-	// 0x0: UID (default, most common)
-	// 0x1: public key (ed25519)
-	// 0x2: multisig (public keys and signatories in payload)
-	// 0x3: other possible methods
-	// Reserved: 0xFF
-	// uint32 auth_type = 5;
-	AuthType TxAuthType `protobuf:"varint,3,opt,name=auth_type,json=authType,proto3,enum=tx.TxAuthType" json:"auth_type,omitempty"`
+	AuthType TxAuthType `protobuf:"varint,4,opt,name=auth_type,json=authType,proto3,enum=tx.TxAuthType" json:"auth_type,omitempty"`
 	// executionMode determines the execution mode and lifetime.
-	// 0x00: default, execute in normal mode
-	// 0x01: execute immediately, but before validBefore Height
-	// 0x02: execute only in current block
-	// 0x03: priority immediate execution, even if other txs
-	// 0x04: execute strictly in next block
-	// 0x05–0xFF: reserved
-	// uint32 execution_mode = 6;
-	ExecutionMode TxExecMode `protobuf:"varint,4,opt,name=execution_mode,json=executionMode,proto3,enum=tx.TxExecMode" json:"execution_mode,omitempty"`
+	ExecutionMode TxExecMode `protobuf:"varint,5,opt,name=execution_mode,json=executionMode,proto3,enum=tx.TxExecMode" json:"execution_mode,omitempty"`
 	// marketCode defines the market
 	// Default: 0x0 (global chain operation)
-	MarketCode Markets `protobuf:"varint,5,opt,name=market_code,json=marketCode,proto3,enum=tx.Markets" json:"market_code,omitempty"`
+	MarketCode Markets `protobuf:"varint,6,opt,name=market_code,json=marketCode,proto3,enum=tx.Markets" json:"market_code,omitempty"`
 	// И теперь отдельно код торговой пары
-	MarketSymbol uint32 `protobuf:"varint,6,opt,name=market_symbol,json=marketSymbol,proto3" json:"market_symbol,omitempty"`
+	MarketSymbol uint32 `protobuf:"varint,7,opt,name=market_symbol,json=marketSymbol,proto3" json:"market_symbol,omitempty"`
 	// signerUID is the internal user UID of the signer.
-	// 0x0 if authType > 0
-	SignerUid uint64 `protobuf:"varint,7,opt,name=signer_uid,json=signerUid,proto3" json:"signer_uid,omitempty"`
+	SignerUid uint64 `protobuf:"varint,8,opt,name=signer_uid,json=signerUid,proto3" json:"signer_uid,omitempty"`
 	// nonce is the account nonce (0 allowed for some service commands).
-	Nonce uint64 `protobuf:"varint,8,opt,name=nonce,proto3" json:"nonce,omitempty"`
+	Nonce uint64 `protobuf:"varint,9,opt,name=nonce,proto3" json:"nonce,omitempty"`
 	// minHeight or lastKnownHeight: last known block height by sender.
 	// Tx discarded if current height is lower.
 	// Default: 0x0
-	MinHeight uint64 `protobuf:"varint,9,opt,name=min_height,json=minHeight,proto3" json:"min_height,omitempty"`
+	MinHeight uint64 `protobuf:"varint,10,opt,name=min_height,json=minHeight,proto3" json:"min_height,omitempty"`
 	// maxHeight or validBeforeHeight: height until tx is valid.
 	// Default: 0x0
-	MaxHeight uint64 `protobuf:"varint,10,opt,name=max_height,json=maxHeight,proto3" json:"max_height,omitempty"`
+	MaxHeight uint64 `protobuf:"varint,11,opt,name=max_height,json=maxHeight,proto3" json:"max_height,omitempty"`
 	// signature is the ed25519 signature.
 	// Опционально (для батча), но так как это bytes нет нужды указывать optional
-	Signature     []byte `protobuf:"bytes,11,opt,name=signature,proto3" json:"signature,omitempty"` // Fixed 64 bytes
+	Signature     []byte `protobuf:"bytes,12,opt,name=signature,proto3" json:"signature,omitempty"` // Fixed 64 bytes
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -816,6 +867,13 @@ func (x *TransactionHeader) ProtoReflect() protoreflect.Message {
 // Deprecated: Use TransactionHeader.ProtoReflect.Descriptor instead.
 func (*TransactionHeader) Descriptor() ([]byte, []int) {
 	return file_tx_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *TransactionHeader) GetChainType() ChainType {
+	if x != nil {
+		return x.ChainType
+	}
+	return ChainType_DEVNET
 }
 
 func (x *TransactionHeader) GetChainVersion() uint32 {
@@ -899,7 +957,6 @@ func (x *TransactionHeader) GetSignature() []byte {
 type BatchedTransactionHeader struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// opCode is the command code.
-	// uint32 op_code = 1;
 	OpCode OpCode `protobuf:"varint,1,opt,name=op_code,json=opCode,proto3,enum=tx.OpCode" json:"op_code,omitempty"`
 	// marketCode defines the market
 	// Default: 0x0 (global chain operation)
@@ -1963,25 +2020,27 @@ var File_tx_proto protoreflect.FileDescriptor
 
 const file_tx_proto_rawDesc = "" +
 	"\n" +
-	"\btx.proto\x12\x02tx\"\xa5\x03\n" +
-	"\x11TransactionHeader\x12#\n" +
-	"\rchain_version\x18\x01 \x01(\rR\fchainVersion\x12#\n" +
-	"\aop_code\x18\x02 \x01(\x0e2\n" +
+	"\btx.proto\x12\x02tx\"\xd3\x03\n" +
+	"\x11TransactionHeader\x12,\n" +
+	"\n" +
+	"chain_type\x18\x01 \x01(\x0e2\r.tx.ChainTypeR\tchainType\x12#\n" +
+	"\rchain_version\x18\x02 \x01(\rR\fchainVersion\x12#\n" +
+	"\aop_code\x18\x03 \x01(\x0e2\n" +
 	".tx.OpCodeR\x06opCode\x12+\n" +
-	"\tauth_type\x18\x03 \x01(\x0e2\x0e.tx.TxAuthTypeR\bauthType\x125\n" +
-	"\x0eexecution_mode\x18\x04 \x01(\x0e2\x0e.tx.TxExecModeR\rexecutionMode\x12,\n" +
-	"\vmarket_code\x18\x05 \x01(\x0e2\v.tx.MarketsR\n" +
+	"\tauth_type\x18\x04 \x01(\x0e2\x0e.tx.TxAuthTypeR\bauthType\x125\n" +
+	"\x0eexecution_mode\x18\x05 \x01(\x0e2\x0e.tx.TxExecModeR\rexecutionMode\x12,\n" +
+	"\vmarket_code\x18\x06 \x01(\x0e2\v.tx.MarketsR\n" +
 	"marketCode\x12#\n" +
-	"\rmarket_symbol\x18\x06 \x01(\rR\fmarketSymbol\x12\x1d\n" +
+	"\rmarket_symbol\x18\a \x01(\rR\fmarketSymbol\x12\x1d\n" +
 	"\n" +
-	"signer_uid\x18\a \x01(\x04R\tsignerUid\x12\x14\n" +
-	"\x05nonce\x18\b \x01(\x04R\x05nonce\x12\x1d\n" +
+	"signer_uid\x18\b \x01(\x04R\tsignerUid\x12\x14\n" +
+	"\x05nonce\x18\t \x01(\x04R\x05nonce\x12\x1d\n" +
 	"\n" +
-	"min_height\x18\t \x01(\x04R\tminHeight\x12\x1d\n" +
+	"min_height\x18\n" +
+	" \x01(\x04R\tminHeight\x12\x1d\n" +
 	"\n" +
-	"max_height\x18\n" +
-	" \x01(\x04R\tmaxHeight\x12\x1c\n" +
-	"\tsignature\x18\v \x01(\fR\tsignature\"\xa8\x01\n" +
+	"max_height\x18\v \x01(\x04R\tmaxHeight\x12\x1c\n" +
+	"\tsignature\x18\f \x01(\fR\tsignature\"\xa8\x01\n" +
 	"\x18BatchedTransactionHeader\x12#\n" +
 	"\aop_code\x18\x01 \x01(\x0e2\n" +
 	".tx.OpCodeR\x06opCode\x12,\n" +
@@ -2068,7 +2127,21 @@ const file_tx_proto_rawDesc = "" +
 	"\x11canceled_order_id\x18\x01 \x01(\v2\v.tx.OrderIDR\x0fcanceledOrderId\x12=\n" +
 	"\x0ereplaced_order\x18\x02 \x01(\v2\x16.tx.OrderCreatePayloadR\rreplacedOrder\":\n" +
 	"\x11OrderAmendPayload\x12%\n" +
-	"\x06amends\x18\x01 \x03(\v2\r.tx.AmendItemR\x06amends*u\n" +
+	"\x06amends\x18\x01 \x03(\v2\r.tx.AmendItemR\x06amends*\x94\x01\n" +
+	"\tChainType\x12\n" +
+	"\n" +
+	"\x06DEVNET\x10\x00\x12\v\n" +
+	"\aTESTNET\x10\x01\x12\x12\n" +
+	"\x0ePUBLIC_TESTNET\x10\x02\x12\x0e\n" +
+	"\n" +
+	"MAINNET_V1\x10\x03\x12\x0e\n" +
+	"\n" +
+	"MAINNET_V2\x10\x04\x12\x0e\n" +
+	"\n" +
+	"MAINNET_V3\x10\x05\x12\v\n" +
+	"\aDARKNET\x10\x06\x12\x0f\n" +
+	"\vCI_AUTOTEST\x10\a\x12\f\n" +
+	"\bLOCALNET\x10\b*u\n" +
 	"\n" +
 	"TxAuthType\x12\a\n" +
 	"\x03UID\x10\x00\x12\v\n" +
@@ -2241,72 +2314,74 @@ func file_tx_proto_rawDescGZIP() []byte {
 	return file_tx_proto_rawDescData
 }
 
-var file_tx_proto_enumTypes = make([]protoimpl.EnumInfo, 8)
+var file_tx_proto_enumTypes = make([]protoimpl.EnumInfo, 9)
 var file_tx_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_tx_proto_goTypes = []any{
-	(TxAuthType)(0),                   // 0: tx.TxAuthType
-	(TxExecMode)(0),                   // 1: tx.TxExecMode
-	(Markets)(0),                      // 2: tx.Markets
-	(OpCode)(0),                       // 3: tx.OpCode
-	(Side)(0),                         // 4: tx.Side
-	(OrderType)(0),                    // 5: tx.OrderType
-	(TimeInForce)(0),                  // 6: tx.TimeInForce
-	(TriggerPrice)(0),                 // 7: tx.TriggerPrice
-	(*TransactionHeader)(nil),         // 8: tx.TransactionHeader
-	(*BatchedTransactionHeader)(nil),  // 9: tx.BatchedTransactionHeader
-	(*Transaction)(nil),               // 10: tx.Transaction
-	(*BatchTransaction)(nil),          // 11: tx.BatchTransaction
-	(*MetaNoopPayload)(nil),           // 12: tx.MetaNoopPayload
-	(*MetaReservePayload)(nil),        // 13: tx.MetaReservePayload
-	(*OrderID)(nil),                   // 14: tx.OrderID
-	(*OrderItem)(nil),                 // 15: tx.OrderItem
-	(*AmendItem)(nil),                 // 16: tx.AmendItem
-	(*MetaBlobPayload)(nil),           // 17: tx.MetaBlobPayload
-	(*MetaBatchPayload)(nil),          // 18: tx.MetaBatchPayload
-	(*OrderCreatePayload)(nil),        // 19: tx.OrderCreatePayload
-	(*OrderCancelPayload)(nil),        // 20: tx.OrderCancelPayload
-	(*OrderCancelAllPayload)(nil),     // 21: tx.OrderCancelAllPayload
-	(*OrderCancelReplacePayload)(nil), // 22: tx.OrderCancelReplacePayload
-	(*OrderAmendPayload)(nil),         // 23: tx.OrderAmendPayload
+	(ChainType)(0),                    // 0: tx.ChainType
+	(TxAuthType)(0),                   // 1: tx.TxAuthType
+	(TxExecMode)(0),                   // 2: tx.TxExecMode
+	(Markets)(0),                      // 3: tx.Markets
+	(OpCode)(0),                       // 4: tx.OpCode
+	(Side)(0),                         // 5: tx.Side
+	(OrderType)(0),                    // 6: tx.OrderType
+	(TimeInForce)(0),                  // 7: tx.TimeInForce
+	(TriggerPrice)(0),                 // 8: tx.TriggerPrice
+	(*TransactionHeader)(nil),         // 9: tx.TransactionHeader
+	(*BatchedTransactionHeader)(nil),  // 10: tx.BatchedTransactionHeader
+	(*Transaction)(nil),               // 11: tx.Transaction
+	(*BatchTransaction)(nil),          // 12: tx.BatchTransaction
+	(*MetaNoopPayload)(nil),           // 13: tx.MetaNoopPayload
+	(*MetaReservePayload)(nil),        // 14: tx.MetaReservePayload
+	(*OrderID)(nil),                   // 15: tx.OrderID
+	(*OrderItem)(nil),                 // 16: tx.OrderItem
+	(*AmendItem)(nil),                 // 17: tx.AmendItem
+	(*MetaBlobPayload)(nil),           // 18: tx.MetaBlobPayload
+	(*MetaBatchPayload)(nil),          // 19: tx.MetaBatchPayload
+	(*OrderCreatePayload)(nil),        // 20: tx.OrderCreatePayload
+	(*OrderCancelPayload)(nil),        // 21: tx.OrderCancelPayload
+	(*OrderCancelAllPayload)(nil),     // 22: tx.OrderCancelAllPayload
+	(*OrderCancelReplacePayload)(nil), // 23: tx.OrderCancelReplacePayload
+	(*OrderAmendPayload)(nil),         // 24: tx.OrderAmendPayload
 }
 var file_tx_proto_depIdxs = []int32{
-	3,  // 0: tx.TransactionHeader.op_code:type_name -> tx.OpCode
-	0,  // 1: tx.TransactionHeader.auth_type:type_name -> tx.TxAuthType
-	1,  // 2: tx.TransactionHeader.execution_mode:type_name -> tx.TxExecMode
-	2,  // 3: tx.TransactionHeader.market_code:type_name -> tx.Markets
-	3,  // 4: tx.BatchedTransactionHeader.op_code:type_name -> tx.OpCode
-	2,  // 5: tx.BatchedTransactionHeader.market_code:type_name -> tx.Markets
-	8,  // 6: tx.Transaction.header:type_name -> tx.TransactionHeader
-	9,  // 7: tx.Transaction.batch_header:type_name -> tx.BatchedTransactionHeader
-	12, // 8: tx.Transaction.meta_noop:type_name -> tx.MetaNoopPayload
-	17, // 9: tx.Transaction.meta_blob:type_name -> tx.MetaBlobPayload
-	13, // 10: tx.Transaction.meta_reserve:type_name -> tx.MetaReservePayload
-	19, // 11: tx.Transaction.order_create:type_name -> tx.OrderCreatePayload
-	20, // 12: tx.Transaction.order_cancel:type_name -> tx.OrderCancelPayload
-	21, // 13: tx.Transaction.order_cancel_all:type_name -> tx.OrderCancelAllPayload
-	22, // 14: tx.Transaction.order_cancel_replace:type_name -> tx.OrderCancelReplacePayload
-	23, // 15: tx.Transaction.order_amend:type_name -> tx.OrderAmendPayload
-	8,  // 16: tx.BatchTransaction.header:type_name -> tx.TransactionHeader
-	10, // 17: tx.BatchTransaction.payload:type_name -> tx.Transaction
-	14, // 18: tx.OrderItem.order_id:type_name -> tx.OrderID
-	4,  // 19: tx.OrderItem.side:type_name -> tx.Side
-	5,  // 20: tx.OrderItem.order_type:type_name -> tx.OrderType
-	6,  // 21: tx.OrderItem.exec_type:type_name -> tx.TimeInForce
-	7,  // 22: tx.OrderItem.stop_price_type:type_name -> tx.TriggerPrice
-	7,  // 23: tx.OrderItem.take_price_type:type_name -> tx.TriggerPrice
-	14, // 24: tx.AmendItem.order_id:type_name -> tx.OrderID
-	7,  // 25: tx.AmendItem.stop_price_type:type_name -> tx.TriggerPrice
-	7,  // 26: tx.AmendItem.take_price_type:type_name -> tx.TriggerPrice
-	15, // 27: tx.OrderCreatePayload.orders:type_name -> tx.OrderItem
-	14, // 28: tx.OrderCancelPayload.order_id:type_name -> tx.OrderID
-	14, // 29: tx.OrderCancelReplacePayload.canceled_order_id:type_name -> tx.OrderID
-	19, // 30: tx.OrderCancelReplacePayload.replaced_order:type_name -> tx.OrderCreatePayload
-	16, // 31: tx.OrderAmendPayload.amends:type_name -> tx.AmendItem
-	32, // [32:32] is the sub-list for method output_type
-	32, // [32:32] is the sub-list for method input_type
-	32, // [32:32] is the sub-list for extension type_name
-	32, // [32:32] is the sub-list for extension extendee
-	0,  // [0:32] is the sub-list for field type_name
+	0,  // 0: tx.TransactionHeader.chain_type:type_name -> tx.ChainType
+	4,  // 1: tx.TransactionHeader.op_code:type_name -> tx.OpCode
+	1,  // 2: tx.TransactionHeader.auth_type:type_name -> tx.TxAuthType
+	2,  // 3: tx.TransactionHeader.execution_mode:type_name -> tx.TxExecMode
+	3,  // 4: tx.TransactionHeader.market_code:type_name -> tx.Markets
+	4,  // 5: tx.BatchedTransactionHeader.op_code:type_name -> tx.OpCode
+	3,  // 6: tx.BatchedTransactionHeader.market_code:type_name -> tx.Markets
+	9,  // 7: tx.Transaction.header:type_name -> tx.TransactionHeader
+	10, // 8: tx.Transaction.batch_header:type_name -> tx.BatchedTransactionHeader
+	13, // 9: tx.Transaction.meta_noop:type_name -> tx.MetaNoopPayload
+	18, // 10: tx.Transaction.meta_blob:type_name -> tx.MetaBlobPayload
+	14, // 11: tx.Transaction.meta_reserve:type_name -> tx.MetaReservePayload
+	20, // 12: tx.Transaction.order_create:type_name -> tx.OrderCreatePayload
+	21, // 13: tx.Transaction.order_cancel:type_name -> tx.OrderCancelPayload
+	22, // 14: tx.Transaction.order_cancel_all:type_name -> tx.OrderCancelAllPayload
+	23, // 15: tx.Transaction.order_cancel_replace:type_name -> tx.OrderCancelReplacePayload
+	24, // 16: tx.Transaction.order_amend:type_name -> tx.OrderAmendPayload
+	9,  // 17: tx.BatchTransaction.header:type_name -> tx.TransactionHeader
+	11, // 18: tx.BatchTransaction.payload:type_name -> tx.Transaction
+	15, // 19: tx.OrderItem.order_id:type_name -> tx.OrderID
+	5,  // 20: tx.OrderItem.side:type_name -> tx.Side
+	6,  // 21: tx.OrderItem.order_type:type_name -> tx.OrderType
+	7,  // 22: tx.OrderItem.exec_type:type_name -> tx.TimeInForce
+	8,  // 23: tx.OrderItem.stop_price_type:type_name -> tx.TriggerPrice
+	8,  // 24: tx.OrderItem.take_price_type:type_name -> tx.TriggerPrice
+	15, // 25: tx.AmendItem.order_id:type_name -> tx.OrderID
+	8,  // 26: tx.AmendItem.stop_price_type:type_name -> tx.TriggerPrice
+	8,  // 27: tx.AmendItem.take_price_type:type_name -> tx.TriggerPrice
+	16, // 28: tx.OrderCreatePayload.orders:type_name -> tx.OrderItem
+	15, // 29: tx.OrderCancelPayload.order_id:type_name -> tx.OrderID
+	15, // 30: tx.OrderCancelReplacePayload.canceled_order_id:type_name -> tx.OrderID
+	20, // 31: tx.OrderCancelReplacePayload.replaced_order:type_name -> tx.OrderCreatePayload
+	17, // 32: tx.OrderAmendPayload.amends:type_name -> tx.AmendItem
+	33, // [33:33] is the sub-list for method output_type
+	33, // [33:33] is the sub-list for method input_type
+	33, // [33:33] is the sub-list for extension type_name
+	33, // [33:33] is the sub-list for extension extendee
+	0,  // [0:33] is the sub-list for field type_name
 }
 
 func init() { file_tx_proto_init() }
@@ -2333,7 +2408,7 @@ func file_tx_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_tx_proto_rawDesc), len(file_tx_proto_rawDesc)),
-			NumEnums:      8,
+			NumEnums:      9,
 			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   0,
