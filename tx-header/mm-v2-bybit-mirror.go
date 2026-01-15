@@ -662,7 +662,12 @@ func buildTx(header *tx.TransactionHeader, payload proto.Message) []byte {
 	}
 	header.PayloadSize = uint32(len(payloadBytes))
 
-	txx := &tx.Transaction{Header: header}
+	//txx := &tx.Transaction{Header: header}
+	txx := &tx.Transaction{
+		HeaderData: &tx.Transaction_Header{
+			Header: header,
+		},
+	}
 
 	switch p := payload.(type) {
 	case *tx.OrderCreatePayload:

@@ -99,7 +99,13 @@ func main() {
 				Signature:       make([]byte, 64), // placeholder
 			}
 
-			txx := &tx.Transaction{Header: header}
+			//txx := &tx.Transaction{Header: header}
+			txx := &tx.Transaction{
+				HeaderData: &tx.Transaction_Header{
+					Header: header,
+				},
+			}
+
 			var realPayload proto.Message // ← сохраняем реальное сообщение для marshal
 
 			switch opCode {

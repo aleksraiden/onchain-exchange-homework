@@ -100,21 +100,44 @@ message TransactionHeader {
   bytes signature = 13; // Fixed 64 bytes
 }
 
+// BatchedTransactionHeader defines the small header for a transaction, grouped at batch ONLY!
+message BatchedTransactionHeader {
+  // payloadSize defines the length of the payload block.
+  // Default: 0x0 (no payload)
+  // Reserved: 0xFFFF
+  // Max size: 65,532 bytes
+  // Total tx size: fixed header size + payload
+  uint32 payload_size = 1;
+
+  // opCode is the command code.
+  uint32 op_code = 2;
+
+  // marketCode defines the market and trading pair.
+  // Default: 0x0 (global chain operation)
+  // First 4 bits: market (spot, perp, futures, options, tradfi, etc.)
+  // Remaining 28 bits: trading pair ID
+  // Reserved: 0xFFFFFFFF
+  fixed32 market_code = 8;
+
+  // nonce is the account nonce (0 allowed for some service commands).
+  uint64 nonce = 10;
+}
+
 
 // Transaction - основное сообщение для полной tx.
 // Состоит из header и payload (oneof для разных типов в зависимости от opCode).
 message Transaction {
-  TransactionHeader header = 1;
+  oneof header_data {
+    TransactionHeader 			header 			= 1;              // Полный заголовок (id=1 для совместимости)
+    BatchedTransactionHeader 	batch_header 	= 2; // Легкий заголовок
+  }
 
   // Payload - oneof для типизированных сообщений.
   // Каждый тип payload соответствует конкретному opCode (валидация в коде).
   // Если payload_size == 0, то oneof пустой (nil в Go).
   oneof payload {
     // META_NOOP (opCode 0x00): Просто 1 пустой байт (например, bytes с нулевым значением).
-    MetaNoopPayload meta_noop = 2;
-	
-	// META_BATCH
-    MetaBatchPayload meta_batch = 3;
+    MetaNoopPayload meta_noop = 3;
 	
 	// META_BLOB - служебная транзакция, произвольный блок который добавляет только пропоусер 
 	MetaBlobPayload meta_blob = 4;
@@ -140,6 +163,15 @@ message Transaction {
 
     //... Добавляйте другие по мере необходимости.
   }
+}
+
+//ТОЛЬКО для специальной команды META_BATCH 
+//Содержит полный заголовок и подпись, встроеные сообщения же - только краткий
+//Это ползволит комбинировать любые тразакции из поддерживаемых системой (кроме вложенных батчей, конечно!)
+message BatchTransaction {
+  TransactionHeader 			header 	= 1; // Полный заголовок (id=1 для совместимости)
+  
+  repeated	Transaction			payload = 2; //Содержит любое количесто сообщений с обычными транзакциями (но с упрощенными заголовками!)
 }
 
 // MetaNoopPayload - для META_NOOP (opCode 0x00).
