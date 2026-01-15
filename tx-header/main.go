@@ -40,21 +40,14 @@ func main() {
 	mrand.Seed(time.Now().UnixNano())
 
 	// OpCodes:
-	// 0x00: META_NOOP
-	// 0xFF: META_RESERVE
-	// 0x60: ORD_CREATE (поддерживает batch)
-	// 0x64: ORD_CANCEL (поддерживает batch)
-	// 0x66: ORD_CANCEL_ALL
-	// 0x6A: ORD_CANCEL_REPLACE
-	// 0x6B: ORD_AMEND (поддерживает batch)
-	txCounts := map[uint32]int{
-		0x00: 100,    // META_NOOP
-		0xFF: 5,      // META_RESERVE
-		0x60: 15_000, // ORD_CREATE (смесь single и batch)
-		0x64: 10_000, // ORD_CANCEL (смесь single и batch)
-		0x66: 100,    // ORD_CANCEL_ALL
-		0x6A: 3_000,  // ORD_CANCEL_REPLACE
-		0x6B: 25_000, // ORD_AMEND (смесь single и batch)
+	txCounts := map[tx.OpCode]int{
+		tx.OpCode_META_NOOP: 			100,
+		tx.OpCode_META_RESERVE: 		5,   
+		tx.OpCode_ORD_CREATE: 			15_000, 
+		tx.OpCode_ORD_CANCEL: 			10_000,
+		tx.OpCode_ORD_CANCEL_ALL: 		100,   
+		tx.OpCode_ORD_CANCEL_REPLACE: 	3_000,
+		tx.OpCode_ORD_AMEND: 			25_000,
 	}
 
 	// Пул пользователей
@@ -105,7 +98,7 @@ func main() {
 			}
 
 			switch opCode {
-			case 0x00: // META_NOOP
+			case tx.OpCode_META_NOOP: 
 				p := &tx.MetaNoopPayload{Payload: []byte{0x00}}
 				txx.Payload = &tx.Transaction_MetaNoop{MetaNoop: p}
 				
@@ -115,7 +108,7 @@ func main() {
 				
 				realTxCounter++
 
-			case 0xFF: // META_RESERVE
+			case tx.OpCode_META_RESERVE: 
 				p := &tx.MetaReservePayload{Payload: []byte{0x00}}
 				txx.Payload = &tx.Transaction_MetaReserve{MetaReserve: p}
 				
@@ -125,7 +118,7 @@ func main() {
 				
 				realTxCounter++
 
-			case 0x60: // ORD_CREATE (поддерживает repeated OrderItem)
+			case tx.OpCode_ORD_CREATE:
 				// Случайным образом решаем, это одиночный ордер или батч
 				itemsCount := 1
 				if mrand.Intn(10) == 0 { // 10% шанс на батч
@@ -166,7 +159,7 @@ func main() {
 				p := &tx.OrderCreatePayload{Orders: orders}
 				txx.Payload = &tx.Transaction_OrderCreate{OrderCreate: p}
 
-			case 0x64: // ORD_CANCEL (поддерживает repeated OrderID)
+			case tx.OpCode_ORD_CANCEL:
 				itemsCount := 1
 				if mrand.Intn(10) == 0 { 
 					itemsCount = mrand.Intn(11) + 2
@@ -184,12 +177,12 @@ func main() {
 				}
 				txx.Payload = &tx.Transaction_OrderCancel{OrderCancel: p}
 
-			case 0x66: // ORD_CANCEL_ALL
+			case tx.OpCode_ORD_CANCEL_ALL: 
 				p := &tx.OrderCancelAllPayload{Payload: []byte{0x00}}
 				txx.Payload = &tx.Transaction_OrderCancelAll{OrderCancelAll: p}
 				realTxCounter++
 
-			case 0x6A: // ORD_CANCEL_REPLACE
+			case tx.OpCode_ORD_CANCEL_REPLACE: 
 				// Для Replace используем вложенный OrderCreatePayload с одним ордером
 				newOrderPayload := &tx.OrderCreatePayload{
 					Orders: []*tx.OrderItem{
@@ -210,7 +203,7 @@ func main() {
 				txx.Payload = &tx.Transaction_OrderCancelReplace{OrderCancelReplace: p}
 				realTxCounter++
 
-			case 0x6B: // ORD_AMEND (поддерживает repeated AmendItem)
+			case tx.OpCode_ORD_AMEND: // ORD_AMEND (поддерживает repeated AmendItem)
 				itemsCount := 1
 				if mrand.Intn(10) == 0 { 
 					itemsCount = mrand.Intn(11) + 2

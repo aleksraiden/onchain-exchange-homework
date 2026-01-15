@@ -43,16 +43,128 @@ enum Markets {
 	EXOTIC				= 11; //Спишем все остальное	
 }
 
+//Опишем все наши команды 
+enum OpCode {
+	META_NOOP								= 0;
+	META_BLOB								= 1;
+	META_RESERVE							= 2;
+	META_BATCH								= 3;
+	
+	SYS_UPGRADE								= 4;
+	SYS_PAUSE								= 5;
+	SYS_RESUME								= 6;
+	SYS_SET_FLAG							= 7;
+	SYS_HEARTBEAT_CHECK						= 8;
+	SYS_UPDATE_VALIDATOR_PARAMS				= 9;
+	SYS_DEPOSIT_PAUSE						= 10;
+	SYS_WITHDRAW_PAUSE						= 11;
+	SYS_DEPOSIT_RESUME						= 12;
+	SYS_WITHDRAW_RESUME						= 13;
+
+	INS_FUND_CREATE 						= 14;
+	INS_FUND_OP								= 15;
+	INS_CREDIT								= 16;
+	INS_REPAY								= 17;
+	INS_PAYOUT								= 18;
+	INS_AUTO_REBALANCE						= 19;
+
+	GOV_ASSET_CREATE						= 20;
+	GOV_ASSET_UPDATE						= 21;
+	GOV_MARKET_CREATE						= 22;
+	GOV_MARKET_UPDATE						= 23;
+	GOV_MARKET_FREEZE						= 24;
+	GOV_MARKET_UNFREEZE						= 25;
+	GOV_MARKET_SETTLE						= 26;
+	GOV_MARKET_DELIST						= 27;
+	GOV_SET_ACC_FEE_TIER					= 28;
+	GOV_FEE_COLLECT							= 29;
+	GOV_INDX_ORACLE_FEED					= 30;
+	GOV_INDX_VALUE							= 31;
+	GOV_MARKET_FUNDING						= 32;
+	GOV_BALANCE_TRANSFER					= 33;
+	GOV_FEE_SCHEDULE_UPDATE					= 34;
+	GOV_MESSAGE								= 35;
+	GOV_APPROVE_PROPOSE						= 36;
+	GOV_VAULT_CREATE						= 37;
+	GOV_VAULT_PAUSE_DEPOSITS				= 38;
+	GOV_VAULT_RESUME_DEPOSITS				= 39;
+	GOV_VAULT_EMERGENCY_ENABLE_WITHDRAW		= 40;
+
+	ACC_REGISTER							= 41;
+	ACC_DEPOSIT								= 42;
+	ACC_WITHDRAW_REQUEST					= 43;
+	ACC_WITHDRAW_CLAIM						= 44;
+	ACC_WALLET_TRANSFER						= 45;
+	ACC_SET_FLAG							= 46;
+	ACC_FEE_PAY								= 47;
+	ACC_AGENT_REGISTER						= 48;
+	ACC_AGENT_REVOKE						= 49;
+	ACC_AGENT_UPDATE_LIMITS					= 50;
+	ACC_SUBACCOUNT_CREATE					= 51;
+	ACC_SESSION_HEARTBEAT					= 52;
+	ACC_NONCE_UPDATE						= 53;
+	ACC_WHITELIST_ADD						= 54;
+	ACC_WHITELIST_REMOVE					= 55;
+	ACC_KYC_SUBMIT_PROOF					= 56;
+	ACC_MESSAGE								= 57;
+	ACC_UPDATE_MESSAGE_KEY					= 58;
+	ACC_VOTE								= 59;
+	ACC_CREATE_PROPOSE						= 60;
+
+	ORD_CREATE								= 61;
+	ORD_CANCEL								= 62;
+	ORD_CANCEL_ALL							= 63;
+	ORD_CANCEL_REPLACE						= 64;
+	ORD_AMEND								= 65;
+	
+	reserved								66, 67, 68;
+	//ORD_CREATE_TRIGGER-Выделим создание Stop/Take и т.п.
+	//ORD_CREATE_TRIGGER_BATCH
+	//ORD_CANCEL_ALL_TRIGGER
+
+	ORD_REORDER								= 69;
+
+	POS_MARGIN_ADJ							= 70;
+	POS_CLOSE								= 71;
+	POS_LEVERAGE							= 72;
+	POS_ADL									= 73;
+	POS_SETTLE								= 74;
+
+	ERC20_TRANSFER							= 75;
+	ERC20_MINT								= 76;
+	ERC20_BURN								= 77;
+	ERC20_APPROVE							= 78;
+	ERC20_FREEZE							= 79;
+	ERC20_UNFREEZE							= 80;
+
+	VAULT_DEPOSIT							= 81;
+	VAULT_WITHDRAW_REQUEST					= 82;
+	VAULT_WITHDRAW_CLAIM					= 83;
+	VAULT_REWARDS_CLAIM						= 84;
+	VAULT_TOPUP_REWARDS						= 85;
+	VAULT_EMERGENCY_WITHDRAW				= 86;
+
+	KYC_COMPLIANCE_FLAG_SET					= 87;
+	KYC_COMPLIANCE_KYC_UPDATE				= 88;
+	KYC_COMPLIANCE_FREEZE					= 89;
+	KYC_COMPLIANCE_UNFREEZE					= 90;
+	KYC_SANCTIONS_LIST_UPDATE				= 91;
+	
+	
+	UNKNOWN_OR_UNREALISED					= 2047; 								
+}
+
 // TransactionHeader defines the header for a transaction.
 message TransactionHeader {
   // chainVersion determines the network and code version.
   // First byte: network (devnet, testnet, mainnet, etc.)
   // Bytes 2-4: code version
   // Reserved: 0x0 and 0xFFFFFFFF
-  fixed32 chain_version = 1;
+  uint32 chain_version = 1;
 
   // opCode is the command code.
-  uint32 op_code = 2;
+  //uint32 op_code = 2;
+  OpCode 	op_code = 2;
 
   // authType determines the transaction authorization method.
   // 0x0: UID (default, most common)
@@ -104,7 +216,8 @@ message TransactionHeader {
 // BatchedTransactionHeader defines the small header for a transaction, grouped at batch ONLY!
 message BatchedTransactionHeader {
   // opCode is the command code.
-  uint32 op_code = 1;
+  //uint32 op_code = 1;
+  OpCode   op_code = 1;
 
   // marketCode defines the market
   // Default: 0x0 (global chain operation)

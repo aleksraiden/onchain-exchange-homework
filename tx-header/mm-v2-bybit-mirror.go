@@ -176,7 +176,7 @@ func runNoopGenerator(interval time.Duration) {
 
 func generateMetaNoop() {
 	p := &tx.MetaNoopPayload{Payload: []byte{}}
-	header := createHeader(0x00, 0)
+	header := createHeader(tx.OpCode_META_NOOP, 0)
 	txx := buildTx(header, p)
 	appendTx(txx)
 }
@@ -446,7 +446,7 @@ func cancelOrdersBatch(m *MarketState, orders []*ManagedOrder) {
 		OrderId: protoIDs,
 	}
 	
-	txx := buildTx(createHeader(0x64, m.Config.ID), p)
+	txx := buildTx(createHeader(tx.OpCode_ORD_CANCEL, m.Config.ID), p)
 	appendTx(txx)
 }
 
@@ -485,7 +485,7 @@ func createNewOrder(m *MarketState, order *ManagedOrder) {
 		Orders: []*tx.OrderItem{item},
 	}
 
-	txx := buildTx(createHeader(0x60, m.Config.ID), p)
+	txx := buildTx(createHeader(tx.OpCode_ORD_CREATE, m.Config.ID), p)
 	appendTx(txx)
 }
 
@@ -542,7 +542,7 @@ func amendOrder(m *MarketState, order *ManagedOrder, newPrice, newQty float64) {
 		Amends: []*tx.AmendItem{item},
 	}
 
-	txx := buildTx(createHeader(0x6B, m.Config.ID), p)
+	txx := buildTx(createHeader(tx.OpCode_ORD_AMEND, m.Config.ID), p)
 	appendTx(txx)
 
 	if priceUintPtr != nil {
@@ -561,7 +561,7 @@ func cancelOrder(m *MarketState, order *ManagedOrder) {
 	p := &tx.OrderCancelPayload{
 		OrderId: []*tx.OrderID{{Id: order.OrderID}},
 	}
-	txx := buildTx(createHeader(0x64, m.Config.ID), p)
+	txx := buildTx(createHeader(tx.OpCode_ORD_CANCEL, m.Config.ID), p)
 	appendTx(txx)
 }
 
@@ -635,7 +635,7 @@ func saveAllTxs() {
 		outputFile, count, totalCreated, float64(totalBytes)/1024.0/1024.0, avgSize)
 }
 
-func createHeader(opCode uint32, marketSymbol uint32) *tx.TransactionHeader {
+func createHeader(opCode tx.OpCode, marketSymbol uint32) *tx.TransactionHeader {
 	newNonce := atomic.AddUint64(&nonce, 1)
 	
 	// Текущий таймстемп

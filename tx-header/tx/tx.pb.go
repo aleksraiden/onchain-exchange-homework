@@ -216,6 +216,317 @@ func (Markets) EnumDescriptor() ([]byte, []int) {
 	return file_tx_proto_rawDescGZIP(), []int{2}
 }
 
+// Опишем все наши команды
+type OpCode int32
+
+const (
+	OpCode_META_NOOP                           OpCode = 0
+	OpCode_META_BLOB                           OpCode = 1
+	OpCode_META_RESERVE                        OpCode = 2
+	OpCode_META_BATCH                          OpCode = 3
+	OpCode_SYS_UPGRADE                         OpCode = 4
+	OpCode_SYS_PAUSE                           OpCode = 5
+	OpCode_SYS_RESUME                          OpCode = 6
+	OpCode_SYS_SET_FLAG                        OpCode = 7
+	OpCode_SYS_HEARTBEAT_CHECK                 OpCode = 8
+	OpCode_SYS_UPDATE_VALIDATOR_PARAMS         OpCode = 9
+	OpCode_SYS_DEPOSIT_PAUSE                   OpCode = 10
+	OpCode_SYS_WITHDRAW_PAUSE                  OpCode = 11
+	OpCode_SYS_DEPOSIT_RESUME                  OpCode = 12
+	OpCode_SYS_WITHDRAW_RESUME                 OpCode = 13
+	OpCode_INS_FUND_CREATE                     OpCode = 14
+	OpCode_INS_FUND_OP                         OpCode = 15
+	OpCode_INS_CREDIT                          OpCode = 16
+	OpCode_INS_REPAY                           OpCode = 17
+	OpCode_INS_PAYOUT                          OpCode = 18
+	OpCode_INS_AUTO_REBALANCE                  OpCode = 19
+	OpCode_GOV_ASSET_CREATE                    OpCode = 20
+	OpCode_GOV_ASSET_UPDATE                    OpCode = 21
+	OpCode_GOV_MARKET_CREATE                   OpCode = 22
+	OpCode_GOV_MARKET_UPDATE                   OpCode = 23
+	OpCode_GOV_MARKET_FREEZE                   OpCode = 24
+	OpCode_GOV_MARKET_UNFREEZE                 OpCode = 25
+	OpCode_GOV_MARKET_SETTLE                   OpCode = 26
+	OpCode_GOV_MARKET_DELIST                   OpCode = 27
+	OpCode_GOV_SET_ACC_FEE_TIER                OpCode = 28
+	OpCode_GOV_FEE_COLLECT                     OpCode = 29
+	OpCode_GOV_INDX_ORACLE_FEED                OpCode = 30
+	OpCode_GOV_INDX_VALUE                      OpCode = 31
+	OpCode_GOV_MARKET_FUNDING                  OpCode = 32
+	OpCode_GOV_BALANCE_TRANSFER                OpCode = 33
+	OpCode_GOV_FEE_SCHEDULE_UPDATE             OpCode = 34
+	OpCode_GOV_MESSAGE                         OpCode = 35
+	OpCode_GOV_APPROVE_PROPOSE                 OpCode = 36
+	OpCode_GOV_VAULT_CREATE                    OpCode = 37
+	OpCode_GOV_VAULT_PAUSE_DEPOSITS            OpCode = 38
+	OpCode_GOV_VAULT_RESUME_DEPOSITS           OpCode = 39
+	OpCode_GOV_VAULT_EMERGENCY_ENABLE_WITHDRAW OpCode = 40
+	OpCode_ACC_REGISTER                        OpCode = 41
+	OpCode_ACC_DEPOSIT                         OpCode = 42
+	OpCode_ACC_WITHDRAW_REQUEST                OpCode = 43
+	OpCode_ACC_WITHDRAW_CLAIM                  OpCode = 44
+	OpCode_ACC_WALLET_TRANSFER                 OpCode = 45
+	OpCode_ACC_SET_FLAG                        OpCode = 46
+	OpCode_ACC_FEE_PAY                         OpCode = 47
+	OpCode_ACC_AGENT_REGISTER                  OpCode = 48
+	OpCode_ACC_AGENT_REVOKE                    OpCode = 49
+	OpCode_ACC_AGENT_UPDATE_LIMITS             OpCode = 50
+	OpCode_ACC_SUBACCOUNT_CREATE               OpCode = 51
+	OpCode_ACC_SESSION_HEARTBEAT               OpCode = 52
+	OpCode_ACC_NONCE_UPDATE                    OpCode = 53
+	OpCode_ACC_WHITELIST_ADD                   OpCode = 54
+	OpCode_ACC_WHITELIST_REMOVE                OpCode = 55
+	OpCode_ACC_KYC_SUBMIT_PROOF                OpCode = 56
+	OpCode_ACC_MESSAGE                         OpCode = 57
+	OpCode_ACC_UPDATE_MESSAGE_KEY              OpCode = 58
+	OpCode_ACC_VOTE                            OpCode = 59
+	OpCode_ACC_CREATE_PROPOSE                  OpCode = 60
+	OpCode_ORD_CREATE                          OpCode = 61
+	OpCode_ORD_CANCEL                          OpCode = 62
+	OpCode_ORD_CANCEL_ALL                      OpCode = 63
+	OpCode_ORD_CANCEL_REPLACE                  OpCode = 64
+	OpCode_ORD_AMEND                           OpCode = 65
+	OpCode_ORD_REORDER                         OpCode = 69
+	OpCode_POS_MARGIN_ADJ                      OpCode = 70
+	OpCode_POS_CLOSE                           OpCode = 71
+	OpCode_POS_LEVERAGE                        OpCode = 72
+	OpCode_POS_ADL                             OpCode = 73
+	OpCode_POS_SETTLE                          OpCode = 74
+	OpCode_ERC20_TRANSFER                      OpCode = 75
+	OpCode_ERC20_MINT                          OpCode = 76
+	OpCode_ERC20_BURN                          OpCode = 77
+	OpCode_ERC20_APPROVE                       OpCode = 78
+	OpCode_ERC20_FREEZE                        OpCode = 79
+	OpCode_ERC20_UNFREEZE                      OpCode = 80
+	OpCode_VAULT_DEPOSIT                       OpCode = 81
+	OpCode_VAULT_WITHDRAW_REQUEST              OpCode = 82
+	OpCode_VAULT_WITHDRAW_CLAIM                OpCode = 83
+	OpCode_VAULT_REWARDS_CLAIM                 OpCode = 84
+	OpCode_VAULT_TOPUP_REWARDS                 OpCode = 85
+	OpCode_VAULT_EMERGENCY_WITHDRAW            OpCode = 86
+	OpCode_KYC_COMPLIANCE_FLAG_SET             OpCode = 87
+	OpCode_KYC_COMPLIANCE_KYC_UPDATE           OpCode = 88
+	OpCode_KYC_COMPLIANCE_FREEZE               OpCode = 89
+	OpCode_KYC_COMPLIANCE_UNFREEZE             OpCode = 90
+	OpCode_KYC_SANCTIONS_LIST_UPDATE           OpCode = 91
+	OpCode_UNKNOWN_OR_UNREALISED               OpCode = 2047
+)
+
+// Enum value maps for OpCode.
+var (
+	OpCode_name = map[int32]string{
+		0:    "META_NOOP",
+		1:    "META_BLOB",
+		2:    "META_RESERVE",
+		3:    "META_BATCH",
+		4:    "SYS_UPGRADE",
+		5:    "SYS_PAUSE",
+		6:    "SYS_RESUME",
+		7:    "SYS_SET_FLAG",
+		8:    "SYS_HEARTBEAT_CHECK",
+		9:    "SYS_UPDATE_VALIDATOR_PARAMS",
+		10:   "SYS_DEPOSIT_PAUSE",
+		11:   "SYS_WITHDRAW_PAUSE",
+		12:   "SYS_DEPOSIT_RESUME",
+		13:   "SYS_WITHDRAW_RESUME",
+		14:   "INS_FUND_CREATE",
+		15:   "INS_FUND_OP",
+		16:   "INS_CREDIT",
+		17:   "INS_REPAY",
+		18:   "INS_PAYOUT",
+		19:   "INS_AUTO_REBALANCE",
+		20:   "GOV_ASSET_CREATE",
+		21:   "GOV_ASSET_UPDATE",
+		22:   "GOV_MARKET_CREATE",
+		23:   "GOV_MARKET_UPDATE",
+		24:   "GOV_MARKET_FREEZE",
+		25:   "GOV_MARKET_UNFREEZE",
+		26:   "GOV_MARKET_SETTLE",
+		27:   "GOV_MARKET_DELIST",
+		28:   "GOV_SET_ACC_FEE_TIER",
+		29:   "GOV_FEE_COLLECT",
+		30:   "GOV_INDX_ORACLE_FEED",
+		31:   "GOV_INDX_VALUE",
+		32:   "GOV_MARKET_FUNDING",
+		33:   "GOV_BALANCE_TRANSFER",
+		34:   "GOV_FEE_SCHEDULE_UPDATE",
+		35:   "GOV_MESSAGE",
+		36:   "GOV_APPROVE_PROPOSE",
+		37:   "GOV_VAULT_CREATE",
+		38:   "GOV_VAULT_PAUSE_DEPOSITS",
+		39:   "GOV_VAULT_RESUME_DEPOSITS",
+		40:   "GOV_VAULT_EMERGENCY_ENABLE_WITHDRAW",
+		41:   "ACC_REGISTER",
+		42:   "ACC_DEPOSIT",
+		43:   "ACC_WITHDRAW_REQUEST",
+		44:   "ACC_WITHDRAW_CLAIM",
+		45:   "ACC_WALLET_TRANSFER",
+		46:   "ACC_SET_FLAG",
+		47:   "ACC_FEE_PAY",
+		48:   "ACC_AGENT_REGISTER",
+		49:   "ACC_AGENT_REVOKE",
+		50:   "ACC_AGENT_UPDATE_LIMITS",
+		51:   "ACC_SUBACCOUNT_CREATE",
+		52:   "ACC_SESSION_HEARTBEAT",
+		53:   "ACC_NONCE_UPDATE",
+		54:   "ACC_WHITELIST_ADD",
+		55:   "ACC_WHITELIST_REMOVE",
+		56:   "ACC_KYC_SUBMIT_PROOF",
+		57:   "ACC_MESSAGE",
+		58:   "ACC_UPDATE_MESSAGE_KEY",
+		59:   "ACC_VOTE",
+		60:   "ACC_CREATE_PROPOSE",
+		61:   "ORD_CREATE",
+		62:   "ORD_CANCEL",
+		63:   "ORD_CANCEL_ALL",
+		64:   "ORD_CANCEL_REPLACE",
+		65:   "ORD_AMEND",
+		69:   "ORD_REORDER",
+		70:   "POS_MARGIN_ADJ",
+		71:   "POS_CLOSE",
+		72:   "POS_LEVERAGE",
+		73:   "POS_ADL",
+		74:   "POS_SETTLE",
+		75:   "ERC20_TRANSFER",
+		76:   "ERC20_MINT",
+		77:   "ERC20_BURN",
+		78:   "ERC20_APPROVE",
+		79:   "ERC20_FREEZE",
+		80:   "ERC20_UNFREEZE",
+		81:   "VAULT_DEPOSIT",
+		82:   "VAULT_WITHDRAW_REQUEST",
+		83:   "VAULT_WITHDRAW_CLAIM",
+		84:   "VAULT_REWARDS_CLAIM",
+		85:   "VAULT_TOPUP_REWARDS",
+		86:   "VAULT_EMERGENCY_WITHDRAW",
+		87:   "KYC_COMPLIANCE_FLAG_SET",
+		88:   "KYC_COMPLIANCE_KYC_UPDATE",
+		89:   "KYC_COMPLIANCE_FREEZE",
+		90:   "KYC_COMPLIANCE_UNFREEZE",
+		91:   "KYC_SANCTIONS_LIST_UPDATE",
+		2047: "UNKNOWN_OR_UNREALISED",
+	}
+	OpCode_value = map[string]int32{
+		"META_NOOP":                           0,
+		"META_BLOB":                           1,
+		"META_RESERVE":                        2,
+		"META_BATCH":                          3,
+		"SYS_UPGRADE":                         4,
+		"SYS_PAUSE":                           5,
+		"SYS_RESUME":                          6,
+		"SYS_SET_FLAG":                        7,
+		"SYS_HEARTBEAT_CHECK":                 8,
+		"SYS_UPDATE_VALIDATOR_PARAMS":         9,
+		"SYS_DEPOSIT_PAUSE":                   10,
+		"SYS_WITHDRAW_PAUSE":                  11,
+		"SYS_DEPOSIT_RESUME":                  12,
+		"SYS_WITHDRAW_RESUME":                 13,
+		"INS_FUND_CREATE":                     14,
+		"INS_FUND_OP":                         15,
+		"INS_CREDIT":                          16,
+		"INS_REPAY":                           17,
+		"INS_PAYOUT":                          18,
+		"INS_AUTO_REBALANCE":                  19,
+		"GOV_ASSET_CREATE":                    20,
+		"GOV_ASSET_UPDATE":                    21,
+		"GOV_MARKET_CREATE":                   22,
+		"GOV_MARKET_UPDATE":                   23,
+		"GOV_MARKET_FREEZE":                   24,
+		"GOV_MARKET_UNFREEZE":                 25,
+		"GOV_MARKET_SETTLE":                   26,
+		"GOV_MARKET_DELIST":                   27,
+		"GOV_SET_ACC_FEE_TIER":                28,
+		"GOV_FEE_COLLECT":                     29,
+		"GOV_INDX_ORACLE_FEED":                30,
+		"GOV_INDX_VALUE":                      31,
+		"GOV_MARKET_FUNDING":                  32,
+		"GOV_BALANCE_TRANSFER":                33,
+		"GOV_FEE_SCHEDULE_UPDATE":             34,
+		"GOV_MESSAGE":                         35,
+		"GOV_APPROVE_PROPOSE":                 36,
+		"GOV_VAULT_CREATE":                    37,
+		"GOV_VAULT_PAUSE_DEPOSITS":            38,
+		"GOV_VAULT_RESUME_DEPOSITS":           39,
+		"GOV_VAULT_EMERGENCY_ENABLE_WITHDRAW": 40,
+		"ACC_REGISTER":                        41,
+		"ACC_DEPOSIT":                         42,
+		"ACC_WITHDRAW_REQUEST":                43,
+		"ACC_WITHDRAW_CLAIM":                  44,
+		"ACC_WALLET_TRANSFER":                 45,
+		"ACC_SET_FLAG":                        46,
+		"ACC_FEE_PAY":                         47,
+		"ACC_AGENT_REGISTER":                  48,
+		"ACC_AGENT_REVOKE":                    49,
+		"ACC_AGENT_UPDATE_LIMITS":             50,
+		"ACC_SUBACCOUNT_CREATE":               51,
+		"ACC_SESSION_HEARTBEAT":               52,
+		"ACC_NONCE_UPDATE":                    53,
+		"ACC_WHITELIST_ADD":                   54,
+		"ACC_WHITELIST_REMOVE":                55,
+		"ACC_KYC_SUBMIT_PROOF":                56,
+		"ACC_MESSAGE":                         57,
+		"ACC_UPDATE_MESSAGE_KEY":              58,
+		"ACC_VOTE":                            59,
+		"ACC_CREATE_PROPOSE":                  60,
+		"ORD_CREATE":                          61,
+		"ORD_CANCEL":                          62,
+		"ORD_CANCEL_ALL":                      63,
+		"ORD_CANCEL_REPLACE":                  64,
+		"ORD_AMEND":                           65,
+		"ORD_REORDER":                         69,
+		"POS_MARGIN_ADJ":                      70,
+		"POS_CLOSE":                           71,
+		"POS_LEVERAGE":                        72,
+		"POS_ADL":                             73,
+		"POS_SETTLE":                          74,
+		"ERC20_TRANSFER":                      75,
+		"ERC20_MINT":                          76,
+		"ERC20_BURN":                          77,
+		"ERC20_APPROVE":                       78,
+		"ERC20_FREEZE":                        79,
+		"ERC20_UNFREEZE":                      80,
+		"VAULT_DEPOSIT":                       81,
+		"VAULT_WITHDRAW_REQUEST":              82,
+		"VAULT_WITHDRAW_CLAIM":                83,
+		"VAULT_REWARDS_CLAIM":                 84,
+		"VAULT_TOPUP_REWARDS":                 85,
+		"VAULT_EMERGENCY_WITHDRAW":            86,
+		"KYC_COMPLIANCE_FLAG_SET":             87,
+		"KYC_COMPLIANCE_KYC_UPDATE":           88,
+		"KYC_COMPLIANCE_FREEZE":               89,
+		"KYC_COMPLIANCE_UNFREEZE":             90,
+		"KYC_SANCTIONS_LIST_UPDATE":           91,
+		"UNKNOWN_OR_UNREALISED":               2047,
+	}
+)
+
+func (x OpCode) Enum() *OpCode {
+	p := new(OpCode)
+	*p = x
+	return p
+}
+
+func (x OpCode) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (OpCode) Descriptor() protoreflect.EnumDescriptor {
+	return file_tx_proto_enumTypes[3].Descriptor()
+}
+
+func (OpCode) Type() protoreflect.EnumType {
+	return &file_tx_proto_enumTypes[3]
+}
+
+func (x OpCode) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use OpCode.Descriptor instead.
+func (OpCode) EnumDescriptor() ([]byte, []int) {
+	return file_tx_proto_rawDescGZIP(), []int{3}
+}
+
 // Группируем флаги в enum-ы
 type Side int32
 
@@ -247,11 +558,11 @@ func (x Side) String() string {
 }
 
 func (Side) Descriptor() protoreflect.EnumDescriptor {
-	return file_tx_proto_enumTypes[3].Descriptor()
+	return file_tx_proto_enumTypes[4].Descriptor()
 }
 
 func (Side) Type() protoreflect.EnumType {
-	return &file_tx_proto_enumTypes[3]
+	return &file_tx_proto_enumTypes[4]
 }
 
 func (x Side) Number() protoreflect.EnumNumber {
@@ -260,7 +571,7 @@ func (x Side) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use Side.Descriptor instead.
 func (Side) EnumDescriptor() ([]byte, []int) {
-	return file_tx_proto_rawDescGZIP(), []int{3}
+	return file_tx_proto_rawDescGZIP(), []int{4}
 }
 
 // Тип ордера
@@ -306,11 +617,11 @@ func (x OrderType) String() string {
 }
 
 func (OrderType) Descriptor() protoreflect.EnumDescriptor {
-	return file_tx_proto_enumTypes[4].Descriptor()
+	return file_tx_proto_enumTypes[5].Descriptor()
 }
 
 func (OrderType) Type() protoreflect.EnumType {
-	return &file_tx_proto_enumTypes[4]
+	return &file_tx_proto_enumTypes[5]
 }
 
 func (x OrderType) Number() protoreflect.EnumNumber {
@@ -319,7 +630,7 @@ func (x OrderType) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use OrderType.Descriptor instead.
 func (OrderType) EnumDescriptor() ([]byte, []int) {
-	return file_tx_proto_rawDescGZIP(), []int{4}
+	return file_tx_proto_rawDescGZIP(), []int{5}
 }
 
 // Спецификация исполнения
@@ -356,11 +667,11 @@ func (x TimeInForce) String() string {
 }
 
 func (TimeInForce) Descriptor() protoreflect.EnumDescriptor {
-	return file_tx_proto_enumTypes[5].Descriptor()
+	return file_tx_proto_enumTypes[6].Descriptor()
 }
 
 func (TimeInForce) Type() protoreflect.EnumType {
-	return &file_tx_proto_enumTypes[5]
+	return &file_tx_proto_enumTypes[6]
 }
 
 func (x TimeInForce) Number() protoreflect.EnumNumber {
@@ -369,7 +680,7 @@ func (x TimeInForce) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use TimeInForce.Descriptor instead.
 func (TimeInForce) EnumDescriptor() ([]byte, []int) {
-	return file_tx_proto_rawDescGZIP(), []int{5}
+	return file_tx_proto_rawDescGZIP(), []int{6}
 }
 
 // Спецификация Trigger-price
@@ -409,11 +720,11 @@ func (x TriggerPrice) String() string {
 }
 
 func (TriggerPrice) Descriptor() protoreflect.EnumDescriptor {
-	return file_tx_proto_enumTypes[6].Descriptor()
+	return file_tx_proto_enumTypes[7].Descriptor()
 }
 
 func (TriggerPrice) Type() protoreflect.EnumType {
-	return &file_tx_proto_enumTypes[6]
+	return &file_tx_proto_enumTypes[7]
 }
 
 func (x TriggerPrice) Number() protoreflect.EnumNumber {
@@ -422,7 +733,7 @@ func (x TriggerPrice) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use TriggerPrice.Descriptor instead.
 func (TriggerPrice) EnumDescriptor() ([]byte, []int) {
-	return file_tx_proto_rawDescGZIP(), []int{6}
+	return file_tx_proto_rawDescGZIP(), []int{7}
 }
 
 // TransactionHeader defines the header for a transaction.
@@ -432,9 +743,10 @@ type TransactionHeader struct {
 	// First byte: network (devnet, testnet, mainnet, etc.)
 	// Bytes 2-4: code version
 	// Reserved: 0x0 and 0xFFFFFFFF
-	ChainVersion uint32 `protobuf:"fixed32,1,opt,name=chain_version,json=chainVersion,proto3" json:"chain_version,omitempty"`
+	ChainVersion uint32 `protobuf:"varint,1,opt,name=chain_version,json=chainVersion,proto3" json:"chain_version,omitempty"`
 	// opCode is the command code.
-	OpCode uint32 `protobuf:"varint,2,opt,name=op_code,json=opCode,proto3" json:"op_code,omitempty"`
+	// uint32 op_code = 2;
+	OpCode OpCode `protobuf:"varint,2,opt,name=op_code,json=opCode,proto3,enum=tx.OpCode" json:"op_code,omitempty"`
 	// authType determines the transaction authorization method.
 	// 0x0: UID (default, most common)
 	// 0x1: public key (ed25519)
@@ -513,11 +825,11 @@ func (x *TransactionHeader) GetChainVersion() uint32 {
 	return 0
 }
 
-func (x *TransactionHeader) GetOpCode() uint32 {
+func (x *TransactionHeader) GetOpCode() OpCode {
 	if x != nil {
 		return x.OpCode
 	}
-	return 0
+	return OpCode_META_NOOP
 }
 
 func (x *TransactionHeader) GetAuthType() TxAuthType {
@@ -587,7 +899,8 @@ func (x *TransactionHeader) GetSignature() []byte {
 type BatchedTransactionHeader struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// opCode is the command code.
-	OpCode uint32 `protobuf:"varint,1,opt,name=op_code,json=opCode,proto3" json:"op_code,omitempty"`
+	// uint32 op_code = 1;
+	OpCode OpCode `protobuf:"varint,1,opt,name=op_code,json=opCode,proto3,enum=tx.OpCode" json:"op_code,omitempty"`
 	// marketCode defines the market
 	// Default: 0x0 (global chain operation)
 	MarketCode Markets `protobuf:"varint,2,opt,name=market_code,json=marketCode,proto3,enum=tx.Markets" json:"market_code,omitempty"`
@@ -629,11 +942,11 @@ func (*BatchedTransactionHeader) Descriptor() ([]byte, []int) {
 	return file_tx_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *BatchedTransactionHeader) GetOpCode() uint32 {
+func (x *BatchedTransactionHeader) GetOpCode() OpCode {
 	if x != nil {
 		return x.OpCode
 	}
-	return 0
+	return OpCode_META_NOOP
 }
 
 func (x *BatchedTransactionHeader) GetMarketCode() Markets {
@@ -1650,10 +1963,11 @@ var File_tx_proto protoreflect.FileDescriptor
 
 const file_tx_proto_rawDesc = "" +
 	"\n" +
-	"\btx.proto\x12\x02tx\"\x99\x03\n" +
+	"\btx.proto\x12\x02tx\"\xa5\x03\n" +
 	"\x11TransactionHeader\x12#\n" +
-	"\rchain_version\x18\x01 \x01(\aR\fchainVersion\x12\x17\n" +
-	"\aop_code\x18\x02 \x01(\rR\x06opCode\x12+\n" +
+	"\rchain_version\x18\x01 \x01(\rR\fchainVersion\x12#\n" +
+	"\aop_code\x18\x02 \x01(\x0e2\n" +
+	".tx.OpCodeR\x06opCode\x12+\n" +
 	"\tauth_type\x18\x03 \x01(\x0e2\x0e.tx.TxAuthTypeR\bauthType\x125\n" +
 	"\x0eexecution_mode\x18\x04 \x01(\x0e2\x0e.tx.TxExecModeR\rexecutionMode\x12,\n" +
 	"\vmarket_code\x18\x05 \x01(\x0e2\v.tx.MarketsR\n" +
@@ -1667,9 +1981,10 @@ const file_tx_proto_rawDesc = "" +
 	"\n" +
 	"max_height\x18\n" +
 	" \x01(\x04R\tmaxHeight\x12\x1c\n" +
-	"\tsignature\x18\v \x01(\fR\tsignature\"\x9c\x01\n" +
-	"\x18BatchedTransactionHeader\x12\x17\n" +
-	"\aop_code\x18\x01 \x01(\rR\x06opCode\x12,\n" +
+	"\tsignature\x18\v \x01(\fR\tsignature\"\xa8\x01\n" +
+	"\x18BatchedTransactionHeader\x12#\n" +
+	"\aop_code\x18\x01 \x01(\x0e2\n" +
+	".tx.OpCodeR\x06opCode\x12,\n" +
 	"\vmarket_code\x18\x02 \x01(\x0e2\v.tx.MarketsR\n" +
 	"marketCode\x12#\n" +
 	"\rmarket_symbol\x18\x03 \x01(\rR\fmarketSymbol\x12\x14\n" +
@@ -1789,7 +2104,108 @@ const file_tx_proto_rawDesc = "" +
 	"\aINDICES\x10\n" +
 	"\x12\n" +
 	"\n" +
-	"\x06EXOTIC\x10\v*\x19\n" +
+	"\x06EXOTIC\x10\v*\xe6\x0f\n" +
+	"\x06OpCode\x12\r\n" +
+	"\tMETA_NOOP\x10\x00\x12\r\n" +
+	"\tMETA_BLOB\x10\x01\x12\x10\n" +
+	"\fMETA_RESERVE\x10\x02\x12\x0e\n" +
+	"\n" +
+	"META_BATCH\x10\x03\x12\x0f\n" +
+	"\vSYS_UPGRADE\x10\x04\x12\r\n" +
+	"\tSYS_PAUSE\x10\x05\x12\x0e\n" +
+	"\n" +
+	"SYS_RESUME\x10\x06\x12\x10\n" +
+	"\fSYS_SET_FLAG\x10\a\x12\x17\n" +
+	"\x13SYS_HEARTBEAT_CHECK\x10\b\x12\x1f\n" +
+	"\x1bSYS_UPDATE_VALIDATOR_PARAMS\x10\t\x12\x15\n" +
+	"\x11SYS_DEPOSIT_PAUSE\x10\n" +
+	"\x12\x16\n" +
+	"\x12SYS_WITHDRAW_PAUSE\x10\v\x12\x16\n" +
+	"\x12SYS_DEPOSIT_RESUME\x10\f\x12\x17\n" +
+	"\x13SYS_WITHDRAW_RESUME\x10\r\x12\x13\n" +
+	"\x0fINS_FUND_CREATE\x10\x0e\x12\x0f\n" +
+	"\vINS_FUND_OP\x10\x0f\x12\x0e\n" +
+	"\n" +
+	"INS_CREDIT\x10\x10\x12\r\n" +
+	"\tINS_REPAY\x10\x11\x12\x0e\n" +
+	"\n" +
+	"INS_PAYOUT\x10\x12\x12\x16\n" +
+	"\x12INS_AUTO_REBALANCE\x10\x13\x12\x14\n" +
+	"\x10GOV_ASSET_CREATE\x10\x14\x12\x14\n" +
+	"\x10GOV_ASSET_UPDATE\x10\x15\x12\x15\n" +
+	"\x11GOV_MARKET_CREATE\x10\x16\x12\x15\n" +
+	"\x11GOV_MARKET_UPDATE\x10\x17\x12\x15\n" +
+	"\x11GOV_MARKET_FREEZE\x10\x18\x12\x17\n" +
+	"\x13GOV_MARKET_UNFREEZE\x10\x19\x12\x15\n" +
+	"\x11GOV_MARKET_SETTLE\x10\x1a\x12\x15\n" +
+	"\x11GOV_MARKET_DELIST\x10\x1b\x12\x18\n" +
+	"\x14GOV_SET_ACC_FEE_TIER\x10\x1c\x12\x13\n" +
+	"\x0fGOV_FEE_COLLECT\x10\x1d\x12\x18\n" +
+	"\x14GOV_INDX_ORACLE_FEED\x10\x1e\x12\x12\n" +
+	"\x0eGOV_INDX_VALUE\x10\x1f\x12\x16\n" +
+	"\x12GOV_MARKET_FUNDING\x10 \x12\x18\n" +
+	"\x14GOV_BALANCE_TRANSFER\x10!\x12\x1b\n" +
+	"\x17GOV_FEE_SCHEDULE_UPDATE\x10\"\x12\x0f\n" +
+	"\vGOV_MESSAGE\x10#\x12\x17\n" +
+	"\x13GOV_APPROVE_PROPOSE\x10$\x12\x14\n" +
+	"\x10GOV_VAULT_CREATE\x10%\x12\x1c\n" +
+	"\x18GOV_VAULT_PAUSE_DEPOSITS\x10&\x12\x1d\n" +
+	"\x19GOV_VAULT_RESUME_DEPOSITS\x10'\x12'\n" +
+	"#GOV_VAULT_EMERGENCY_ENABLE_WITHDRAW\x10(\x12\x10\n" +
+	"\fACC_REGISTER\x10)\x12\x0f\n" +
+	"\vACC_DEPOSIT\x10*\x12\x18\n" +
+	"\x14ACC_WITHDRAW_REQUEST\x10+\x12\x16\n" +
+	"\x12ACC_WITHDRAW_CLAIM\x10,\x12\x17\n" +
+	"\x13ACC_WALLET_TRANSFER\x10-\x12\x10\n" +
+	"\fACC_SET_FLAG\x10.\x12\x0f\n" +
+	"\vACC_FEE_PAY\x10/\x12\x16\n" +
+	"\x12ACC_AGENT_REGISTER\x100\x12\x14\n" +
+	"\x10ACC_AGENT_REVOKE\x101\x12\x1b\n" +
+	"\x17ACC_AGENT_UPDATE_LIMITS\x102\x12\x19\n" +
+	"\x15ACC_SUBACCOUNT_CREATE\x103\x12\x19\n" +
+	"\x15ACC_SESSION_HEARTBEAT\x104\x12\x14\n" +
+	"\x10ACC_NONCE_UPDATE\x105\x12\x15\n" +
+	"\x11ACC_WHITELIST_ADD\x106\x12\x18\n" +
+	"\x14ACC_WHITELIST_REMOVE\x107\x12\x18\n" +
+	"\x14ACC_KYC_SUBMIT_PROOF\x108\x12\x0f\n" +
+	"\vACC_MESSAGE\x109\x12\x1a\n" +
+	"\x16ACC_UPDATE_MESSAGE_KEY\x10:\x12\f\n" +
+	"\bACC_VOTE\x10;\x12\x16\n" +
+	"\x12ACC_CREATE_PROPOSE\x10<\x12\x0e\n" +
+	"\n" +
+	"ORD_CREATE\x10=\x12\x0e\n" +
+	"\n" +
+	"ORD_CANCEL\x10>\x12\x12\n" +
+	"\x0eORD_CANCEL_ALL\x10?\x12\x16\n" +
+	"\x12ORD_CANCEL_REPLACE\x10@\x12\r\n" +
+	"\tORD_AMEND\x10A\x12\x0f\n" +
+	"\vORD_REORDER\x10E\x12\x12\n" +
+	"\x0ePOS_MARGIN_ADJ\x10F\x12\r\n" +
+	"\tPOS_CLOSE\x10G\x12\x10\n" +
+	"\fPOS_LEVERAGE\x10H\x12\v\n" +
+	"\aPOS_ADL\x10I\x12\x0e\n" +
+	"\n" +
+	"POS_SETTLE\x10J\x12\x12\n" +
+	"\x0eERC20_TRANSFER\x10K\x12\x0e\n" +
+	"\n" +
+	"ERC20_MINT\x10L\x12\x0e\n" +
+	"\n" +
+	"ERC20_BURN\x10M\x12\x11\n" +
+	"\rERC20_APPROVE\x10N\x12\x10\n" +
+	"\fERC20_FREEZE\x10O\x12\x12\n" +
+	"\x0eERC20_UNFREEZE\x10P\x12\x11\n" +
+	"\rVAULT_DEPOSIT\x10Q\x12\x1a\n" +
+	"\x16VAULT_WITHDRAW_REQUEST\x10R\x12\x18\n" +
+	"\x14VAULT_WITHDRAW_CLAIM\x10S\x12\x17\n" +
+	"\x13VAULT_REWARDS_CLAIM\x10T\x12\x17\n" +
+	"\x13VAULT_TOPUP_REWARDS\x10U\x12\x1c\n" +
+	"\x18VAULT_EMERGENCY_WITHDRAW\x10V\x12\x1b\n" +
+	"\x17KYC_COMPLIANCE_FLAG_SET\x10W\x12\x1d\n" +
+	"\x19KYC_COMPLIANCE_KYC_UPDATE\x10X\x12\x19\n" +
+	"\x15KYC_COMPLIANCE_FREEZE\x10Y\x12\x1b\n" +
+	"\x17KYC_COMPLIANCE_UNFREEZE\x10Z\x12\x1d\n" +
+	"\x19KYC_SANCTIONS_LIST_UPDATE\x10[\x12\x1a\n" +
+	"\x15UNKNOWN_OR_UNREALISED\x10\xff\x0f\"\x04\bB\x10B\"\x04\bC\x10C\"\x04\bD\x10D*\x19\n" +
 	"\x04Side\x12\a\n" +
 	"\x03BUY\x10\x00\x12\b\n" +
 	"\x04SELL\x10\x01*d\n" +
@@ -1825,69 +2241,72 @@ func file_tx_proto_rawDescGZIP() []byte {
 	return file_tx_proto_rawDescData
 }
 
-var file_tx_proto_enumTypes = make([]protoimpl.EnumInfo, 7)
+var file_tx_proto_enumTypes = make([]protoimpl.EnumInfo, 8)
 var file_tx_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_tx_proto_goTypes = []any{
 	(TxAuthType)(0),                   // 0: tx.TxAuthType
 	(TxExecMode)(0),                   // 1: tx.TxExecMode
 	(Markets)(0),                      // 2: tx.Markets
-	(Side)(0),                         // 3: tx.Side
-	(OrderType)(0),                    // 4: tx.OrderType
-	(TimeInForce)(0),                  // 5: tx.TimeInForce
-	(TriggerPrice)(0),                 // 6: tx.TriggerPrice
-	(*TransactionHeader)(nil),         // 7: tx.TransactionHeader
-	(*BatchedTransactionHeader)(nil),  // 8: tx.BatchedTransactionHeader
-	(*Transaction)(nil),               // 9: tx.Transaction
-	(*BatchTransaction)(nil),          // 10: tx.BatchTransaction
-	(*MetaNoopPayload)(nil),           // 11: tx.MetaNoopPayload
-	(*MetaReservePayload)(nil),        // 12: tx.MetaReservePayload
-	(*OrderID)(nil),                   // 13: tx.OrderID
-	(*OrderItem)(nil),                 // 14: tx.OrderItem
-	(*AmendItem)(nil),                 // 15: tx.AmendItem
-	(*MetaBlobPayload)(nil),           // 16: tx.MetaBlobPayload
-	(*MetaBatchPayload)(nil),          // 17: tx.MetaBatchPayload
-	(*OrderCreatePayload)(nil),        // 18: tx.OrderCreatePayload
-	(*OrderCancelPayload)(nil),        // 19: tx.OrderCancelPayload
-	(*OrderCancelAllPayload)(nil),     // 20: tx.OrderCancelAllPayload
-	(*OrderCancelReplacePayload)(nil), // 21: tx.OrderCancelReplacePayload
-	(*OrderAmendPayload)(nil),         // 22: tx.OrderAmendPayload
+	(OpCode)(0),                       // 3: tx.OpCode
+	(Side)(0),                         // 4: tx.Side
+	(OrderType)(0),                    // 5: tx.OrderType
+	(TimeInForce)(0),                  // 6: tx.TimeInForce
+	(TriggerPrice)(0),                 // 7: tx.TriggerPrice
+	(*TransactionHeader)(nil),         // 8: tx.TransactionHeader
+	(*BatchedTransactionHeader)(nil),  // 9: tx.BatchedTransactionHeader
+	(*Transaction)(nil),               // 10: tx.Transaction
+	(*BatchTransaction)(nil),          // 11: tx.BatchTransaction
+	(*MetaNoopPayload)(nil),           // 12: tx.MetaNoopPayload
+	(*MetaReservePayload)(nil),        // 13: tx.MetaReservePayload
+	(*OrderID)(nil),                   // 14: tx.OrderID
+	(*OrderItem)(nil),                 // 15: tx.OrderItem
+	(*AmendItem)(nil),                 // 16: tx.AmendItem
+	(*MetaBlobPayload)(nil),           // 17: tx.MetaBlobPayload
+	(*MetaBatchPayload)(nil),          // 18: tx.MetaBatchPayload
+	(*OrderCreatePayload)(nil),        // 19: tx.OrderCreatePayload
+	(*OrderCancelPayload)(nil),        // 20: tx.OrderCancelPayload
+	(*OrderCancelAllPayload)(nil),     // 21: tx.OrderCancelAllPayload
+	(*OrderCancelReplacePayload)(nil), // 22: tx.OrderCancelReplacePayload
+	(*OrderAmendPayload)(nil),         // 23: tx.OrderAmendPayload
 }
 var file_tx_proto_depIdxs = []int32{
-	0,  // 0: tx.TransactionHeader.auth_type:type_name -> tx.TxAuthType
-	1,  // 1: tx.TransactionHeader.execution_mode:type_name -> tx.TxExecMode
-	2,  // 2: tx.TransactionHeader.market_code:type_name -> tx.Markets
-	2,  // 3: tx.BatchedTransactionHeader.market_code:type_name -> tx.Markets
-	7,  // 4: tx.Transaction.header:type_name -> tx.TransactionHeader
-	8,  // 5: tx.Transaction.batch_header:type_name -> tx.BatchedTransactionHeader
-	11, // 6: tx.Transaction.meta_noop:type_name -> tx.MetaNoopPayload
-	16, // 7: tx.Transaction.meta_blob:type_name -> tx.MetaBlobPayload
-	12, // 8: tx.Transaction.meta_reserve:type_name -> tx.MetaReservePayload
-	18, // 9: tx.Transaction.order_create:type_name -> tx.OrderCreatePayload
-	19, // 10: tx.Transaction.order_cancel:type_name -> tx.OrderCancelPayload
-	20, // 11: tx.Transaction.order_cancel_all:type_name -> tx.OrderCancelAllPayload
-	21, // 12: tx.Transaction.order_cancel_replace:type_name -> tx.OrderCancelReplacePayload
-	22, // 13: tx.Transaction.order_amend:type_name -> tx.OrderAmendPayload
-	7,  // 14: tx.BatchTransaction.header:type_name -> tx.TransactionHeader
-	9,  // 15: tx.BatchTransaction.payload:type_name -> tx.Transaction
-	13, // 16: tx.OrderItem.order_id:type_name -> tx.OrderID
-	3,  // 17: tx.OrderItem.side:type_name -> tx.Side
-	4,  // 18: tx.OrderItem.order_type:type_name -> tx.OrderType
-	5,  // 19: tx.OrderItem.exec_type:type_name -> tx.TimeInForce
-	6,  // 20: tx.OrderItem.stop_price_type:type_name -> tx.TriggerPrice
-	6,  // 21: tx.OrderItem.take_price_type:type_name -> tx.TriggerPrice
-	13, // 22: tx.AmendItem.order_id:type_name -> tx.OrderID
-	6,  // 23: tx.AmendItem.stop_price_type:type_name -> tx.TriggerPrice
-	6,  // 24: tx.AmendItem.take_price_type:type_name -> tx.TriggerPrice
-	14, // 25: tx.OrderCreatePayload.orders:type_name -> tx.OrderItem
-	13, // 26: tx.OrderCancelPayload.order_id:type_name -> tx.OrderID
-	13, // 27: tx.OrderCancelReplacePayload.canceled_order_id:type_name -> tx.OrderID
-	18, // 28: tx.OrderCancelReplacePayload.replaced_order:type_name -> tx.OrderCreatePayload
-	15, // 29: tx.OrderAmendPayload.amends:type_name -> tx.AmendItem
-	30, // [30:30] is the sub-list for method output_type
-	30, // [30:30] is the sub-list for method input_type
-	30, // [30:30] is the sub-list for extension type_name
-	30, // [30:30] is the sub-list for extension extendee
-	0,  // [0:30] is the sub-list for field type_name
+	3,  // 0: tx.TransactionHeader.op_code:type_name -> tx.OpCode
+	0,  // 1: tx.TransactionHeader.auth_type:type_name -> tx.TxAuthType
+	1,  // 2: tx.TransactionHeader.execution_mode:type_name -> tx.TxExecMode
+	2,  // 3: tx.TransactionHeader.market_code:type_name -> tx.Markets
+	3,  // 4: tx.BatchedTransactionHeader.op_code:type_name -> tx.OpCode
+	2,  // 5: tx.BatchedTransactionHeader.market_code:type_name -> tx.Markets
+	8,  // 6: tx.Transaction.header:type_name -> tx.TransactionHeader
+	9,  // 7: tx.Transaction.batch_header:type_name -> tx.BatchedTransactionHeader
+	12, // 8: tx.Transaction.meta_noop:type_name -> tx.MetaNoopPayload
+	17, // 9: tx.Transaction.meta_blob:type_name -> tx.MetaBlobPayload
+	13, // 10: tx.Transaction.meta_reserve:type_name -> tx.MetaReservePayload
+	19, // 11: tx.Transaction.order_create:type_name -> tx.OrderCreatePayload
+	20, // 12: tx.Transaction.order_cancel:type_name -> tx.OrderCancelPayload
+	21, // 13: tx.Transaction.order_cancel_all:type_name -> tx.OrderCancelAllPayload
+	22, // 14: tx.Transaction.order_cancel_replace:type_name -> tx.OrderCancelReplacePayload
+	23, // 15: tx.Transaction.order_amend:type_name -> tx.OrderAmendPayload
+	8,  // 16: tx.BatchTransaction.header:type_name -> tx.TransactionHeader
+	10, // 17: tx.BatchTransaction.payload:type_name -> tx.Transaction
+	14, // 18: tx.OrderItem.order_id:type_name -> tx.OrderID
+	4,  // 19: tx.OrderItem.side:type_name -> tx.Side
+	5,  // 20: tx.OrderItem.order_type:type_name -> tx.OrderType
+	6,  // 21: tx.OrderItem.exec_type:type_name -> tx.TimeInForce
+	7,  // 22: tx.OrderItem.stop_price_type:type_name -> tx.TriggerPrice
+	7,  // 23: tx.OrderItem.take_price_type:type_name -> tx.TriggerPrice
+	14, // 24: tx.AmendItem.order_id:type_name -> tx.OrderID
+	7,  // 25: tx.AmendItem.stop_price_type:type_name -> tx.TriggerPrice
+	7,  // 26: tx.AmendItem.take_price_type:type_name -> tx.TriggerPrice
+	15, // 27: tx.OrderCreatePayload.orders:type_name -> tx.OrderItem
+	14, // 28: tx.OrderCancelPayload.order_id:type_name -> tx.OrderID
+	14, // 29: tx.OrderCancelReplacePayload.canceled_order_id:type_name -> tx.OrderID
+	19, // 30: tx.OrderCancelReplacePayload.replaced_order:type_name -> tx.OrderCreatePayload
+	16, // 31: tx.OrderAmendPayload.amends:type_name -> tx.AmendItem
+	32, // [32:32] is the sub-list for method output_type
+	32, // [32:32] is the sub-list for method input_type
+	32, // [32:32] is the sub-list for extension type_name
+	32, // [32:32] is the sub-list for extension extendee
+	0,  // [0:32] is the sub-list for field type_name
 }
 
 func init() { file_tx_proto_init() }
@@ -1914,7 +2333,7 @@ func file_tx_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_tx_proto_rawDesc), len(file_tx_proto_rawDesc)),
-			NumEnums:      7,
+			NumEnums:      8,
 			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   0,
