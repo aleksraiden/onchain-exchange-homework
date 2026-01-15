@@ -20,7 +20,7 @@ import (
 	"syscall"
 	"time"
 
-	"tx-generator/tx"
+	"tx-generator/tx" // Убедитесь, что путь к пакету корректный
 
 	"github.com/gorilla/websocket"
 	"google.golang.org/protobuf/proto"
@@ -56,7 +56,7 @@ type OrderBook struct {
 }
 
 type ManagedOrder struct {
-	OrderID  []byte // 16 байт user_generated_id
+	OrderID  []byte // 16 байт
 	Side     bool   // true = buy
 	Price    float64
 	Quantity float64
@@ -65,10 +65,11 @@ type ManagedOrder struct {
 
 var (
 	ob            = &OrderBook{}
-	managedOrders = make(map[string]*ManagedOrder) // key = user_generated_id hex
+	managedOrders = make(map[string]*ManagedOrder) // key = internal logic key
 	uidCounter    uint64
 	nonce         uint64
 	txCreated     uint64 // общее количество созданных транзакций
+	lastTxCount   uint64
 	privKey       ed25519.PrivateKey
 	signerUID     uint64 = 123456789 // тестовый UID
 	allTxs        [][]byte
@@ -184,7 +185,6 @@ func updateOrderBook(data json.RawMessage) {
 
 	//вывод топ-1
 	logTop1Prices()
-
 }
 
 // Новая функция для вывода топ-1
@@ -195,25 +195,30 @@ func logTop1Prices() {
 	ob.mu.RUnlock()
 
 	timestamp := time.Now().Format("15:04:05.000")
-	txCount := atomic.LoadUint64(&txCreated)
+	
+	// Получаем текущее количество
+	currentTxCount := atomic.LoadUint64(&txCreated)
+	// Считаем разницу с прошлого раза
+	deltaTx := currentTxCount - lastTxCount
+	// Обновляем "прошлое" значение для следующего вызова
+	lastTxCount = currentTxCount
 
 	if bidsEmpty && asksEmpty {
-		// Стакан пустой → логируем полный последний JSON для отладки
 		lastRawMu.Lock()
 		rawCopy := make([]byte, len(lastRawMessage))
 		copy(rawCopy, lastRawMessage)
 		lastRawMu.Unlock()
 
 		var pretty bytes.Buffer
+		// Добавил вывод (+delta)
 		if err := json.Indent(&pretty, rawCopy, "", "  "); err == nil {
-			log.Printf("\x1b[31m[%s] ПУСТОЙ СТАКАН! TX: %d | Последний JSON:\x1b[0m\n%s\n",
-				timestamp, txCount, pretty.String())
+			log.Printf("\x1b[31m[%s] ПУСТОЙ СТАКАН! TX: %d (+%d) | Последний JSON:\x1b[0m\n%s\n",
+				timestamp, currentTxCount, deltaTx, pretty.String())
 		} else {
-			log.Printf("\x1b[31m[%s] ПУСТОЙ СТАКАН! TX: %d | Сырой (невалидный JSON):\x1b[0m %s\n",
-				timestamp, txCount, string(rawCopy))
+			log.Printf("\x1b[31m[%s] ПУСТОЙ СТАКАН! TX: %d (+%d) | Сырой (невалидный JSON):\x1b[0m %s\n",
+				timestamp, currentTxCount, deltaTx, string(rawCopy))
 		}
 	} else {
-		// Нормальный стакан → обычный красивый лог
 		ob.mu.RLock()
 		bestBid := ob.Bids[0]
 		bestAsk := ob.Asks[0]
@@ -221,12 +226,14 @@ func logTop1Prices() {
 
 		spread := bestAsk.Price - bestBid.Price
 
-		log.Printf("\x1b[32m[%s]\x1b[0m Top-1: \x1b[34mBid %10.2f\x1b[0m (qty %.6f) | \x1b[31mAsk %10.2f\x1b[0m (qty %.6f) | Spread %.2f | TX: %d",
+		// Добавил вывод (+delta) в конец строки
+		log.Printf("\x1b[32m[%s]\x1b[0m Top-1: \x1b[34mBid %10.2f\x1b[0m (qty %.6f) | \x1b[31mAsk %10.2f\x1b[0m (qty %.6f) | Spread %.2f | TX: %d (+%d)",
 			timestamp,
 			bestBid.Price, bestBid.Qty,
 			bestAsk.Price, bestAsk.Qty,
 			spread,
-			txCount,
+			currentTxCount,
+			deltaTx,
 		)
 	}
 }
@@ -305,11 +312,11 @@ func createOrAmendOrders(isBuy bool, price, totalQty float64) {
 			key += fmt.Sprintf("-%d", i)
 		}
 
-		uid := generateUserGeneratedID()
-
+		// Если ордер уже есть - обновляем, если нет - создаем
 		if existing, ok := managedOrders[key]; ok {
 			amendOrder(existing, adjPrice, qtyPerOrder)
 		} else {
+			uid := generateUserGeneratedID()
 			createNewOrder(uid, isBuy, adjPrice, qtyPerOrder)
 			managedOrders[key] = &ManagedOrder{
 				OrderID:  uid,
@@ -337,13 +344,24 @@ func cancelOutdatedOrders(current map[string]bool) {
 }
 
 func createNewOrder(uid []byte, isBuy bool, price, qty float64) {
+	side := tx.Side_SELL
+	if isBuy {
+		side = tx.Side_BUY
+	}
+
+	// Создаем OrderItem
+	item := &tx.OrderItem{
+		OrderId:   &tx.OrderID{Id: uid},
+		Side:      side,
+		OrderType: tx.OrderType_LIMIT,
+		ExecType:  tx.TimeInForce_GTC,
+		Quantity:  uint64(qty * qtyMultiplier),
+		Price:     uint64(price * priceMultiplier),
+	}
+
+	// Оборачиваем в OrderCreatePayload
 	p := &tx.OrderCreatePayload{
-		IsBuy:           isBuy,
-		IsMarket:        false,
-		Quantity:        uint64(qty * qtyMultiplier),
-		Price:           uint64(price * priceMultiplier),
-		Flags:           0,
-		UserGeneratedId: uid,
+		Orders: []*tx.OrderItem{item},
 	}
 
 	txx := buildTx(createHeader(0x60), p)
@@ -352,15 +370,18 @@ func createNewOrder(uid []byte, isBuy bool, price, qty float64) {
 
 func amendOrder(order *ManagedOrder, newPrice, newQty float64) {
 	// Конвертируем float64 → uint64
-	priceUint := uint64(math.Round(newPrice * priceMultiplier)) // 2 знака после точки
-	qtyUint := uint64(math.Round(newQty * qtyMultiplier))       // 8 знаков, как для BTC
+	priceUint := uint64(math.Round(newPrice * priceMultiplier))
+	qtyUint := uint64(math.Round(newQty * qtyMultiplier))
+
+	// Создаем AmendItem. Поля Price и Quantity опциональны (поинтеры)
+	item := &tx.AmendItem{
+		OrderId:  &tx.OrderID{Id: order.OrderID},
+		Quantity: &qtyUint,
+		Price:    &priceUint,
+	}
 
 	p := &tx.OrderAmendPayload{
-		IdType: &tx.OrderAmendPayload_UserGeneratedId{
-			UserGeneratedId: order.OrderID,
-		},
-		NewPrice:    &priceUint,
-		NewQuantity: &qtyUint,
+		Amends: []*tx.AmendItem{item},
 	}
 
 	txx := buildTx(createHeader(0x6B), p)
@@ -372,9 +393,7 @@ func amendOrder(order *ManagedOrder, newPrice, newQty float64) {
 
 func cancelOrder(order *ManagedOrder) {
 	p := &tx.OrderCancelPayload{
-		IdType: &tx.OrderCancelPayload_UserGeneratedId{
-			UserGeneratedId: order.OrderID,
-		},
+		OrderId: []*tx.OrderID{{Id: order.OrderID}},
 	}
 
 	txx := buildTx(createHeader(0x64), p)
@@ -389,6 +408,9 @@ func cancelAllOrders() {
 }
 
 func appendTx(tx []byte) {
+	if tx == nil {
+		return
+	}
 	muTxs.Lock()
 	allTxs = append(allTxs, tx)
 	atomic.AddUint64(&txCreated, 1)
@@ -419,7 +441,7 @@ func createHeader(opCode uint32) *tx.TransactionHeader {
 	return &tx.TransactionHeader{
 		ChainVersion: 0x01000001,
 		OpCode:       opCode,
-		AuthType:     0,
+		AuthType:     tx.TxAuthType_UID,
 		SignerUid:    signerUID,
 		Nonce:        nonce,
 		MarketCode:   0x00000001,
@@ -430,28 +452,38 @@ func createHeader(opCode uint32) *tx.TransactionHeader {
 }
 
 func buildTx(header *tx.TransactionHeader, payload proto.Message) []byte {
-	payloadBytes, _ := proto.Marshal(payload)
+	// Маршалим payload, чтобы узнать его размер
+	payloadBytes, err := proto.Marshal(payload)
+	if err != nil {
+		log.Printf("Error marshaling payload: %v", err)
+		return nil
+	}
 	header.PayloadSize = uint32(len(payloadBytes))
 
 	txx := &tx.Transaction{Header: header}
-	// Здесь нужно правильно заполнить oneof (как в твоём основном коде)
-	// Для примера используем switch по opCode
-	switch header.OpCode {
-	case 0x60:
-		txx.Payload = &tx.Transaction_OrderCreate{OrderCreate: payload.(*tx.OrderCreatePayload)}
-	case 0x6B:
-		txx.Payload = &tx.Transaction_OrderAmend{OrderAmend: payload.(*tx.OrderAmendPayload)}
-	case 0x64:
-		txx.Payload = &tx.Transaction_OrderCancel{OrderCancel: payload.(*tx.OrderCancelPayload)}
+
+	// Заполняем поле oneof
+	switch p := payload.(type) {
+	case *tx.OrderCreatePayload:
+		txx.Payload = &tx.Transaction_OrderCreate{OrderCreate: p}
+	case *tx.OrderAmendPayload:
+		txx.Payload = &tx.Transaction_OrderAmend{OrderAmend: p}
+	case *tx.OrderCancelPayload:
+		txx.Payload = &tx.Transaction_OrderCancel{OrderCancel: p}
+	case *tx.MetaNoopPayload:
+		txx.Payload = &tx.Transaction_MetaNoop{MetaNoop: p}
+	// Добавьте другие типы, если они понадобятся
 	default:
-		log.Printf("Неизвестный opCode: %d", header.OpCode)
+		log.Printf("Неизвестный тип payload для opcode: %d", header.OpCode)
 		return nil
 	}
 
+	// 1. Предварительный маршалинг для подписи
 	temp, _ := proto.Marshal(txx)
 	sig := ed25519.Sign(privKey, temp)
 	header.Signature = sig
 
+	// 2. Финальный маршалинг с подписью
 	final, _ := proto.Marshal(txx)
 	return final
 }

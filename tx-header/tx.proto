@@ -4,6 +4,28 @@ package tx;
 
 option go_package = "/tx";
 
+//Спецификация вариантов аутенфикации транзакции 
+enum TxAuthType {
+  UID 				= 0;	//внутренний UID 
+  BATCHED			= 1;	//Указывает, что это батч, где отдельные транзакции имеют свои подписи
+  ED25519_PK	 	= 2;	//Public key ed25519 
+  ED25519_MSIG	 	= 3;	//Multisig
+  
+  SEC256k1_PK		= 4;	//На будущее оставим 
+  SEC256k1_MSIG		= 5;	//На будущее оставим 
+  
+  UNKNOWN			= 6;
+}
+
+//Определяет режим исполнения транзакции и время ее жизни
+enum TxExecMode {
+	DEFAULT			= 0;
+	ASAP			= 1; //исполнить сразу, но до указанного validBeforeHeight
+	IMMEDIATLY		= 2; //приоритет исполнение немедленно, даже если есть другие tx
+	CURRENT_BLOCK	= 3; //исполнение только в текущем блоке
+	NEXT_BLOCK		= 4; //исполнение строго в следующем блок
+}
+
 // TransactionHeader defines the header for a transaction.
 message TransactionHeader {
   // chainVersion determines the network and code version.
@@ -33,7 +55,8 @@ message TransactionHeader {
   // 0x2: multisig (public keys and signatories in payload)
   // 0x3: other possible methods
   // Reserved: 0xFF
-  uint32 auth_type = 5;
+  //uint32 auth_type = 5;
+  TxAuthType auth_type = 5;
 
   // executionMode determines the execution mode and lifetime.
   // 0x00: default, execute in normal mode
@@ -42,7 +65,8 @@ message TransactionHeader {
   // 0x03: priority immediate execution, even if other txs
   // 0x04: execute strictly in next block
   // 0x05–0xFF: reserved
-  uint32 execution_mode = 6;
+  //uint32 execution_mode = 6;
+  TxExecMode execution_mode = 6;
 
   // reservedPadding is reserved for structure alignment.
   // Default: 0x00
@@ -87,30 +111,31 @@ message Transaction {
   oneof payload {
     // META_NOOP (opCode 0x00): Просто 1 пустой байт (например, bytes с нулевым значением).
     MetaNoopPayload meta_noop = 2;
-
-    // META_RESERVE (opCode 0xFF): Зарезервированная, 1 байт.
-    MetaReservePayload meta_reserve = 3;
-
-    // ORD_CREATE (opCode 0x60): Создание ордера.
-    OrderCreatePayload order_create = 4;
+	
+	// META_BATCH
+    MetaBatchPayload meta_batch = 3;
+	
+	// META_BLOB - служебная транзакция, произвольный блок который добавляет только пропоусер 
+	MetaBlobPayload meta_blob = 4;
+	
+	// META_RESERVE (opCode 0xFF): Зарезервированная, 1 байт.
+    MetaReservePayload meta_reserve = 5;
+	
+	// ORD_CREATE (opCode 0x60): Создание ордера.
+    OrderCreatePayload order_create = 6;
 
     // ORD_CANCEL (opCode 0x64): Отмена одного ордера.
-    OrderCancelPayload order_cancel = 5;
-
-    // ORD_CANCEL_BATCH (opCode 0x65): Массовая отмена.
-    OrderCancelBatchPayload order_cancel_batch = 6;
+    OrderCancelPayload order_cancel = 7;
 
     // ORD_CANCEL_ALL (opCode 0x66): Отмена всех ордеров (payload пустой, но для oneof используем пустое сообщение).
-    OrderCancelAllPayload order_cancel_all = 7;
+    OrderCancelAllPayload order_cancel_all = 8;
 
-    // ORD_CANCEL_REPLACE (opCode 0x6A): Атомарная отмена и создание.
-    OrderCancelReplacePayload order_cancel_replace = 8;
+    // ORD_CANCEL_REPLACE (opCode 0x6A): Атомарная отмена и создание (батчинг НЕ поддерживаеться).
+    OrderCancelReplacePayload order_cancel_replace = 9;
 
-    // ORD_AMEND (opCode 0x6B): Изменение ордера.
-    OrderAmendPayload order_amend = 9;
+    // ORD_AMEND (opCode 0x6B): Изменение ордера (с поддержкой батчинга).
+    OrderAmendPayload order_amend = 10;
 
-    // ORD_AMEND_BATCH (opCode 0x6C): Массовое изменение.
-    OrderAmendBatchPayload order_amend_batch = 10;
 
     //... Добавляйте другие по мере необходимости.
   }
@@ -131,25 +156,98 @@ message OrderID {
   bytes id = 1; // Фиксированные 16 байт.
 }
 
+//Группируем флаги в enum-ы
+enum Side {
+  BUY 		= 0;
+  SELL 		= 1;
+}
+
+//Тип ордера 
+enum OrderType {
+  MARKET 	= 0;
+  LIMIT 	= 1;
+  
+  STOP_MARKET	= 2;
+  STOP_LIMIT	= 3;
+  
+  TAKE_MARKET	= 4;
+  TAKE_LIMIT	= 5;
+}
+
+//Спецификация исполнения
+enum TimeInForce {
+  GTC 			= 0;
+  IOC 			= 1;
+  FOK 			= 2;
+}
+
+//Спецификация Trigger-price 
+enum TriggerPrice {
+  MARKPRICE			= 0;
+  SPOTPRICE 		= 1;
+  LASTTRADEPRICE 	= 2;
+  FUNDINGRATE	 	= 3;
+}
+
+//База - новый ордер 
+message OrderItem {
+	OrderID 		order_id 	= 1;	// OrderID - 16 байт, UUIDv7
+  
+	Side			side 		= 2;	//Buy/Sell side, BUY is default
+  
+	OrderType		order_type	= 3;	//Тип ордера, маркет дефолтный 
+  
+	TimeInForce		exec_type	= 4;	//Спецификация исполнения - GTC default
+  
+	//Несмотря на то, что многие относят эти поля к спецификации выполнения, лучше выделит отдельно
+	bool			reduce_only = 5;
+	bool			post_only 	= 6;
+  
+	uint64 			quantity 	= 7;	// Объем в base units.
+	uint64 			price 		= 8;	// Цена в quote units (игнорируется для market).
+  
+	//Попробуем указать параметры стопов и тейков
+	optional TriggerPrice	stop_price_type = 9;	// Тип цены для стоп-ордера
+	optional uint64			stop_price 		= 10;	// Само значение (то есть - цена из списка TriggerPrice), 0 для маркет или цена для лимитного
+	  
+	optional TriggerPrice	take_price_type = 11;	// Тип цены для тейк-ордера
+	optional uint64			take_price 		= 12;	// Само значение (то есть - цена из списка TriggerPrice)
+	
+	optional uint32 		market_code		= 13;	//Опционально, укажем код рынка (compressed, uint32) для мульти-маркет батчинга 
+}
+
+//Базовый блок для модификации ордера - пока можно менять только цену или обьем  
+message AmendItem {
+    OrderID 		order_id 	= 1;	// OrderID - 16 байт, UUIDv7
+    optional uint64 quantity 	= 2;
+    optional uint64 price 		= 3;
+	
+	optional TriggerPrice	stop_price_type = 4;	// Тип цены для стоп-ордера
+	optional uint64			stop_price 		= 5;	// Само значение (то есть - цена из списка TriggerPrice), 0 для маркет или цена для лимитного
+	  
+	optional TriggerPrice	take_price_type = 6;	// Тип цены для тейк-ордера
+	optional uint64			take_price 		= 7;	// Само значение (то есть - цена из списка TriggerPrice)
+}
+
+
+//TODO: MetaBlobPayload
+message MetaBlobPayload {
+	bytes payload = 1; // 1 байт, default пустой
+}
+
+//TODO: MetaBatchPayload
+message MetaBatchPayload {
+	bytes payload = 1; // 1 байт, default пустой
+}
+
 // OrderCreatePayload - для ORD_CREATE (opCode 0x60).
 message OrderCreatePayload {
-  OrderID 		order_id 	= 1;	// OrderID - 16 байт, UUIDv7
-  bool 			is_buy 		= 2;	// Buy/Sell side.
-  bool 			is_market 	= 3;	// true: рыночный ордер, false: лимитный.
-  uint64 		quantity 	= 4;	// Объем в base units.
-  uint64 		price 		= 5;	// Цена в quote units (игнорируется для market).
-  uint32 		flags 		= 6;	// Флаги: битовые (e.g., bit0: GTD, bit1: IOC, etc.). Определите маску в коде.
-  // uint64 timestamp 		= 7;	// Опционально, если нужен (e.g., для GTD expiration), но пока закомментировано.
+	repeated	OrderItem	orders = 1;  //Сразу любое количество новых ордеров 
 }
 
-// OrderCancelPayload - для ORD_CANCEL (opCode 0x64).
+// OrderCancelPayload - для ORD_CANCEL (opCode 0x64), поддерживает батчинг сразу
 message OrderCancelPayload {
-	OrderID 		order_id 	= 1;	// OrderID - 16 байт, UUIDv7
-}
-
-// OrderCancelBatchPayload - для ORD_CANCEL_BATCH (opCode 0x65).
-message OrderCancelBatchPayload {
-	repeated OrderID order_ids = 1;            // Массив orderID (каждый 16 байт)
+	repeated	OrderID		order_id = 1;	// OrderID - 16 байт, UUIDv7
 }
 
 // OrderCancelAllPayload - для ORD_CANCEL_ALL (opCode 0x66).
@@ -157,33 +255,16 @@ message OrderCancelAllPayload {
 	bytes payload = 1; // 1 байт, default пустой
 }
 
-// OrderCancelReplacePayload - для ORD_CANCEL_REPLACE (opCode 0x6A).
+// OrderCancelReplacePayload - для ORD_CANCEL_REPLACE (opCode 0x6A). Батчинг таких ордеров не поддерживаеться
 message OrderCancelReplacePayload {
-  OrderID 		order_id 	= 1;	// OrderID - 16 байт, UUIDv7
-  // Затем создание нового (аналогично OrderCreatePayload).
-  bool 			is_buy 		= 2;	// Buy/Sell side.
-  bool 			is_market 	= 3;	// true: рыночный ордер, false: лимитный.
-  uint64 		quantity 	= 4;	// Объем в base units.
-  uint64 		price 		= 5;	// Цена в quote units (игнорируется для market).
-  uint32 		flags 		= 6;	// Флаги: битовые (e.g., bit0: GTD, bit1: IOC, etc.). Определите маску в коде.
-  OrderID 		new_order_id 		= 7; 	// Новый ордер
+  OrderID 				canceled_order_id 	= 1; 	// OrderID того ордера, который заменяем.
+  
+  //Новый ордер 
+  OrderCreatePayload	replaced_order		= 2; 	// Новый ордер (и OrderID внутри новый)
 }
 
-// OrderAmendPayload - для ORD_AMEND (opCode 0x6B).
-message OrderAmendPayload {
-  OrderID 		order_id 	= 1;	// OrderID - 16 байт, UUIDv7
-  // Изменяемые поля (опционально, если не указано - не менять).
-  optional uint64 quantity 	= 2;
-  optional uint64 price 	= 3;
-}
-
-// OrderAmendBatchPayload - для ORD_AMEND_BATCH (opCode 0x6C).
+// OrderAmendPayload - для ORD_AMEND (opCode 0x6B), автоматическая поддержка BATCH-инга 
 // Для каждого ордера: ID + изменения.
-message OrderAmendBatchPayload {
-  message AmendItem {
-    OrderID 		order_id 	= 1;	// OrderID - 16 байт, UUIDv7
-    optional uint64 quantity 	= 2;
-    optional uint64 price 		= 3;
-  }
+message OrderAmendPayload {  
   repeated AmendItem amends = 1;
 }

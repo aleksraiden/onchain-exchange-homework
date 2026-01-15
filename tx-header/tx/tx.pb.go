@@ -21,6 +21,333 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Спецификация вариантов аутенфикации транзакции
+type TxAuthType int32
+
+const (
+	TxAuthType_UID           TxAuthType = 0 //внутренний UID
+	TxAuthType_BATCHED       TxAuthType = 1 //Указывает, что это батч, где отдельные транзакции имеют свои подписи
+	TxAuthType_ED25519_PK    TxAuthType = 2 //Public key ed25519
+	TxAuthType_ED25519_MSIG  TxAuthType = 3 //Multisig
+	TxAuthType_SEC256k1_PK   TxAuthType = 4 //На будущее оставим
+	TxAuthType_SEC256k1_MSIG TxAuthType = 5 //На будущее оставим
+	TxAuthType_UNKNOWN       TxAuthType = 6
+)
+
+// Enum value maps for TxAuthType.
+var (
+	TxAuthType_name = map[int32]string{
+		0: "UID",
+		1: "BATCHED",
+		2: "ED25519_PK",
+		3: "ED25519_MSIG",
+		4: "SEC256k1_PK",
+		5: "SEC256k1_MSIG",
+		6: "UNKNOWN",
+	}
+	TxAuthType_value = map[string]int32{
+		"UID":           0,
+		"BATCHED":       1,
+		"ED25519_PK":    2,
+		"ED25519_MSIG":  3,
+		"SEC256k1_PK":   4,
+		"SEC256k1_MSIG": 5,
+		"UNKNOWN":       6,
+	}
+)
+
+func (x TxAuthType) Enum() *TxAuthType {
+	p := new(TxAuthType)
+	*p = x
+	return p
+}
+
+func (x TxAuthType) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (TxAuthType) Descriptor() protoreflect.EnumDescriptor {
+	return file_tx_proto_enumTypes[0].Descriptor()
+}
+
+func (TxAuthType) Type() protoreflect.EnumType {
+	return &file_tx_proto_enumTypes[0]
+}
+
+func (x TxAuthType) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use TxAuthType.Descriptor instead.
+func (TxAuthType) EnumDescriptor() ([]byte, []int) {
+	return file_tx_proto_rawDescGZIP(), []int{0}
+}
+
+// Определяет режим исполнения транзакции и время ее жизни
+type TxExecMode int32
+
+const (
+	TxExecMode_DEFAULT       TxExecMode = 0
+	TxExecMode_ASAP          TxExecMode = 1 //исполнить сразу, но до указанного validBeforeHeight
+	TxExecMode_IMMEDIATLY    TxExecMode = 2 //приоритет исполнение немедленно, даже если есть другие tx
+	TxExecMode_CURRENT_BLOCK TxExecMode = 3 //исполнение только в текущем блоке
+	TxExecMode_NEXT_BLOCK    TxExecMode = 4 //исполнение строго в следующем блок
+)
+
+// Enum value maps for TxExecMode.
+var (
+	TxExecMode_name = map[int32]string{
+		0: "DEFAULT",
+		1: "ASAP",
+		2: "IMMEDIATLY",
+		3: "CURRENT_BLOCK",
+		4: "NEXT_BLOCK",
+	}
+	TxExecMode_value = map[string]int32{
+		"DEFAULT":       0,
+		"ASAP":          1,
+		"IMMEDIATLY":    2,
+		"CURRENT_BLOCK": 3,
+		"NEXT_BLOCK":    4,
+	}
+)
+
+func (x TxExecMode) Enum() *TxExecMode {
+	p := new(TxExecMode)
+	*p = x
+	return p
+}
+
+func (x TxExecMode) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (TxExecMode) Descriptor() protoreflect.EnumDescriptor {
+	return file_tx_proto_enumTypes[1].Descriptor()
+}
+
+func (TxExecMode) Type() protoreflect.EnumType {
+	return &file_tx_proto_enumTypes[1]
+}
+
+func (x TxExecMode) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use TxExecMode.Descriptor instead.
+func (TxExecMode) EnumDescriptor() ([]byte, []int) {
+	return file_tx_proto_rawDescGZIP(), []int{1}
+}
+
+// Группируем флаги в enum-ы
+type Side int32
+
+const (
+	Side_BUY  Side = 0
+	Side_SELL Side = 1
+)
+
+// Enum value maps for Side.
+var (
+	Side_name = map[int32]string{
+		0: "BUY",
+		1: "SELL",
+	}
+	Side_value = map[string]int32{
+		"BUY":  0,
+		"SELL": 1,
+	}
+)
+
+func (x Side) Enum() *Side {
+	p := new(Side)
+	*p = x
+	return p
+}
+
+func (x Side) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (Side) Descriptor() protoreflect.EnumDescriptor {
+	return file_tx_proto_enumTypes[2].Descriptor()
+}
+
+func (Side) Type() protoreflect.EnumType {
+	return &file_tx_proto_enumTypes[2]
+}
+
+func (x Side) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use Side.Descriptor instead.
+func (Side) EnumDescriptor() ([]byte, []int) {
+	return file_tx_proto_rawDescGZIP(), []int{2}
+}
+
+// Тип ордера
+type OrderType int32
+
+const (
+	OrderType_MARKET      OrderType = 0
+	OrderType_LIMIT       OrderType = 1
+	OrderType_STOP_MARKET OrderType = 2
+	OrderType_STOP_LIMIT  OrderType = 3
+	OrderType_TAKE_MARKET OrderType = 4
+	OrderType_TAKE_LIMIT  OrderType = 5
+)
+
+// Enum value maps for OrderType.
+var (
+	OrderType_name = map[int32]string{
+		0: "MARKET",
+		1: "LIMIT",
+		2: "STOP_MARKET",
+		3: "STOP_LIMIT",
+		4: "TAKE_MARKET",
+		5: "TAKE_LIMIT",
+	}
+	OrderType_value = map[string]int32{
+		"MARKET":      0,
+		"LIMIT":       1,
+		"STOP_MARKET": 2,
+		"STOP_LIMIT":  3,
+		"TAKE_MARKET": 4,
+		"TAKE_LIMIT":  5,
+	}
+)
+
+func (x OrderType) Enum() *OrderType {
+	p := new(OrderType)
+	*p = x
+	return p
+}
+
+func (x OrderType) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (OrderType) Descriptor() protoreflect.EnumDescriptor {
+	return file_tx_proto_enumTypes[3].Descriptor()
+}
+
+func (OrderType) Type() protoreflect.EnumType {
+	return &file_tx_proto_enumTypes[3]
+}
+
+func (x OrderType) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use OrderType.Descriptor instead.
+func (OrderType) EnumDescriptor() ([]byte, []int) {
+	return file_tx_proto_rawDescGZIP(), []int{3}
+}
+
+// Спецификация исполнения
+type TimeInForce int32
+
+const (
+	TimeInForce_GTC TimeInForce = 0
+	TimeInForce_IOC TimeInForce = 1
+	TimeInForce_FOK TimeInForce = 2
+)
+
+// Enum value maps for TimeInForce.
+var (
+	TimeInForce_name = map[int32]string{
+		0: "GTC",
+		1: "IOC",
+		2: "FOK",
+	}
+	TimeInForce_value = map[string]int32{
+		"GTC": 0,
+		"IOC": 1,
+		"FOK": 2,
+	}
+)
+
+func (x TimeInForce) Enum() *TimeInForce {
+	p := new(TimeInForce)
+	*p = x
+	return p
+}
+
+func (x TimeInForce) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (TimeInForce) Descriptor() protoreflect.EnumDescriptor {
+	return file_tx_proto_enumTypes[4].Descriptor()
+}
+
+func (TimeInForce) Type() protoreflect.EnumType {
+	return &file_tx_proto_enumTypes[4]
+}
+
+func (x TimeInForce) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use TimeInForce.Descriptor instead.
+func (TimeInForce) EnumDescriptor() ([]byte, []int) {
+	return file_tx_proto_rawDescGZIP(), []int{4}
+}
+
+// Спецификация Trigger-price
+type TriggerPrice int32
+
+const (
+	TriggerPrice_MARKPRICE      TriggerPrice = 0
+	TriggerPrice_SPOTPRICE      TriggerPrice = 1
+	TriggerPrice_LASTTRADEPRICE TriggerPrice = 2
+	TriggerPrice_FUNDINGRATE    TriggerPrice = 3
+)
+
+// Enum value maps for TriggerPrice.
+var (
+	TriggerPrice_name = map[int32]string{
+		0: "MARKPRICE",
+		1: "SPOTPRICE",
+		2: "LASTTRADEPRICE",
+		3: "FUNDINGRATE",
+	}
+	TriggerPrice_value = map[string]int32{
+		"MARKPRICE":      0,
+		"SPOTPRICE":      1,
+		"LASTTRADEPRICE": 2,
+		"FUNDINGRATE":    3,
+	}
+)
+
+func (x TriggerPrice) Enum() *TriggerPrice {
+	p := new(TriggerPrice)
+	*p = x
+	return p
+}
+
+func (x TriggerPrice) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (TriggerPrice) Descriptor() protoreflect.EnumDescriptor {
+	return file_tx_proto_enumTypes[5].Descriptor()
+}
+
+func (TriggerPrice) Type() protoreflect.EnumType {
+	return &file_tx_proto_enumTypes[5]
+}
+
+func (x TriggerPrice) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use TriggerPrice.Descriptor instead.
+func (TriggerPrice) EnumDescriptor() ([]byte, []int) {
+	return file_tx_proto_rawDescGZIP(), []int{5}
+}
+
 // TransactionHeader defines the header for a transaction.
 type TransactionHeader struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -47,7 +374,8 @@ type TransactionHeader struct {
 	// 0x2: multisig (public keys and signatories in payload)
 	// 0x3: other possible methods
 	// Reserved: 0xFF
-	AuthType uint32 `protobuf:"varint,5,opt,name=auth_type,json=authType,proto3" json:"auth_type,omitempty"`
+	// uint32 auth_type = 5;
+	AuthType TxAuthType `protobuf:"varint,5,opt,name=auth_type,json=authType,proto3,enum=tx.TxAuthType" json:"auth_type,omitempty"`
 	// executionMode determines the execution mode and lifetime.
 	// 0x00: default, execute in normal mode
 	// 0x01: execute immediately, but before validBefore Height
@@ -55,7 +383,8 @@ type TransactionHeader struct {
 	// 0x03: priority immediate execution, even if other txs
 	// 0x04: execute strictly in next block
 	// 0x05–0xFF: reserved
-	ExecutionMode uint32 `protobuf:"varint,6,opt,name=execution_mode,json=executionMode,proto3" json:"execution_mode,omitempty"`
+	// uint32 execution_mode = 6;
+	ExecutionMode TxExecMode `protobuf:"varint,6,opt,name=execution_mode,json=executionMode,proto3,enum=tx.TxExecMode" json:"execution_mode,omitempty"`
 	// reservedPadding is reserved for structure alignment.
 	// Default: 0x00
 	ReservedPadding uint32 `protobuf:"varint,7,opt,name=reserved_padding,json=reservedPadding,proto3" json:"reserved_padding,omitempty"`
@@ -141,18 +470,18 @@ func (x *TransactionHeader) GetOpCode() uint32 {
 	return 0
 }
 
-func (x *TransactionHeader) GetAuthType() uint32 {
+func (x *TransactionHeader) GetAuthType() TxAuthType {
 	if x != nil {
 		return x.AuthType
 	}
-	return 0
+	return TxAuthType_UID
 }
 
-func (x *TransactionHeader) GetExecutionMode() uint32 {
+func (x *TransactionHeader) GetExecutionMode() TxExecMode {
 	if x != nil {
 		return x.ExecutionMode
 	}
-	return 0
+	return TxExecMode_DEFAULT
 }
 
 func (x *TransactionHeader) GetReservedPadding() uint32 {
@@ -216,14 +545,14 @@ type Transaction struct {
 	// Types that are valid to be assigned to Payload:
 	//
 	//	*Transaction_MetaNoop
+	//	*Transaction_MetaBatch
+	//	*Transaction_MetaBlob
 	//	*Transaction_MetaReserve
 	//	*Transaction_OrderCreate
 	//	*Transaction_OrderCancel
-	//	*Transaction_OrderCancelBatch
 	//	*Transaction_OrderCancelAll
 	//	*Transaction_OrderCancelReplace
 	//	*Transaction_OrderAmend
-	//	*Transaction_OrderAmendBatch
 	Payload       isTransaction_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -282,6 +611,24 @@ func (x *Transaction) GetMetaNoop() *MetaNoopPayload {
 	return nil
 }
 
+func (x *Transaction) GetMetaBatch() *MetaBatchPayload {
+	if x != nil {
+		if x, ok := x.Payload.(*Transaction_MetaBatch); ok {
+			return x.MetaBatch
+		}
+	}
+	return nil
+}
+
+func (x *Transaction) GetMetaBlob() *MetaBlobPayload {
+	if x != nil {
+		if x, ok := x.Payload.(*Transaction_MetaBlob); ok {
+			return x.MetaBlob
+		}
+	}
+	return nil
+}
+
 func (x *Transaction) GetMetaReserve() *MetaReservePayload {
 	if x != nil {
 		if x, ok := x.Payload.(*Transaction_MetaReserve); ok {
@@ -304,15 +651,6 @@ func (x *Transaction) GetOrderCancel() *OrderCancelPayload {
 	if x != nil {
 		if x, ok := x.Payload.(*Transaction_OrderCancel); ok {
 			return x.OrderCancel
-		}
-	}
-	return nil
-}
-
-func (x *Transaction) GetOrderCancelBatch() *OrderCancelBatchPayload {
-	if x != nil {
-		if x, ok := x.Payload.(*Transaction_OrderCancelBatch); ok {
-			return x.OrderCancelBatch
 		}
 	}
 	return nil
@@ -345,15 +683,6 @@ func (x *Transaction) GetOrderAmend() *OrderAmendPayload {
 	return nil
 }
 
-func (x *Transaction) GetOrderAmendBatch() *OrderAmendBatchPayload {
-	if x != nil {
-		if x, ok := x.Payload.(*Transaction_OrderAmendBatch); ok {
-			return x.OrderAmendBatch
-		}
-	}
-	return nil
-}
-
 type isTransaction_Payload interface {
 	isTransaction_Payload()
 }
@@ -363,47 +692,51 @@ type Transaction_MetaNoop struct {
 	MetaNoop *MetaNoopPayload `protobuf:"bytes,2,opt,name=meta_noop,json=metaNoop,proto3,oneof"`
 }
 
+type Transaction_MetaBatch struct {
+	// META_BATCH
+	MetaBatch *MetaBatchPayload `protobuf:"bytes,3,opt,name=meta_batch,json=metaBatch,proto3,oneof"`
+}
+
+type Transaction_MetaBlob struct {
+	// META_BLOB - служебная транзакция, произвольный блок который добавляет только пропоусер
+	MetaBlob *MetaBlobPayload `protobuf:"bytes,4,opt,name=meta_blob,json=metaBlob,proto3,oneof"`
+}
+
 type Transaction_MetaReserve struct {
 	// META_RESERVE (opCode 0xFF): Зарезервированная, 1 байт.
-	MetaReserve *MetaReservePayload `protobuf:"bytes,3,opt,name=meta_reserve,json=metaReserve,proto3,oneof"`
+	MetaReserve *MetaReservePayload `protobuf:"bytes,5,opt,name=meta_reserve,json=metaReserve,proto3,oneof"`
 }
 
 type Transaction_OrderCreate struct {
 	// ORD_CREATE (opCode 0x60): Создание ордера.
-	OrderCreate *OrderCreatePayload `protobuf:"bytes,4,opt,name=order_create,json=orderCreate,proto3,oneof"`
+	OrderCreate *OrderCreatePayload `protobuf:"bytes,6,opt,name=order_create,json=orderCreate,proto3,oneof"`
 }
 
 type Transaction_OrderCancel struct {
 	// ORD_CANCEL (opCode 0x64): Отмена одного ордера.
-	OrderCancel *OrderCancelPayload `protobuf:"bytes,5,opt,name=order_cancel,json=orderCancel,proto3,oneof"`
-}
-
-type Transaction_OrderCancelBatch struct {
-	// ORD_CANCEL_BATCH (opCode 0x65): Массовая отмена.
-	OrderCancelBatch *OrderCancelBatchPayload `protobuf:"bytes,6,opt,name=order_cancel_batch,json=orderCancelBatch,proto3,oneof"`
+	OrderCancel *OrderCancelPayload `protobuf:"bytes,7,opt,name=order_cancel,json=orderCancel,proto3,oneof"`
 }
 
 type Transaction_OrderCancelAll struct {
 	// ORD_CANCEL_ALL (opCode 0x66): Отмена всех ордеров (payload пустой, но для oneof используем пустое сообщение).
-	OrderCancelAll *OrderCancelAllPayload `protobuf:"bytes,7,opt,name=order_cancel_all,json=orderCancelAll,proto3,oneof"`
+	OrderCancelAll *OrderCancelAllPayload `protobuf:"bytes,8,opt,name=order_cancel_all,json=orderCancelAll,proto3,oneof"`
 }
 
 type Transaction_OrderCancelReplace struct {
-	// ORD_CANCEL_REPLACE (opCode 0x6A): Атомарная отмена и создание.
-	OrderCancelReplace *OrderCancelReplacePayload `protobuf:"bytes,8,opt,name=order_cancel_replace,json=orderCancelReplace,proto3,oneof"`
+	// ORD_CANCEL_REPLACE (opCode 0x6A): Атомарная отмена и создание (батчинг НЕ поддерживаеться).
+	OrderCancelReplace *OrderCancelReplacePayload `protobuf:"bytes,9,opt,name=order_cancel_replace,json=orderCancelReplace,proto3,oneof"`
 }
 
 type Transaction_OrderAmend struct {
-	// ORD_AMEND (opCode 0x6B): Изменение ордера.
-	OrderAmend *OrderAmendPayload `protobuf:"bytes,9,opt,name=order_amend,json=orderAmend,proto3,oneof"`
-}
-
-type Transaction_OrderAmendBatch struct {
-	// ORD_AMEND_BATCH (opCode 0x6C): Массовое изменение.
-	OrderAmendBatch *OrderAmendBatchPayload `protobuf:"bytes,10,opt,name=order_amend_batch,json=orderAmendBatch,proto3,oneof"`
+	// ORD_AMEND (opCode 0x6B): Изменение ордера (с поддержкой батчинга).
+	OrderAmend *OrderAmendPayload `protobuf:"bytes,10,opt,name=order_amend,json=orderAmend,proto3,oneof"`
 }
 
 func (*Transaction_MetaNoop) isTransaction_Payload() {}
+
+func (*Transaction_MetaBatch) isTransaction_Payload() {}
+
+func (*Transaction_MetaBlob) isTransaction_Payload() {}
 
 func (*Transaction_MetaReserve) isTransaction_Payload() {}
 
@@ -411,15 +744,11 @@ func (*Transaction_OrderCreate) isTransaction_Payload() {}
 
 func (*Transaction_OrderCancel) isTransaction_Payload() {}
 
-func (*Transaction_OrderCancelBatch) isTransaction_Payload() {}
-
 func (*Transaction_OrderCancelAll) isTransaction_Payload() {}
 
 func (*Transaction_OrderCancelReplace) isTransaction_Payload() {}
 
 func (*Transaction_OrderAmend) isTransaction_Payload() {}
-
-func (*Transaction_OrderAmendBatch) isTransaction_Payload() {}
 
 // MetaNoopPayload - для META_NOOP (opCode 0x00).
 type MetaNoopPayload struct {
@@ -556,22 +885,343 @@ func (x *OrderID) GetId() []byte {
 	return nil
 }
 
+// База - новый ордер
+type OrderItem struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	OrderId   *OrderID               `protobuf:"bytes,1,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`                          // OrderID - 16 байт, UUIDv7
+	Side      Side                   `protobuf:"varint,2,opt,name=side,proto3,enum=tx.Side" json:"side,omitempty"`                                 //Buy/Sell side, BUY is default
+	OrderType OrderType              `protobuf:"varint,3,opt,name=order_type,json=orderType,proto3,enum=tx.OrderType" json:"order_type,omitempty"` //Тип ордера, маркет дефолтный
+	ExecType  TimeInForce            `protobuf:"varint,4,opt,name=exec_type,json=execType,proto3,enum=tx.TimeInForce" json:"exec_type,omitempty"`  //Спецификация исполнения - GTC default
+	// Несмотря на то, что многие относят эти поля к спецификации выполнения, лучше выделит отдельно
+	ReduceOnly bool   `protobuf:"varint,5,opt,name=reduce_only,json=reduceOnly,proto3" json:"reduce_only,omitempty"`
+	PostOnly   bool   `protobuf:"varint,6,opt,name=post_only,json=postOnly,proto3" json:"post_only,omitempty"`
+	Quantity   uint64 `protobuf:"varint,7,opt,name=quantity,proto3" json:"quantity,omitempty"` // Объем в base units.
+	Price      uint64 `protobuf:"varint,8,opt,name=price,proto3" json:"price,omitempty"`       // Цена в quote units (игнорируется для market).
+	// Попробуем указать параметры стопов и тейков
+	StopPriceType *TriggerPrice `protobuf:"varint,9,opt,name=stop_price_type,json=stopPriceType,proto3,enum=tx.TriggerPrice,oneof" json:"stop_price_type,omitempty"`  // Тип цены для стоп-ордера
+	StopPrice     *uint64       `protobuf:"varint,10,opt,name=stop_price,json=stopPrice,proto3,oneof" json:"stop_price,omitempty"`                                    // Само значение (то есть - цена из списка TriggerPrice), 0 для маркет или цена для лимитного
+	TakePriceType *TriggerPrice `protobuf:"varint,11,opt,name=take_price_type,json=takePriceType,proto3,enum=tx.TriggerPrice,oneof" json:"take_price_type,omitempty"` // Тип цены для тейк-ордера
+	TakePrice     *uint64       `protobuf:"varint,12,opt,name=take_price,json=takePrice,proto3,oneof" json:"take_price,omitempty"`                                    // Само значение (то есть - цена из списка TriggerPrice)
+	MarketCode    *uint32       `protobuf:"varint,13,opt,name=market_code,json=marketCode,proto3,oneof" json:"market_code,omitempty"`                                 //Опционально, укажем код рынка (compressed, uint32) для мульти-маркет батчинга
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *OrderItem) Reset() {
+	*x = OrderItem{}
+	mi := &file_tx_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OrderItem) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OrderItem) ProtoMessage() {}
+
+func (x *OrderItem) ProtoReflect() protoreflect.Message {
+	mi := &file_tx_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OrderItem.ProtoReflect.Descriptor instead.
+func (*OrderItem) Descriptor() ([]byte, []int) {
+	return file_tx_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *OrderItem) GetOrderId() *OrderID {
+	if x != nil {
+		return x.OrderId
+	}
+	return nil
+}
+
+func (x *OrderItem) GetSide() Side {
+	if x != nil {
+		return x.Side
+	}
+	return Side_BUY
+}
+
+func (x *OrderItem) GetOrderType() OrderType {
+	if x != nil {
+		return x.OrderType
+	}
+	return OrderType_MARKET
+}
+
+func (x *OrderItem) GetExecType() TimeInForce {
+	if x != nil {
+		return x.ExecType
+	}
+	return TimeInForce_GTC
+}
+
+func (x *OrderItem) GetReduceOnly() bool {
+	if x != nil {
+		return x.ReduceOnly
+	}
+	return false
+}
+
+func (x *OrderItem) GetPostOnly() bool {
+	if x != nil {
+		return x.PostOnly
+	}
+	return false
+}
+
+func (x *OrderItem) GetQuantity() uint64 {
+	if x != nil {
+		return x.Quantity
+	}
+	return 0
+}
+
+func (x *OrderItem) GetPrice() uint64 {
+	if x != nil {
+		return x.Price
+	}
+	return 0
+}
+
+func (x *OrderItem) GetStopPriceType() TriggerPrice {
+	if x != nil && x.StopPriceType != nil {
+		return *x.StopPriceType
+	}
+	return TriggerPrice_MARKPRICE
+}
+
+func (x *OrderItem) GetStopPrice() uint64 {
+	if x != nil && x.StopPrice != nil {
+		return *x.StopPrice
+	}
+	return 0
+}
+
+func (x *OrderItem) GetTakePriceType() TriggerPrice {
+	if x != nil && x.TakePriceType != nil {
+		return *x.TakePriceType
+	}
+	return TriggerPrice_MARKPRICE
+}
+
+func (x *OrderItem) GetTakePrice() uint64 {
+	if x != nil && x.TakePrice != nil {
+		return *x.TakePrice
+	}
+	return 0
+}
+
+func (x *OrderItem) GetMarketCode() uint32 {
+	if x != nil && x.MarketCode != nil {
+		return *x.MarketCode
+	}
+	return 0
+}
+
+// Базовый блок для модификации ордера - пока можно менять только цену или обьем
+type AmendItem struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OrderId       *OrderID               `protobuf:"bytes,1,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"` // OrderID - 16 байт, UUIDv7
+	Quantity      *uint64                `protobuf:"varint,2,opt,name=quantity,proto3,oneof" json:"quantity,omitempty"`
+	Price         *uint64                `protobuf:"varint,3,opt,name=price,proto3,oneof" json:"price,omitempty"`
+	StopPriceType *TriggerPrice          `protobuf:"varint,4,opt,name=stop_price_type,json=stopPriceType,proto3,enum=tx.TriggerPrice,oneof" json:"stop_price_type,omitempty"` // Тип цены для стоп-ордера
+	StopPrice     *uint64                `protobuf:"varint,5,opt,name=stop_price,json=stopPrice,proto3,oneof" json:"stop_price,omitempty"`                                    // Само значение (то есть - цена из списка TriggerPrice), 0 для маркет или цена для лимитного
+	TakePriceType *TriggerPrice          `protobuf:"varint,6,opt,name=take_price_type,json=takePriceType,proto3,enum=tx.TriggerPrice,oneof" json:"take_price_type,omitempty"` // Тип цены для тейк-ордера
+	TakePrice     *uint64                `protobuf:"varint,7,opt,name=take_price,json=takePrice,proto3,oneof" json:"take_price,omitempty"`                                    // Само значение (то есть - цена из списка TriggerPrice)
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AmendItem) Reset() {
+	*x = AmendItem{}
+	mi := &file_tx_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AmendItem) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AmendItem) ProtoMessage() {}
+
+func (x *AmendItem) ProtoReflect() protoreflect.Message {
+	mi := &file_tx_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AmendItem.ProtoReflect.Descriptor instead.
+func (*AmendItem) Descriptor() ([]byte, []int) {
+	return file_tx_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *AmendItem) GetOrderId() *OrderID {
+	if x != nil {
+		return x.OrderId
+	}
+	return nil
+}
+
+func (x *AmendItem) GetQuantity() uint64 {
+	if x != nil && x.Quantity != nil {
+		return *x.Quantity
+	}
+	return 0
+}
+
+func (x *AmendItem) GetPrice() uint64 {
+	if x != nil && x.Price != nil {
+		return *x.Price
+	}
+	return 0
+}
+
+func (x *AmendItem) GetStopPriceType() TriggerPrice {
+	if x != nil && x.StopPriceType != nil {
+		return *x.StopPriceType
+	}
+	return TriggerPrice_MARKPRICE
+}
+
+func (x *AmendItem) GetStopPrice() uint64 {
+	if x != nil && x.StopPrice != nil {
+		return *x.StopPrice
+	}
+	return 0
+}
+
+func (x *AmendItem) GetTakePriceType() TriggerPrice {
+	if x != nil && x.TakePriceType != nil {
+		return *x.TakePriceType
+	}
+	return TriggerPrice_MARKPRICE
+}
+
+func (x *AmendItem) GetTakePrice() uint64 {
+	if x != nil && x.TakePrice != nil {
+		return *x.TakePrice
+	}
+	return 0
+}
+
+// TODO: MetaBlobPayload
+type MetaBlobPayload struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Payload       []byte                 `protobuf:"bytes,1,opt,name=payload,proto3" json:"payload,omitempty"` // 1 байт, default пустой
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MetaBlobPayload) Reset() {
+	*x = MetaBlobPayload{}
+	mi := &file_tx_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MetaBlobPayload) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MetaBlobPayload) ProtoMessage() {}
+
+func (x *MetaBlobPayload) ProtoReflect() protoreflect.Message {
+	mi := &file_tx_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MetaBlobPayload.ProtoReflect.Descriptor instead.
+func (*MetaBlobPayload) Descriptor() ([]byte, []int) {
+	return file_tx_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *MetaBlobPayload) GetPayload() []byte {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
+// TODO: MetaBatchPayload
+type MetaBatchPayload struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Payload       []byte                 `protobuf:"bytes,1,opt,name=payload,proto3" json:"payload,omitempty"` // 1 байт, default пустой
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MetaBatchPayload) Reset() {
+	*x = MetaBatchPayload{}
+	mi := &file_tx_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MetaBatchPayload) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MetaBatchPayload) ProtoMessage() {}
+
+func (x *MetaBatchPayload) ProtoReflect() protoreflect.Message {
+	mi := &file_tx_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MetaBatchPayload.ProtoReflect.Descriptor instead.
+func (*MetaBatchPayload) Descriptor() ([]byte, []int) {
+	return file_tx_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *MetaBatchPayload) GetPayload() []byte {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
 // OrderCreatePayload - для ORD_CREATE (opCode 0x60).
 type OrderCreatePayload struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	OrderId       *OrderID               `protobuf:"bytes,1,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`     // OrderID - 16 байт, UUIDv7
-	IsBuy         bool                   `protobuf:"varint,2,opt,name=is_buy,json=isBuy,proto3" json:"is_buy,omitempty"`          // Buy/Sell side.
-	IsMarket      bool                   `protobuf:"varint,3,opt,name=is_market,json=isMarket,proto3" json:"is_market,omitempty"` // true: рыночный ордер, false: лимитный.
-	Quantity      uint64                 `protobuf:"varint,4,opt,name=quantity,proto3" json:"quantity,omitempty"`                 // Объем в base units.
-	Price         uint64                 `protobuf:"varint,5,opt,name=price,proto3" json:"price,omitempty"`                       // Цена в quote units (игнорируется для market).
-	Flags         uint32                 `protobuf:"varint,6,opt,name=flags,proto3" json:"flags,omitempty"`                       // Флаги: битовые (e.g., bit0: GTD, bit1: IOC, etc.). Определите маску в коде.
+	Orders        []*OrderItem           `protobuf:"bytes,1,rep,name=orders,proto3" json:"orders,omitempty"` //Сразу любое количество новых ордеров
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *OrderCreatePayload) Reset() {
 	*x = OrderCreatePayload{}
-	mi := &file_tx_proto_msgTypes[5]
+	mi := &file_tx_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -583,7 +1233,7 @@ func (x *OrderCreatePayload) String() string {
 func (*OrderCreatePayload) ProtoMessage() {}
 
 func (x *OrderCreatePayload) ProtoReflect() protoreflect.Message {
-	mi := &file_tx_proto_msgTypes[5]
+	mi := &file_tx_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -596,62 +1246,27 @@ func (x *OrderCreatePayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OrderCreatePayload.ProtoReflect.Descriptor instead.
 func (*OrderCreatePayload) Descriptor() ([]byte, []int) {
-	return file_tx_proto_rawDescGZIP(), []int{5}
+	return file_tx_proto_rawDescGZIP(), []int{9}
 }
 
-func (x *OrderCreatePayload) GetOrderId() *OrderID {
+func (x *OrderCreatePayload) GetOrders() []*OrderItem {
 	if x != nil {
-		return x.OrderId
+		return x.Orders
 	}
 	return nil
 }
 
-func (x *OrderCreatePayload) GetIsBuy() bool {
-	if x != nil {
-		return x.IsBuy
-	}
-	return false
-}
-
-func (x *OrderCreatePayload) GetIsMarket() bool {
-	if x != nil {
-		return x.IsMarket
-	}
-	return false
-}
-
-func (x *OrderCreatePayload) GetQuantity() uint64 {
-	if x != nil {
-		return x.Quantity
-	}
-	return 0
-}
-
-func (x *OrderCreatePayload) GetPrice() uint64 {
-	if x != nil {
-		return x.Price
-	}
-	return 0
-}
-
-func (x *OrderCreatePayload) GetFlags() uint32 {
-	if x != nil {
-		return x.Flags
-	}
-	return 0
-}
-
-// OrderCancelPayload - для ORD_CANCEL (opCode 0x64).
+// OrderCancelPayload - для ORD_CANCEL (opCode 0x64), поддерживает батчинг сразу
 type OrderCancelPayload struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	OrderId       *OrderID               `protobuf:"bytes,1,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"` // OrderID - 16 байт, UUIDv7
+	OrderId       []*OrderID             `protobuf:"bytes,1,rep,name=order_id,json=orderId,proto3" json:"order_id,omitempty"` // OrderID - 16 байт, UUIDv7
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *OrderCancelPayload) Reset() {
 	*x = OrderCancelPayload{}
-	mi := &file_tx_proto_msgTypes[6]
+	mi := &file_tx_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -663,7 +1278,7 @@ func (x *OrderCancelPayload) String() string {
 func (*OrderCancelPayload) ProtoMessage() {}
 
 func (x *OrderCancelPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_tx_proto_msgTypes[6]
+	mi := &file_tx_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -676,57 +1291,12 @@ func (x *OrderCancelPayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OrderCancelPayload.ProtoReflect.Descriptor instead.
 func (*OrderCancelPayload) Descriptor() ([]byte, []int) {
-	return file_tx_proto_rawDescGZIP(), []int{6}
+	return file_tx_proto_rawDescGZIP(), []int{10}
 }
 
-func (x *OrderCancelPayload) GetOrderId() *OrderID {
+func (x *OrderCancelPayload) GetOrderId() []*OrderID {
 	if x != nil {
 		return x.OrderId
-	}
-	return nil
-}
-
-// OrderCancelBatchPayload - для ORD_CANCEL_BATCH (opCode 0x65).
-type OrderCancelBatchPayload struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	OrderIds      []*OrderID             `protobuf:"bytes,1,rep,name=order_ids,json=orderIds,proto3" json:"order_ids,omitempty"` // Массив orderID (каждый 16 байт)
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *OrderCancelBatchPayload) Reset() {
-	*x = OrderCancelBatchPayload{}
-	mi := &file_tx_proto_msgTypes[7]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *OrderCancelBatchPayload) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*OrderCancelBatchPayload) ProtoMessage() {}
-
-func (x *OrderCancelBatchPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_tx_proto_msgTypes[7]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use OrderCancelBatchPayload.ProtoReflect.Descriptor instead.
-func (*OrderCancelBatchPayload) Descriptor() ([]byte, []int) {
-	return file_tx_proto_rawDescGZIP(), []int{7}
-}
-
-func (x *OrderCancelBatchPayload) GetOrderIds() []*OrderID {
-	if x != nil {
-		return x.OrderIds
 	}
 	return nil
 }
@@ -741,7 +1311,7 @@ type OrderCancelAllPayload struct {
 
 func (x *OrderCancelAllPayload) Reset() {
 	*x = OrderCancelAllPayload{}
-	mi := &file_tx_proto_msgTypes[8]
+	mi := &file_tx_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -753,7 +1323,7 @@ func (x *OrderCancelAllPayload) String() string {
 func (*OrderCancelAllPayload) ProtoMessage() {}
 
 func (x *OrderCancelAllPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_tx_proto_msgTypes[8]
+	mi := &file_tx_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -766,7 +1336,7 @@ func (x *OrderCancelAllPayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OrderCancelAllPayload.ProtoReflect.Descriptor instead.
 func (*OrderCancelAllPayload) Descriptor() ([]byte, []int) {
-	return file_tx_proto_rawDescGZIP(), []int{8}
+	return file_tx_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *OrderCancelAllPayload) GetPayload() []byte {
@@ -776,24 +1346,19 @@ func (x *OrderCancelAllPayload) GetPayload() []byte {
 	return nil
 }
 
-// OrderCancelReplacePayload - для ORD_CANCEL_REPLACE (opCode 0x6A).
+// OrderCancelReplacePayload - для ORD_CANCEL_REPLACE (opCode 0x6A). Батчинг таких ордеров не поддерживаеться
 type OrderCancelReplacePayload struct {
-	state   protoimpl.MessageState `protogen:"open.v1"`
-	OrderId *OrderID               `protobuf:"bytes,1,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"` // OrderID - 16 байт, UUIDv7
-	// Затем создание нового (аналогично OrderCreatePayload).
-	IsBuy         bool     `protobuf:"varint,2,opt,name=is_buy,json=isBuy,proto3" json:"is_buy,omitempty"`                 // Buy/Sell side.
-	IsMarket      bool     `protobuf:"varint,3,opt,name=is_market,json=isMarket,proto3" json:"is_market,omitempty"`        // true: рыночный ордер, false: лимитный.
-	Quantity      uint64   `protobuf:"varint,4,opt,name=quantity,proto3" json:"quantity,omitempty"`                        // Объем в base units.
-	Price         uint64   `protobuf:"varint,5,opt,name=price,proto3" json:"price,omitempty"`                              // Цена в quote units (игнорируется для market).
-	Flags         uint32   `protobuf:"varint,6,opt,name=flags,proto3" json:"flags,omitempty"`                              // Флаги: битовые (e.g., bit0: GTD, bit1: IOC, etc.). Определите маску в коде.
-	NewOrderId    *OrderID `protobuf:"bytes,7,opt,name=new_order_id,json=newOrderId,proto3" json:"new_order_id,omitempty"` // Новый ордер
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	CanceledOrderId *OrderID               `protobuf:"bytes,1,opt,name=canceled_order_id,json=canceledOrderId,proto3" json:"canceled_order_id,omitempty"` // OrderID того ордера, который заменяем.
+	// Новый ордер
+	ReplacedOrder *OrderCreatePayload `protobuf:"bytes,2,opt,name=replaced_order,json=replacedOrder,proto3" json:"replaced_order,omitempty"` // Новый ордер (и OrderID внутри новый)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *OrderCancelReplacePayload) Reset() {
 	*x = OrderCancelReplacePayload{}
-	mi := &file_tx_proto_msgTypes[9]
+	mi := &file_tx_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -805,7 +1370,7 @@ func (x *OrderCancelReplacePayload) String() string {
 func (*OrderCancelReplacePayload) ProtoMessage() {}
 
 func (x *OrderCancelReplacePayload) ProtoReflect() protoreflect.Message {
-	mi := &file_tx_proto_msgTypes[9]
+	mi := &file_tx_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -818,72 +1383,35 @@ func (x *OrderCancelReplacePayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OrderCancelReplacePayload.ProtoReflect.Descriptor instead.
 func (*OrderCancelReplacePayload) Descriptor() ([]byte, []int) {
-	return file_tx_proto_rawDescGZIP(), []int{9}
+	return file_tx_proto_rawDescGZIP(), []int{12}
 }
 
-func (x *OrderCancelReplacePayload) GetOrderId() *OrderID {
+func (x *OrderCancelReplacePayload) GetCanceledOrderId() *OrderID {
 	if x != nil {
-		return x.OrderId
+		return x.CanceledOrderId
 	}
 	return nil
 }
 
-func (x *OrderCancelReplacePayload) GetIsBuy() bool {
+func (x *OrderCancelReplacePayload) GetReplacedOrder() *OrderCreatePayload {
 	if x != nil {
-		return x.IsBuy
-	}
-	return false
-}
-
-func (x *OrderCancelReplacePayload) GetIsMarket() bool {
-	if x != nil {
-		return x.IsMarket
-	}
-	return false
-}
-
-func (x *OrderCancelReplacePayload) GetQuantity() uint64 {
-	if x != nil {
-		return x.Quantity
-	}
-	return 0
-}
-
-func (x *OrderCancelReplacePayload) GetPrice() uint64 {
-	if x != nil {
-		return x.Price
-	}
-	return 0
-}
-
-func (x *OrderCancelReplacePayload) GetFlags() uint32 {
-	if x != nil {
-		return x.Flags
-	}
-	return 0
-}
-
-func (x *OrderCancelReplacePayload) GetNewOrderId() *OrderID {
-	if x != nil {
-		return x.NewOrderId
+		return x.ReplacedOrder
 	}
 	return nil
 }
 
-// OrderAmendPayload - для ORD_AMEND (opCode 0x6B).
+// OrderAmendPayload - для ORD_AMEND (opCode 0x6B), автоматическая поддержка BATCH-инга
+// Для каждого ордера: ID + изменения.
 type OrderAmendPayload struct {
-	state   protoimpl.MessageState `protogen:"open.v1"`
-	OrderId *OrderID               `protobuf:"bytes,1,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"` // OrderID - 16 байт, UUIDv7
-	// Изменяемые поля (опционально, если не указано - не менять).
-	Quantity      *uint64 `protobuf:"varint,2,opt,name=quantity,proto3,oneof" json:"quantity,omitempty"`
-	Price         *uint64 `protobuf:"varint,3,opt,name=price,proto3,oneof" json:"price,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Amends        []*AmendItem           `protobuf:"bytes,1,rep,name=amends,proto3" json:"amends,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *OrderAmendPayload) Reset() {
 	*x = OrderAmendPayload{}
-	mi := &file_tx_proto_msgTypes[10]
+	mi := &file_tx_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -895,7 +1423,7 @@ func (x *OrderAmendPayload) String() string {
 func (*OrderAmendPayload) ProtoMessage() {}
 
 func (x *OrderAmendPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_tx_proto_msgTypes[10]
+	mi := &file_tx_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -908,148 +1436,28 @@ func (x *OrderAmendPayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OrderAmendPayload.ProtoReflect.Descriptor instead.
 func (*OrderAmendPayload) Descriptor() ([]byte, []int) {
-	return file_tx_proto_rawDescGZIP(), []int{10}
+	return file_tx_proto_rawDescGZIP(), []int{13}
 }
 
-func (x *OrderAmendPayload) GetOrderId() *OrderID {
-	if x != nil {
-		return x.OrderId
-	}
-	return nil
-}
-
-func (x *OrderAmendPayload) GetQuantity() uint64 {
-	if x != nil && x.Quantity != nil {
-		return *x.Quantity
-	}
-	return 0
-}
-
-func (x *OrderAmendPayload) GetPrice() uint64 {
-	if x != nil && x.Price != nil {
-		return *x.Price
-	}
-	return 0
-}
-
-// OrderAmendBatchPayload - для ORD_AMEND_BATCH (opCode 0x6C).
-// Для каждого ордера: ID + изменения.
-type OrderAmendBatchPayload struct {
-	state         protoimpl.MessageState              `protogen:"open.v1"`
-	Amends        []*OrderAmendBatchPayload_AmendItem `protobuf:"bytes,1,rep,name=amends,proto3" json:"amends,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *OrderAmendBatchPayload) Reset() {
-	*x = OrderAmendBatchPayload{}
-	mi := &file_tx_proto_msgTypes[11]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *OrderAmendBatchPayload) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*OrderAmendBatchPayload) ProtoMessage() {}
-
-func (x *OrderAmendBatchPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_tx_proto_msgTypes[11]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use OrderAmendBatchPayload.ProtoReflect.Descriptor instead.
-func (*OrderAmendBatchPayload) Descriptor() ([]byte, []int) {
-	return file_tx_proto_rawDescGZIP(), []int{11}
-}
-
-func (x *OrderAmendBatchPayload) GetAmends() []*OrderAmendBatchPayload_AmendItem {
+func (x *OrderAmendPayload) GetAmends() []*AmendItem {
 	if x != nil {
 		return x.Amends
 	}
 	return nil
 }
 
-type OrderAmendBatchPayload_AmendItem struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	OrderId       *OrderID               `protobuf:"bytes,1,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"` // OrderID - 16 байт, UUIDv7
-	Quantity      *uint64                `protobuf:"varint,2,opt,name=quantity,proto3,oneof" json:"quantity,omitempty"`
-	Price         *uint64                `protobuf:"varint,3,opt,name=price,proto3,oneof" json:"price,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *OrderAmendBatchPayload_AmendItem) Reset() {
-	*x = OrderAmendBatchPayload_AmendItem{}
-	mi := &file_tx_proto_msgTypes[12]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *OrderAmendBatchPayload_AmendItem) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*OrderAmendBatchPayload_AmendItem) ProtoMessage() {}
-
-func (x *OrderAmendBatchPayload_AmendItem) ProtoReflect() protoreflect.Message {
-	mi := &file_tx_proto_msgTypes[12]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use OrderAmendBatchPayload_AmendItem.ProtoReflect.Descriptor instead.
-func (*OrderAmendBatchPayload_AmendItem) Descriptor() ([]byte, []int) {
-	return file_tx_proto_rawDescGZIP(), []int{11, 0}
-}
-
-func (x *OrderAmendBatchPayload_AmendItem) GetOrderId() *OrderID {
-	if x != nil {
-		return x.OrderId
-	}
-	return nil
-}
-
-func (x *OrderAmendBatchPayload_AmendItem) GetQuantity() uint64 {
-	if x != nil && x.Quantity != nil {
-		return *x.Quantity
-	}
-	return 0
-}
-
-func (x *OrderAmendBatchPayload_AmendItem) GetPrice() uint64 {
-	if x != nil && x.Price != nil {
-		return *x.Price
-	}
-	return 0
-}
-
 var File_tx_proto protoreflect.FileDescriptor
 
 const file_tx_proto_rawDesc = "" +
 	"\n" +
-	"\btx.proto\x12\x02tx\"\xba\x03\n" +
+	"\btx.proto\x12\x02tx\"\xda\x03\n" +
 	"\x11TransactionHeader\x12#\n" +
 	"\rchain_version\x18\x01 \x01(\aR\fchainVersion\x12!\n" +
 	"\fpayload_size\x18\x02 \x01(\rR\vpayloadSize\x12#\n" +
 	"\rreserved_flag\x18\x03 \x01(\rR\freservedFlag\x12\x17\n" +
-	"\aop_code\x18\x04 \x01(\rR\x06opCode\x12\x1b\n" +
-	"\tauth_type\x18\x05 \x01(\rR\bauthType\x12%\n" +
-	"\x0eexecution_mode\x18\x06 \x01(\rR\rexecutionMode\x12)\n" +
+	"\aop_code\x18\x04 \x01(\rR\x06opCode\x12+\n" +
+	"\tauth_type\x18\x05 \x01(\x0e2\x0e.tx.TxAuthTypeR\bauthType\x125\n" +
+	"\x0eexecution_mode\x18\x06 \x01(\x0e2\x0e.tx.TxExecModeR\rexecutionMode\x12)\n" +
 	"\x10reserved_padding\x18\a \x01(\rR\x0freservedPadding\x12\x1f\n" +
 	"\vmarket_code\x18\b \x01(\aR\n" +
 	"marketCode\x12\x1d\n" +
@@ -1061,63 +1469,125 @@ const file_tx_proto_rawDesc = "" +
 	"min_height\x18\v \x01(\x04R\tminHeight\x12\x1d\n" +
 	"\n" +
 	"max_height\x18\f \x01(\x04R\tmaxHeight\x12\x1c\n" +
-	"\tsignature\x18\r \x01(\fR\tsignature\"\x9d\x05\n" +
+	"\tsignature\x18\r \x01(\fR\tsignature\"\xf1\x04\n" +
 	"\vTransaction\x12-\n" +
 	"\x06header\x18\x01 \x01(\v2\x15.tx.TransactionHeaderR\x06header\x122\n" +
-	"\tmeta_noop\x18\x02 \x01(\v2\x13.tx.MetaNoopPayloadH\x00R\bmetaNoop\x12;\n" +
-	"\fmeta_reserve\x18\x03 \x01(\v2\x16.tx.MetaReservePayloadH\x00R\vmetaReserve\x12;\n" +
-	"\forder_create\x18\x04 \x01(\v2\x16.tx.OrderCreatePayloadH\x00R\vorderCreate\x12;\n" +
-	"\forder_cancel\x18\x05 \x01(\v2\x16.tx.OrderCancelPayloadH\x00R\vorderCancel\x12K\n" +
-	"\x12order_cancel_batch\x18\x06 \x01(\v2\x1b.tx.OrderCancelBatchPayloadH\x00R\x10orderCancelBatch\x12E\n" +
-	"\x10order_cancel_all\x18\a \x01(\v2\x19.tx.OrderCancelAllPayloadH\x00R\x0eorderCancelAll\x12Q\n" +
-	"\x14order_cancel_replace\x18\b \x01(\v2\x1d.tx.OrderCancelReplacePayloadH\x00R\x12orderCancelReplace\x128\n" +
-	"\vorder_amend\x18\t \x01(\v2\x15.tx.OrderAmendPayloadH\x00R\n" +
-	"orderAmend\x12H\n" +
-	"\x11order_amend_batch\x18\n" +
-	" \x01(\v2\x1a.tx.OrderAmendBatchPayloadH\x00R\x0forderAmendBatchB\t\n" +
+	"\tmeta_noop\x18\x02 \x01(\v2\x13.tx.MetaNoopPayloadH\x00R\bmetaNoop\x125\n" +
+	"\n" +
+	"meta_batch\x18\x03 \x01(\v2\x14.tx.MetaBatchPayloadH\x00R\tmetaBatch\x122\n" +
+	"\tmeta_blob\x18\x04 \x01(\v2\x13.tx.MetaBlobPayloadH\x00R\bmetaBlob\x12;\n" +
+	"\fmeta_reserve\x18\x05 \x01(\v2\x16.tx.MetaReservePayloadH\x00R\vmetaReserve\x12;\n" +
+	"\forder_create\x18\x06 \x01(\v2\x16.tx.OrderCreatePayloadH\x00R\vorderCreate\x12;\n" +
+	"\forder_cancel\x18\a \x01(\v2\x16.tx.OrderCancelPayloadH\x00R\vorderCancel\x12E\n" +
+	"\x10order_cancel_all\x18\b \x01(\v2\x19.tx.OrderCancelAllPayloadH\x00R\x0eorderCancelAll\x12Q\n" +
+	"\x14order_cancel_replace\x18\t \x01(\v2\x1d.tx.OrderCancelReplacePayloadH\x00R\x12orderCancelReplace\x128\n" +
+	"\vorder_amend\x18\n" +
+	" \x01(\v2\x15.tx.OrderAmendPayloadH\x00R\n" +
+	"orderAmendB\t\n" +
 	"\apayload\"+\n" +
 	"\x0fMetaNoopPayload\x12\x18\n" +
 	"\apayload\x18\x01 \x01(\fR\apayload\".\n" +
 	"\x12MetaReservePayload\x12\x18\n" +
 	"\apayload\x18\x01 \x01(\fR\apayload\"\x19\n" +
 	"\aOrderID\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\fR\x02id\"\xb8\x01\n" +
-	"\x12OrderCreatePayload\x12&\n" +
-	"\border_id\x18\x01 \x01(\v2\v.tx.OrderIDR\aorderId\x12\x15\n" +
-	"\x06is_buy\x18\x02 \x01(\bR\x05isBuy\x12\x1b\n" +
-	"\tis_market\x18\x03 \x01(\bR\bisMarket\x12\x1a\n" +
-	"\bquantity\x18\x04 \x01(\x04R\bquantity\x12\x14\n" +
-	"\x05price\x18\x05 \x01(\x04R\x05price\x12\x14\n" +
-	"\x05flags\x18\x06 \x01(\rR\x05flags\"<\n" +
-	"\x12OrderCancelPayload\x12&\n" +
-	"\border_id\x18\x01 \x01(\v2\v.tx.OrderIDR\aorderId\"C\n" +
-	"\x17OrderCancelBatchPayload\x12(\n" +
-	"\torder_ids\x18\x01 \x03(\v2\v.tx.OrderIDR\borderIds\"1\n" +
-	"\x15OrderCancelAllPayload\x12\x18\n" +
-	"\apayload\x18\x01 \x01(\fR\apayload\"\xee\x01\n" +
-	"\x19OrderCancelReplacePayload\x12&\n" +
-	"\border_id\x18\x01 \x01(\v2\v.tx.OrderIDR\aorderId\x12\x15\n" +
-	"\x06is_buy\x18\x02 \x01(\bR\x05isBuy\x12\x1b\n" +
-	"\tis_market\x18\x03 \x01(\bR\bisMarket\x12\x1a\n" +
-	"\bquantity\x18\x04 \x01(\x04R\bquantity\x12\x14\n" +
-	"\x05price\x18\x05 \x01(\x04R\x05price\x12\x14\n" +
-	"\x05flags\x18\x06 \x01(\rR\x05flags\x12-\n" +
-	"\fnew_order_id\x18\a \x01(\v2\v.tx.OrderIDR\n" +
-	"newOrderId\"\x8e\x01\n" +
-	"\x11OrderAmendPayload\x12&\n" +
-	"\border_id\x18\x01 \x01(\v2\v.tx.OrderIDR\aorderId\x12\x1f\n" +
-	"\bquantity\x18\x02 \x01(\x04H\x00R\bquantity\x88\x01\x01\x12\x19\n" +
-	"\x05price\x18\x03 \x01(\x04H\x01R\x05price\x88\x01\x01B\v\n" +
-	"\t_quantityB\b\n" +
-	"\x06_price\"\xdf\x01\n" +
-	"\x16OrderAmendBatchPayload\x12<\n" +
-	"\x06amends\x18\x01 \x03(\v2$.tx.OrderAmendBatchPayload.AmendItemR\x06amends\x1a\x86\x01\n" +
+	"\x02id\x18\x01 \x01(\fR\x02id\"\xdf\x04\n" +
+	"\tOrderItem\x12&\n" +
+	"\border_id\x18\x01 \x01(\v2\v.tx.OrderIDR\aorderId\x12\x1c\n" +
+	"\x04side\x18\x02 \x01(\x0e2\b.tx.SideR\x04side\x12,\n" +
+	"\n" +
+	"order_type\x18\x03 \x01(\x0e2\r.tx.OrderTypeR\torderType\x12,\n" +
+	"\texec_type\x18\x04 \x01(\x0e2\x0f.tx.TimeInForceR\bexecType\x12\x1f\n" +
+	"\vreduce_only\x18\x05 \x01(\bR\n" +
+	"reduceOnly\x12\x1b\n" +
+	"\tpost_only\x18\x06 \x01(\bR\bpostOnly\x12\x1a\n" +
+	"\bquantity\x18\a \x01(\x04R\bquantity\x12\x14\n" +
+	"\x05price\x18\b \x01(\x04R\x05price\x12=\n" +
+	"\x0fstop_price_type\x18\t \x01(\x0e2\x10.tx.TriggerPriceH\x00R\rstopPriceType\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"stop_price\x18\n" +
+	" \x01(\x04H\x01R\tstopPrice\x88\x01\x01\x12=\n" +
+	"\x0ftake_price_type\x18\v \x01(\x0e2\x10.tx.TriggerPriceH\x02R\rtakePriceType\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"take_price\x18\f \x01(\x04H\x03R\ttakePrice\x88\x01\x01\x12$\n" +
+	"\vmarket_code\x18\r \x01(\rH\x04R\n" +
+	"marketCode\x88\x01\x01B\x12\n" +
+	"\x10_stop_price_typeB\r\n" +
+	"\v_stop_priceB\x12\n" +
+	"\x10_take_price_typeB\r\n" +
+	"\v_take_priceB\x0e\n" +
+	"\f_market_code\"\x92\x03\n" +
 	"\tAmendItem\x12&\n" +
 	"\border_id\x18\x01 \x01(\v2\v.tx.OrderIDR\aorderId\x12\x1f\n" +
 	"\bquantity\x18\x02 \x01(\x04H\x00R\bquantity\x88\x01\x01\x12\x19\n" +
-	"\x05price\x18\x03 \x01(\x04H\x01R\x05price\x88\x01\x01B\v\n" +
+	"\x05price\x18\x03 \x01(\x04H\x01R\x05price\x88\x01\x01\x12=\n" +
+	"\x0fstop_price_type\x18\x04 \x01(\x0e2\x10.tx.TriggerPriceH\x02R\rstopPriceType\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"stop_price\x18\x05 \x01(\x04H\x03R\tstopPrice\x88\x01\x01\x12=\n" +
+	"\x0ftake_price_type\x18\x06 \x01(\x0e2\x10.tx.TriggerPriceH\x04R\rtakePriceType\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"take_price\x18\a \x01(\x04H\x05R\ttakePrice\x88\x01\x01B\v\n" +
 	"\t_quantityB\b\n" +
-	"\x06_priceB\x05Z\x03/txb\x06proto3"
+	"\x06_priceB\x12\n" +
+	"\x10_stop_price_typeB\r\n" +
+	"\v_stop_priceB\x12\n" +
+	"\x10_take_price_typeB\r\n" +
+	"\v_take_price\"+\n" +
+	"\x0fMetaBlobPayload\x12\x18\n" +
+	"\apayload\x18\x01 \x01(\fR\apayload\",\n" +
+	"\x10MetaBatchPayload\x12\x18\n" +
+	"\apayload\x18\x01 \x01(\fR\apayload\";\n" +
+	"\x12OrderCreatePayload\x12%\n" +
+	"\x06orders\x18\x01 \x03(\v2\r.tx.OrderItemR\x06orders\"<\n" +
+	"\x12OrderCancelPayload\x12&\n" +
+	"\border_id\x18\x01 \x03(\v2\v.tx.OrderIDR\aorderId\"1\n" +
+	"\x15OrderCancelAllPayload\x12\x18\n" +
+	"\apayload\x18\x01 \x01(\fR\apayload\"\x93\x01\n" +
+	"\x19OrderCancelReplacePayload\x127\n" +
+	"\x11canceled_order_id\x18\x01 \x01(\v2\v.tx.OrderIDR\x0fcanceledOrderId\x12=\n" +
+	"\x0ereplaced_order\x18\x02 \x01(\v2\x16.tx.OrderCreatePayloadR\rreplacedOrder\":\n" +
+	"\x11OrderAmendPayload\x12%\n" +
+	"\x06amends\x18\x01 \x03(\v2\r.tx.AmendItemR\x06amends*u\n" +
+	"\n" +
+	"TxAuthType\x12\a\n" +
+	"\x03UID\x10\x00\x12\v\n" +
+	"\aBATCHED\x10\x01\x12\x0e\n" +
+	"\n" +
+	"ED25519_PK\x10\x02\x12\x10\n" +
+	"\fED25519_MSIG\x10\x03\x12\x0f\n" +
+	"\vSEC256k1_PK\x10\x04\x12\x11\n" +
+	"\rSEC256k1_MSIG\x10\x05\x12\v\n" +
+	"\aUNKNOWN\x10\x06*V\n" +
+	"\n" +
+	"TxExecMode\x12\v\n" +
+	"\aDEFAULT\x10\x00\x12\b\n" +
+	"\x04ASAP\x10\x01\x12\x0e\n" +
+	"\n" +
+	"IMMEDIATLY\x10\x02\x12\x11\n" +
+	"\rCURRENT_BLOCK\x10\x03\x12\x0e\n" +
+	"\n" +
+	"NEXT_BLOCK\x10\x04*\x19\n" +
+	"\x04Side\x12\a\n" +
+	"\x03BUY\x10\x00\x12\b\n" +
+	"\x04SELL\x10\x01*d\n" +
+	"\tOrderType\x12\n" +
+	"\n" +
+	"\x06MARKET\x10\x00\x12\t\n" +
+	"\x05LIMIT\x10\x01\x12\x0f\n" +
+	"\vSTOP_MARKET\x10\x02\x12\x0e\n" +
+	"\n" +
+	"STOP_LIMIT\x10\x03\x12\x0f\n" +
+	"\vTAKE_MARKET\x10\x04\x12\x0e\n" +
+	"\n" +
+	"TAKE_LIMIT\x10\x05*(\n" +
+	"\vTimeInForce\x12\a\n" +
+	"\x03GTC\x10\x00\x12\a\n" +
+	"\x03IOC\x10\x01\x12\a\n" +
+	"\x03FOK\x10\x02*Q\n" +
+	"\fTriggerPrice\x12\r\n" +
+	"\tMARKPRICE\x10\x00\x12\r\n" +
+	"\tSPOTPRICE\x10\x01\x12\x12\n" +
+	"\x0eLASTTRADEPRICE\x10\x02\x12\x0f\n" +
+	"\vFUNDINGRATE\x10\x03B\x05Z\x03/txb\x06proto3"
 
 var (
 	file_tx_proto_rawDescOnce sync.Once
@@ -1131,46 +1601,62 @@ func file_tx_proto_rawDescGZIP() []byte {
 	return file_tx_proto_rawDescData
 }
 
-var file_tx_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_tx_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
+var file_tx_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_tx_proto_goTypes = []any{
-	(*TransactionHeader)(nil),                // 0: tx.TransactionHeader
-	(*Transaction)(nil),                      // 1: tx.Transaction
-	(*MetaNoopPayload)(nil),                  // 2: tx.MetaNoopPayload
-	(*MetaReservePayload)(nil),               // 3: tx.MetaReservePayload
-	(*OrderID)(nil),                          // 4: tx.OrderID
-	(*OrderCreatePayload)(nil),               // 5: tx.OrderCreatePayload
-	(*OrderCancelPayload)(nil),               // 6: tx.OrderCancelPayload
-	(*OrderCancelBatchPayload)(nil),          // 7: tx.OrderCancelBatchPayload
-	(*OrderCancelAllPayload)(nil),            // 8: tx.OrderCancelAllPayload
-	(*OrderCancelReplacePayload)(nil),        // 9: tx.OrderCancelReplacePayload
-	(*OrderAmendPayload)(nil),                // 10: tx.OrderAmendPayload
-	(*OrderAmendBatchPayload)(nil),           // 11: tx.OrderAmendBatchPayload
-	(*OrderAmendBatchPayload_AmendItem)(nil), // 12: tx.OrderAmendBatchPayload.AmendItem
+	(TxAuthType)(0),                   // 0: tx.TxAuthType
+	(TxExecMode)(0),                   // 1: tx.TxExecMode
+	(Side)(0),                         // 2: tx.Side
+	(OrderType)(0),                    // 3: tx.OrderType
+	(TimeInForce)(0),                  // 4: tx.TimeInForce
+	(TriggerPrice)(0),                 // 5: tx.TriggerPrice
+	(*TransactionHeader)(nil),         // 6: tx.TransactionHeader
+	(*Transaction)(nil),               // 7: tx.Transaction
+	(*MetaNoopPayload)(nil),           // 8: tx.MetaNoopPayload
+	(*MetaReservePayload)(nil),        // 9: tx.MetaReservePayload
+	(*OrderID)(nil),                   // 10: tx.OrderID
+	(*OrderItem)(nil),                 // 11: tx.OrderItem
+	(*AmendItem)(nil),                 // 12: tx.AmendItem
+	(*MetaBlobPayload)(nil),           // 13: tx.MetaBlobPayload
+	(*MetaBatchPayload)(nil),          // 14: tx.MetaBatchPayload
+	(*OrderCreatePayload)(nil),        // 15: tx.OrderCreatePayload
+	(*OrderCancelPayload)(nil),        // 16: tx.OrderCancelPayload
+	(*OrderCancelAllPayload)(nil),     // 17: tx.OrderCancelAllPayload
+	(*OrderCancelReplacePayload)(nil), // 18: tx.OrderCancelReplacePayload
+	(*OrderAmendPayload)(nil),         // 19: tx.OrderAmendPayload
 }
 var file_tx_proto_depIdxs = []int32{
-	0,  // 0: tx.Transaction.header:type_name -> tx.TransactionHeader
-	2,  // 1: tx.Transaction.meta_noop:type_name -> tx.MetaNoopPayload
-	3,  // 2: tx.Transaction.meta_reserve:type_name -> tx.MetaReservePayload
-	5,  // 3: tx.Transaction.order_create:type_name -> tx.OrderCreatePayload
-	6,  // 4: tx.Transaction.order_cancel:type_name -> tx.OrderCancelPayload
-	7,  // 5: tx.Transaction.order_cancel_batch:type_name -> tx.OrderCancelBatchPayload
-	8,  // 6: tx.Transaction.order_cancel_all:type_name -> tx.OrderCancelAllPayload
-	9,  // 7: tx.Transaction.order_cancel_replace:type_name -> tx.OrderCancelReplacePayload
-	10, // 8: tx.Transaction.order_amend:type_name -> tx.OrderAmendPayload
-	11, // 9: tx.Transaction.order_amend_batch:type_name -> tx.OrderAmendBatchPayload
-	4,  // 10: tx.OrderCreatePayload.order_id:type_name -> tx.OrderID
-	4,  // 11: tx.OrderCancelPayload.order_id:type_name -> tx.OrderID
-	4,  // 12: tx.OrderCancelBatchPayload.order_ids:type_name -> tx.OrderID
-	4,  // 13: tx.OrderCancelReplacePayload.order_id:type_name -> tx.OrderID
-	4,  // 14: tx.OrderCancelReplacePayload.new_order_id:type_name -> tx.OrderID
-	4,  // 15: tx.OrderAmendPayload.order_id:type_name -> tx.OrderID
-	12, // 16: tx.OrderAmendBatchPayload.amends:type_name -> tx.OrderAmendBatchPayload.AmendItem
-	4,  // 17: tx.OrderAmendBatchPayload.AmendItem.order_id:type_name -> tx.OrderID
-	18, // [18:18] is the sub-list for method output_type
-	18, // [18:18] is the sub-list for method input_type
-	18, // [18:18] is the sub-list for extension type_name
-	18, // [18:18] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	0,  // 0: tx.TransactionHeader.auth_type:type_name -> tx.TxAuthType
+	1,  // 1: tx.TransactionHeader.execution_mode:type_name -> tx.TxExecMode
+	6,  // 2: tx.Transaction.header:type_name -> tx.TransactionHeader
+	8,  // 3: tx.Transaction.meta_noop:type_name -> tx.MetaNoopPayload
+	14, // 4: tx.Transaction.meta_batch:type_name -> tx.MetaBatchPayload
+	13, // 5: tx.Transaction.meta_blob:type_name -> tx.MetaBlobPayload
+	9,  // 6: tx.Transaction.meta_reserve:type_name -> tx.MetaReservePayload
+	15, // 7: tx.Transaction.order_create:type_name -> tx.OrderCreatePayload
+	16, // 8: tx.Transaction.order_cancel:type_name -> tx.OrderCancelPayload
+	17, // 9: tx.Transaction.order_cancel_all:type_name -> tx.OrderCancelAllPayload
+	18, // 10: tx.Transaction.order_cancel_replace:type_name -> tx.OrderCancelReplacePayload
+	19, // 11: tx.Transaction.order_amend:type_name -> tx.OrderAmendPayload
+	10, // 12: tx.OrderItem.order_id:type_name -> tx.OrderID
+	2,  // 13: tx.OrderItem.side:type_name -> tx.Side
+	3,  // 14: tx.OrderItem.order_type:type_name -> tx.OrderType
+	4,  // 15: tx.OrderItem.exec_type:type_name -> tx.TimeInForce
+	5,  // 16: tx.OrderItem.stop_price_type:type_name -> tx.TriggerPrice
+	5,  // 17: tx.OrderItem.take_price_type:type_name -> tx.TriggerPrice
+	10, // 18: tx.AmendItem.order_id:type_name -> tx.OrderID
+	5,  // 19: tx.AmendItem.stop_price_type:type_name -> tx.TriggerPrice
+	5,  // 20: tx.AmendItem.take_price_type:type_name -> tx.TriggerPrice
+	11, // 21: tx.OrderCreatePayload.orders:type_name -> tx.OrderItem
+	10, // 22: tx.OrderCancelPayload.order_id:type_name -> tx.OrderID
+	10, // 23: tx.OrderCancelReplacePayload.canceled_order_id:type_name -> tx.OrderID
+	15, // 24: tx.OrderCancelReplacePayload.replaced_order:type_name -> tx.OrderCreatePayload
+	12, // 25: tx.OrderAmendPayload.amends:type_name -> tx.AmendItem
+	26, // [26:26] is the sub-list for method output_type
+	26, // [26:26] is the sub-list for method input_type
+	26, // [26:26] is the sub-list for extension type_name
+	26, // [26:26] is the sub-list for extension extendee
+	0,  // [0:26] is the sub-list for field type_name
 }
 
 func init() { file_tx_proto_init() }
@@ -1180,29 +1666,30 @@ func file_tx_proto_init() {
 	}
 	file_tx_proto_msgTypes[1].OneofWrappers = []any{
 		(*Transaction_MetaNoop)(nil),
+		(*Transaction_MetaBatch)(nil),
+		(*Transaction_MetaBlob)(nil),
 		(*Transaction_MetaReserve)(nil),
 		(*Transaction_OrderCreate)(nil),
 		(*Transaction_OrderCancel)(nil),
-		(*Transaction_OrderCancelBatch)(nil),
 		(*Transaction_OrderCancelAll)(nil),
 		(*Transaction_OrderCancelReplace)(nil),
 		(*Transaction_OrderAmend)(nil),
-		(*Transaction_OrderAmendBatch)(nil),
 	}
-	file_tx_proto_msgTypes[10].OneofWrappers = []any{}
-	file_tx_proto_msgTypes[12].OneofWrappers = []any{}
+	file_tx_proto_msgTypes[5].OneofWrappers = []any{}
+	file_tx_proto_msgTypes[6].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_tx_proto_rawDesc), len(file_tx_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   13,
+			NumEnums:      6,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_tx_proto_goTypes,
 		DependencyIndexes: file_tx_proto_depIdxs,
+		EnumInfos:         file_tx_proto_enumTypes,
 		MessageInfos:      file_tx_proto_msgTypes,
 	}.Build()
 	File_tx_proto = out.File
