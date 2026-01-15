@@ -34,7 +34,7 @@ const (
 	outputFile     = "mm-txs.bin"
 	
 	
-	maxLevelSizeForSplitting = 1000000.0	//Не разделять уровень если размер меньше, иначе ставим ordersPerLevel
+	maxLevelSizeForSplitting = 1000.0	//Не разделять уровень если размер меньше, иначе ставим ordersPerLevel
 
 	DebugSymbol = "TONUSDT"	//Для этого символа выводим подробный лог 
 )
@@ -105,6 +105,8 @@ type MarketState struct {
 	LastRawMessage []byte                   
 	mu             sync.RWMutex
 }
+
+var realTxCounter uint64 = 0
 
 func init() {
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
@@ -179,6 +181,8 @@ func generateMetaNoop() {
 	header := createHeader(tx.OpCode_META_NOOP, 0)
 	txx := buildTx(header, p)
 	appendTx(txx)
+	
+	realTxCounter++
 }
 
 func subscribe(ws *websocket.Conn) {
@@ -348,6 +352,8 @@ func createOrAmendOrders(m *MarketState, isBuy bool, price, totalQty float64, le
 		return
 	}
 
+	realTxCounter += uint64( numOrders )
+
 	for i := 0; i < numOrders; i++ {
 		adjPrice := price
 		if numOrders > 1 {
@@ -448,6 +454,8 @@ func cancelOrdersBatch(m *MarketState, orders []*ManagedOrder) {
 	
 	txx := buildTx(createHeader(tx.OpCode_ORD_CANCEL, m.Config.ID), p)
 	appendTx(txx)
+	
+	realTxCounter += uint64( len(orders) )
 }
 
 // -----------------------------------------------------------
@@ -628,11 +636,11 @@ func saveAllTxs() {
 		avgSize = float64(totalBytes) / float64(count)
 	}
 
-	totalCreated := atomic.LoadUint64(&txCreated)
+	//totalCreated := atomic.LoadUint64(&txCreated)
 	
 	// Выводим размер в МБ и средний размер одной транзакции
-	log.Printf("Файл %s сохранен. Всего записано: %d (создано всего: %d). Общий объем: %.2f MB. Средний размер tx: %.1f байт", 
-		outputFile, count, totalCreated, float64(totalBytes)/1024.0/1024.0, avgSize)
+	log.Printf("Файл %s сохранен. Всего записано: %d (app-tx: %d). Общий объем: %.2f MB. Средний размер tx: %.1f байт", 
+		outputFile, count, realTxCounter, float64(totalBytes)/1024.0/1024.0, avgSize)
 }
 
 func createHeader(opCode tx.OpCode, marketSymbol uint32) *tx.TransactionHeader {
