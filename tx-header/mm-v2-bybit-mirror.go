@@ -635,7 +635,7 @@ func saveAllTxs() {
 		outputFile, count, totalCreated, float64(totalBytes)/1024.0/1024.0, avgSize)
 }
 
-func createHeader(opCode uint32, marketCode uint32) *tx.TransactionHeader {
+func createHeader(opCode uint32, marketSymbol uint32) *tx.TransactionHeader {
 	newNonce := atomic.AddUint64(&nonce, 1)
 	
 	// Текущий таймстемп
@@ -647,7 +647,8 @@ func createHeader(opCode uint32, marketCode uint32) *tx.TransactionHeader {
 		AuthType:     tx.TxAuthType_UID,
 		SignerUid:    signerUID,
 		Nonce:        newNonce,
-		MarketCode:   marketCode,
+		MarketCode:   tx.Markets_PERPETUAL,
+		MarketSymbol: marketSymbol,
 		MinHeight:    now - 5, // now - 5
 		MaxHeight:    now + 5, // now + 5
 		Signature:    make([]byte, 64),

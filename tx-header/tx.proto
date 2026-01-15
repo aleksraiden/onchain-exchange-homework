@@ -26,6 +26,23 @@ enum TxExecMode {
 	NEXT_BLOCK		= 4; //исполнение строго в следующем блок
 }
 
+//Опишем рынки 
+enum Markets {
+	UNDEFINED		= 0; //Дефолт - операция глобал, не в рынке
+	PERPETUAL		= 1; //Стандартные перпы 
+	SPOT			= 2; //Классический спот 
+	AMM_SWAP		= 3; //зарезервируем для свопов через AMM 
+	INVERSE_PERP	= 4; //Inverse linear contracts 
+	VANILLA_OPTIONS = 5;
+	PERPETUAL_OPTIONS 	= 6;
+	DIGITAL_OPTIONS   	= 7;
+	PREDICTION			= 8; // Для рынков предсказаний 
+	TRADFI				= 9; // Для рынков токенезированных акций
+	INDICES				= 10; // Рынки индексов
+	
+	EXOTIC				= 11; //Спишем все остальное	
+}
+
 // TransactionHeader defines the header for a transaction.
 message TransactionHeader {
   // chainVersion determines the network and code version.
@@ -56,32 +73,32 @@ message TransactionHeader {
   //uint32 execution_mode = 6;
   TxExecMode execution_mode = 4;
 
-  // marketCode defines the market and trading pair.
+  // marketCode defines the market
   // Default: 0x0 (global chain operation)
-  // First 4 bits: market (spot, perp, futures, options, tradfi, etc.)
-  // Remaining 28 bits: trading pair ID
-  // Reserved: 0xFFFFFFFF
-  fixed32 market_code = 5;
+  Markets market_code = 5;
+  
+  //И теперь отдельно код торговой пары  
+  uint32 market_symbol = 6;
 
   // signerUID is the internal user UID of the signer.
   // 0x0 if authType > 0
-  uint64 signer_uid = 6;
+  uint64 signer_uid = 7;
 
   // nonce is the account nonce (0 allowed for some service commands).
-  uint64 nonce = 7;
+  uint64 nonce = 8;
 
   // minHeight or lastKnownHeight: last known block height by sender.
   // Tx discarded if current height is lower.
   // Default: 0x0
-  uint64 min_height = 8;
+  uint64 min_height = 9;
 
   // maxHeight or validBeforeHeight: height until tx is valid.
   // Default: 0x0
-  uint64 max_height = 9;
+  uint64 max_height = 10;
 
   // signature is the ed25519 signature. 
   // Опционально (для батча), но так как это bytes нет нужды указывать optional
-  bytes signature = 10; // Fixed 64 bytes
+  bytes signature = 11; // Fixed 64 bytes
 }
 
 // BatchedTransactionHeader defines the small header for a transaction, grouped at batch ONLY!
@@ -89,15 +106,15 @@ message BatchedTransactionHeader {
   // opCode is the command code.
   uint32 op_code = 1;
 
-  // marketCode defines the market and trading pair.
+  // marketCode defines the market
   // Default: 0x0 (global chain operation)
-  // First 4 bits: market (spot, perp, futures, options, tradfi, etc.)
-  // Remaining 28 bits: trading pair ID
-  // Reserved: 0xFFFFFFFF
-  fixed32 market_code = 2;
+  Markets market_code = 2;
+  
+  //И теперь отдельно код торговой пары  
+  uint32 market_symbol = 3;
 
   // nonce is the account nonce (0 allowed for some service commands).
-  uint64 nonce = 3;
+  uint64 nonce = 4;
 }
 
 

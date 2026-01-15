@@ -88,7 +88,8 @@ func main() {
 				OpCode:          opCode,
 				AuthType:        tx.TxAuthType_UID,
 				ExecutionMode:   tx.TxExecMode_DEFAULT,
-				MarketCode:      randomUint32(),
+				MarketCode:      tx.Markets_PERPETUAL,
+				MarketSymbol:	 uint32(mrand.Intn(128)),	//случайный рынок, но с небольшой выборки, близко к реалу 
 				SignerUid:       u.uid,
 				Nonce:           u.nonce,
 				MinHeight:       now - 5, // now - 5
@@ -107,11 +108,21 @@ func main() {
 			case 0x00: // META_NOOP
 				p := &tx.MetaNoopPayload{Payload: []byte{0x00}}
 				txx.Payload = &tx.Transaction_MetaNoop{MetaNoop: p}
+				
+				//Для системных транзакций обнулим поля 
+				header.MarketCode 	= tx.Markets_UNDEFINED
+				header.MarketSymbol = 0
+				
 				realTxCounter++
 
 			case 0xFF: // META_RESERVE
 				p := &tx.MetaReservePayload{Payload: []byte{0x00}}
 				txx.Payload = &tx.Transaction_MetaReserve{MetaReserve: p}
+				
+				//Для системных транзакций обнулим поля 
+				header.MarketCode 	= tx.Markets_UNDEFINED
+				header.MarketSymbol = 0
+				
 				realTxCounter++
 
 			case 0x60: // ORD_CREATE (поддерживает repeated OrderItem)
