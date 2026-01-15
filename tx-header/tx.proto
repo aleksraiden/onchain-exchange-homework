@@ -7,7 +7,7 @@ option go_package = "/tx";
 //Спецификация вариантов аутенфикации транзакции 
 enum TxAuthType {
   UID 				= 0;	//внутренний UID 
-  BATCHED			= 1;	//Указывает, что это батч, где отдельные транзакции имеют свои подписи
+  BATCHED			= 1;	//Указывает, что это батч, где отдельные транзакции не имеют своих подписей
   ED25519_PK	 	= 2;	//Public key ed25519 
   ED25519_MSIG	 	= 3;	//Multisig
   
@@ -95,7 +95,8 @@ message TransactionHeader {
   // Default: 0x0
   uint64 max_height = 12;
 
-  // signature is the ed25519 signature.
+  // signature is the ed25519 signature. 
+  // Опционально (для батча), но так как это bytes нет нужды указывать optional
   bytes signature = 13; // Fixed 64 bytes
 }
 

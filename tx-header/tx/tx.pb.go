@@ -26,7 +26,7 @@ type TxAuthType int32
 
 const (
 	TxAuthType_UID           TxAuthType = 0 //внутренний UID
-	TxAuthType_BATCHED       TxAuthType = 1 //Указывает, что это батч, где отдельные транзакции имеют свои подписи
+	TxAuthType_BATCHED       TxAuthType = 1 //Указывает, что это батч, где отдельные транзакции не имеют своих подписей
 	TxAuthType_ED25519_PK    TxAuthType = 2 //Public key ed25519
 	TxAuthType_ED25519_MSIG  TxAuthType = 3 //Multisig
 	TxAuthType_SEC256k1_PK   TxAuthType = 4 //На будущее оставим
@@ -407,6 +407,7 @@ type TransactionHeader struct {
 	// Default: 0x0
 	MaxHeight uint64 `protobuf:"varint,12,opt,name=max_height,json=maxHeight,proto3" json:"max_height,omitempty"`
 	// signature is the ed25519 signature.
+	// Опционально (для батча), но так как это bytes нет нужды указывать optional
 	Signature     []byte `protobuf:"bytes,13,opt,name=signature,proto3" json:"signature,omitempty"` // Fixed 64 bytes
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
