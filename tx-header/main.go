@@ -85,12 +85,9 @@ func main() {
 
 			header := &tx.TransactionHeader{
 				ChainVersion:    0x01000001,
-				PayloadSize:     0, // заполним позже
-				ReservedFlag:    0,
 				OpCode:          opCode,
 				AuthType:        tx.TxAuthType_UID,
 				ExecutionMode:   tx.TxExecMode_DEFAULT,
-				ReservedPadding: 0,
 				MarketCode:      randomUint32(),
 				SignerUid:       u.uid,
 				Nonce:           u.nonce,
@@ -106,18 +103,14 @@ func main() {
 				},
 			}
 
-			var realPayload proto.Message // ← сохраняем реальное сообщение для marshal
-
 			switch opCode {
 			case 0x00: // META_NOOP
 				p := &tx.MetaNoopPayload{Payload: []byte{0x00}}
-				realPayload = p
 				txx.Payload = &tx.Transaction_MetaNoop{MetaNoop: p}
 				realTxCounter++
 
 			case 0xFF: // META_RESERVE
 				p := &tx.MetaReservePayload{Payload: []byte{0x00}}
-				realPayload = p
 				txx.Payload = &tx.Transaction_MetaReserve{MetaReserve: p}
 				realTxCounter++
 
@@ -160,7 +153,6 @@ func main() {
 				}
 				
 				p := &tx.OrderCreatePayload{Orders: orders}
-				realPayload = p
 				txx.Payload = &tx.Transaction_OrderCreate{OrderCreate: p}
 
 			case 0x64: // ORD_CANCEL (поддерживает repeated OrderID)
@@ -179,12 +171,10 @@ func main() {
 				p := &tx.OrderCancelPayload{
 					OrderId: ids,
 				}
-				realPayload = p
 				txx.Payload = &tx.Transaction_OrderCancel{OrderCancel: p}
 
 			case 0x66: // ORD_CANCEL_ALL
 				p := &tx.OrderCancelAllPayload{Payload: []byte{0x00}}
-				realPayload = p
 				txx.Payload = &tx.Transaction_OrderCancelAll{OrderCancelAll: p}
 				realTxCounter++
 
@@ -206,7 +196,6 @@ func main() {
 					CanceledOrderId: genUUIDv7(),
 					ReplacedOrder:   newOrderPayload,
 				}
-				realPayload = p
 				txx.Payload = &tx.Transaction_OrderCancelReplace{OrderCancelReplace: p}
 				realTxCounter++
 
@@ -244,19 +233,8 @@ func main() {
 				p := &tx.OrderAmendPayload{
 					Amends: amends,
 				}
-				realPayload = p
-				txx.Payload = &tx.Transaction_OrderAmend{OrderAmend: p}
-			}
 
-			// Считаем размер payload
-			var payloadBytes []byte
-			if realPayload != nil {
-				var err error
-				payloadBytes, err = proto.Marshal(realPayload)
-				if err != nil {
-					panic(err)
-				}
-				header.PayloadSize = uint32(len(payloadBytes))
+				txx.Payload = &tx.Transaction_OrderAmend{OrderAmend: p}
 			}
 
 			// Временная сериализация для подписи

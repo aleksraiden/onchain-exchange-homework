@@ -648,21 +648,13 @@ func createHeader(opCode uint32, marketCode uint32) *tx.TransactionHeader {
 		SignerUid:    signerUID,
 		Nonce:        newNonce,
 		MarketCode:   marketCode,
-		MinHeight:       now - 5, // now - 5
-		MaxHeight:       now + 5, // now + 5
+		MinHeight:    now - 5, // now - 5
+		MaxHeight:    now + 5, // now + 5
 		Signature:    make([]byte, 64),
 	}
 }
 
 func buildTx(header *tx.TransactionHeader, payload proto.Message) []byte {
-	payloadBytes, err := proto.Marshal(payload)
-	if err != nil {
-		log.Printf("Error marshaling payload: %v", err)
-		return nil
-	}
-	header.PayloadSize = uint32(len(payloadBytes))
-
-	//txx := &tx.Transaction{Header: header}
 	txx := &tx.Transaction{
 		HeaderData: &tx.Transaction_Header{
 			Header: header,

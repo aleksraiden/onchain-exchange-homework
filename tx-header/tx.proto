@@ -34,20 +34,8 @@ message TransactionHeader {
   // Reserved: 0x0 and 0xFFFFFFFF
   fixed32 chain_version = 1;
 
-  // payloadSize defines the length of the payload block.
-  // Default: 0x0 (no payload)
-  // Reserved: 0xFFFF
-  // Max size: 65,532 bytes
-  // Total tx size: fixed header size + payload
-  uint32 payload_size = 2;
-
-  // reservedFlag is reserved for future extensions.
-  // Default: 0x00
-  // Reserved: 0xFF
-  uint32 reserved_flag = 3;
-
   // opCode is the command code.
-  uint32 op_code = 4;
+  uint32 op_code = 2;
 
   // authType determines the transaction authorization method.
   // 0x0: UID (default, most common)
@@ -56,7 +44,7 @@ message TransactionHeader {
   // 0x3: other possible methods
   // Reserved: 0xFF
   //uint32 auth_type = 5;
-  TxAuthType auth_type = 5;
+  TxAuthType auth_type = 3;
 
   // executionMode determines the execution mode and lifetime.
   // 0x00: default, execute in normal mode
@@ -66,61 +54,50 @@ message TransactionHeader {
   // 0x04: execute strictly in next block
   // 0x05–0xFF: reserved
   //uint32 execution_mode = 6;
-  TxExecMode execution_mode = 6;
-
-  // reservedPadding is reserved for structure alignment.
-  // Default: 0x00
-  uint32 reserved_padding = 7;
+  TxExecMode execution_mode = 4;
 
   // marketCode defines the market and trading pair.
   // Default: 0x0 (global chain operation)
   // First 4 bits: market (spot, perp, futures, options, tradfi, etc.)
   // Remaining 28 bits: trading pair ID
   // Reserved: 0xFFFFFFFF
-  fixed32 market_code = 8;
+  fixed32 market_code = 5;
 
   // signerUID is the internal user UID of the signer.
   // 0x0 if authType > 0
-  uint64 signer_uid = 9;
+  uint64 signer_uid = 6;
 
   // nonce is the account nonce (0 allowed for some service commands).
-  uint64 nonce = 10;
+  uint64 nonce = 7;
 
   // minHeight or lastKnownHeight: last known block height by sender.
   // Tx discarded if current height is lower.
   // Default: 0x0
-  uint64 min_height = 11;
+  uint64 min_height = 8;
 
   // maxHeight or validBeforeHeight: height until tx is valid.
   // Default: 0x0
-  uint64 max_height = 12;
+  uint64 max_height = 9;
 
   // signature is the ed25519 signature. 
   // Опционально (для батча), но так как это bytes нет нужды указывать optional
-  bytes signature = 13; // Fixed 64 bytes
+  bytes signature = 10; // Fixed 64 bytes
 }
 
 // BatchedTransactionHeader defines the small header for a transaction, grouped at batch ONLY!
 message BatchedTransactionHeader {
-  // payloadSize defines the length of the payload block.
-  // Default: 0x0 (no payload)
-  // Reserved: 0xFFFF
-  // Max size: 65,532 bytes
-  // Total tx size: fixed header size + payload
-  uint32 payload_size = 1;
-
   // opCode is the command code.
-  uint32 op_code = 2;
+  uint32 op_code = 1;
 
   // marketCode defines the market and trading pair.
   // Default: 0x0 (global chain operation)
   // First 4 bits: market (spot, perp, futures, options, tradfi, etc.)
   // Remaining 28 bits: trading pair ID
   // Reserved: 0xFFFFFFFF
-  fixed32 market_code = 8;
+  fixed32 market_code = 2;
 
   // nonce is the account nonce (0 allowed for some service commands).
-  uint64 nonce = 10;
+  uint64 nonce = 3;
 }
 
 

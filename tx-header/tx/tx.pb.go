@@ -356,18 +356,8 @@ type TransactionHeader struct {
 	// Bytes 2-4: code version
 	// Reserved: 0x0 and 0xFFFFFFFF
 	ChainVersion uint32 `protobuf:"fixed32,1,opt,name=chain_version,json=chainVersion,proto3" json:"chain_version,omitempty"`
-	// payloadSize defines the length of the payload block.
-	// Default: 0x0 (no payload)
-	// Reserved: 0xFFFF
-	// Max size: 65,532 bytes
-	// Total tx size: fixed header size + payload
-	PayloadSize uint32 `protobuf:"varint,2,opt,name=payload_size,json=payloadSize,proto3" json:"payload_size,omitempty"`
-	// reservedFlag is reserved for future extensions.
-	// Default: 0x00
-	// Reserved: 0xFF
-	ReservedFlag uint32 `protobuf:"varint,3,opt,name=reserved_flag,json=reservedFlag,proto3" json:"reserved_flag,omitempty"`
 	// opCode is the command code.
-	OpCode uint32 `protobuf:"varint,4,opt,name=op_code,json=opCode,proto3" json:"op_code,omitempty"`
+	OpCode uint32 `protobuf:"varint,2,opt,name=op_code,json=opCode,proto3" json:"op_code,omitempty"`
 	// authType determines the transaction authorization method.
 	// 0x0: UID (default, most common)
 	// 0x1: public key (ed25519)
@@ -375,7 +365,7 @@ type TransactionHeader struct {
 	// 0x3: other possible methods
 	// Reserved: 0xFF
 	// uint32 auth_type = 5;
-	AuthType TxAuthType `protobuf:"varint,5,opt,name=auth_type,json=authType,proto3,enum=tx.TxAuthType" json:"auth_type,omitempty"`
+	AuthType TxAuthType `protobuf:"varint,3,opt,name=auth_type,json=authType,proto3,enum=tx.TxAuthType" json:"auth_type,omitempty"`
 	// executionMode determines the execution mode and lifetime.
 	// 0x00: default, execute in normal mode
 	// 0x01: execute immediately, but before validBefore Height
@@ -384,31 +374,28 @@ type TransactionHeader struct {
 	// 0x04: execute strictly in next block
 	// 0x05–0xFF: reserved
 	// uint32 execution_mode = 6;
-	ExecutionMode TxExecMode `protobuf:"varint,6,opt,name=execution_mode,json=executionMode,proto3,enum=tx.TxExecMode" json:"execution_mode,omitempty"`
-	// reservedPadding is reserved for structure alignment.
-	// Default: 0x00
-	ReservedPadding uint32 `protobuf:"varint,7,opt,name=reserved_padding,json=reservedPadding,proto3" json:"reserved_padding,omitempty"`
+	ExecutionMode TxExecMode `protobuf:"varint,4,opt,name=execution_mode,json=executionMode,proto3,enum=tx.TxExecMode" json:"execution_mode,omitempty"`
 	// marketCode defines the market and trading pair.
 	// Default: 0x0 (global chain operation)
 	// First 4 bits: market (spot, perp, futures, options, tradfi, etc.)
 	// Remaining 28 bits: trading pair ID
 	// Reserved: 0xFFFFFFFF
-	MarketCode uint32 `protobuf:"fixed32,8,opt,name=market_code,json=marketCode,proto3" json:"market_code,omitempty"`
+	MarketCode uint32 `protobuf:"fixed32,5,opt,name=market_code,json=marketCode,proto3" json:"market_code,omitempty"`
 	// signerUID is the internal user UID of the signer.
 	// 0x0 if authType > 0
-	SignerUid uint64 `protobuf:"varint,9,opt,name=signer_uid,json=signerUid,proto3" json:"signer_uid,omitempty"`
+	SignerUid uint64 `protobuf:"varint,6,opt,name=signer_uid,json=signerUid,proto3" json:"signer_uid,omitempty"`
 	// nonce is the account nonce (0 allowed for some service commands).
-	Nonce uint64 `protobuf:"varint,10,opt,name=nonce,proto3" json:"nonce,omitempty"`
+	Nonce uint64 `protobuf:"varint,7,opt,name=nonce,proto3" json:"nonce,omitempty"`
 	// minHeight or lastKnownHeight: last known block height by sender.
 	// Tx discarded if current height is lower.
 	// Default: 0x0
-	MinHeight uint64 `protobuf:"varint,11,opt,name=min_height,json=minHeight,proto3" json:"min_height,omitempty"`
+	MinHeight uint64 `protobuf:"varint,8,opt,name=min_height,json=minHeight,proto3" json:"min_height,omitempty"`
 	// maxHeight or validBeforeHeight: height until tx is valid.
 	// Default: 0x0
-	MaxHeight uint64 `protobuf:"varint,12,opt,name=max_height,json=maxHeight,proto3" json:"max_height,omitempty"`
+	MaxHeight uint64 `protobuf:"varint,9,opt,name=max_height,json=maxHeight,proto3" json:"max_height,omitempty"`
 	// signature is the ed25519 signature.
 	// Опционально (для батча), но так как это bytes нет нужды указывать optional
-	Signature     []byte `protobuf:"bytes,13,opt,name=signature,proto3" json:"signature,omitempty"` // Fixed 64 bytes
+	Signature     []byte `protobuf:"bytes,10,opt,name=signature,proto3" json:"signature,omitempty"` // Fixed 64 bytes
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -450,20 +437,6 @@ func (x *TransactionHeader) GetChainVersion() uint32 {
 	return 0
 }
 
-func (x *TransactionHeader) GetPayloadSize() uint32 {
-	if x != nil {
-		return x.PayloadSize
-	}
-	return 0
-}
-
-func (x *TransactionHeader) GetReservedFlag() uint32 {
-	if x != nil {
-		return x.ReservedFlag
-	}
-	return 0
-}
-
 func (x *TransactionHeader) GetOpCode() uint32 {
 	if x != nil {
 		return x.OpCode
@@ -483,13 +456,6 @@ func (x *TransactionHeader) GetExecutionMode() TxExecMode {
 		return x.ExecutionMode
 	}
 	return TxExecMode_DEFAULT
-}
-
-func (x *TransactionHeader) GetReservedPadding() uint32 {
-	if x != nil {
-		return x.ReservedPadding
-	}
-	return 0
 }
 
 func (x *TransactionHeader) GetMarketCode() uint32 {
@@ -537,22 +503,16 @@ func (x *TransactionHeader) GetSignature() []byte {
 // BatchedTransactionHeader defines the small header for a transaction, grouped at batch ONLY!
 type BatchedTransactionHeader struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// payloadSize defines the length of the payload block.
-	// Default: 0x0 (no payload)
-	// Reserved: 0xFFFF
-	// Max size: 65,532 bytes
-	// Total tx size: fixed header size + payload
-	PayloadSize uint32 `protobuf:"varint,1,opt,name=payload_size,json=payloadSize,proto3" json:"payload_size,omitempty"`
 	// opCode is the command code.
-	OpCode uint32 `protobuf:"varint,2,opt,name=op_code,json=opCode,proto3" json:"op_code,omitempty"`
+	OpCode uint32 `protobuf:"varint,1,opt,name=op_code,json=opCode,proto3" json:"op_code,omitempty"`
 	// marketCode defines the market and trading pair.
 	// Default: 0x0 (global chain operation)
 	// First 4 bits: market (spot, perp, futures, options, tradfi, etc.)
 	// Remaining 28 bits: trading pair ID
 	// Reserved: 0xFFFFFFFF
-	MarketCode uint32 `protobuf:"fixed32,8,opt,name=market_code,json=marketCode,proto3" json:"market_code,omitempty"`
+	MarketCode uint32 `protobuf:"fixed32,2,opt,name=market_code,json=marketCode,proto3" json:"market_code,omitempty"`
 	// nonce is the account nonce (0 allowed for some service commands).
-	Nonce         uint64 `protobuf:"varint,10,opt,name=nonce,proto3" json:"nonce,omitempty"`
+	Nonce         uint64 `protobuf:"varint,3,opt,name=nonce,proto3" json:"nonce,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -585,13 +545,6 @@ func (x *BatchedTransactionHeader) ProtoReflect() protoreflect.Message {
 // Deprecated: Use BatchedTransactionHeader.ProtoReflect.Descriptor instead.
 func (*BatchedTransactionHeader) Descriptor() ([]byte, []int) {
 	return file_tx_proto_rawDescGZIP(), []int{1}
-}
-
-func (x *BatchedTransactionHeader) GetPayloadSize() uint32 {
-	if x != nil {
-		return x.PayloadSize
-	}
-	return 0
 }
 
 func (x *BatchedTransactionHeader) GetOpCode() uint32 {
@@ -1608,33 +1561,28 @@ var File_tx_proto protoreflect.FileDescriptor
 
 const file_tx_proto_rawDesc = "" +
 	"\n" +
-	"\btx.proto\x12\x02tx\"\xda\x03\n" +
+	"\btx.proto\x12\x02tx\"\xe7\x02\n" +
 	"\x11TransactionHeader\x12#\n" +
-	"\rchain_version\x18\x01 \x01(\aR\fchainVersion\x12!\n" +
-	"\fpayload_size\x18\x02 \x01(\rR\vpayloadSize\x12#\n" +
-	"\rreserved_flag\x18\x03 \x01(\rR\freservedFlag\x12\x17\n" +
-	"\aop_code\x18\x04 \x01(\rR\x06opCode\x12+\n" +
-	"\tauth_type\x18\x05 \x01(\x0e2\x0e.tx.TxAuthTypeR\bauthType\x125\n" +
-	"\x0eexecution_mode\x18\x06 \x01(\x0e2\x0e.tx.TxExecModeR\rexecutionMode\x12)\n" +
-	"\x10reserved_padding\x18\a \x01(\rR\x0freservedPadding\x12\x1f\n" +
-	"\vmarket_code\x18\b \x01(\aR\n" +
+	"\rchain_version\x18\x01 \x01(\aR\fchainVersion\x12\x17\n" +
+	"\aop_code\x18\x02 \x01(\rR\x06opCode\x12+\n" +
+	"\tauth_type\x18\x03 \x01(\x0e2\x0e.tx.TxAuthTypeR\bauthType\x125\n" +
+	"\x0eexecution_mode\x18\x04 \x01(\x0e2\x0e.tx.TxExecModeR\rexecutionMode\x12\x1f\n" +
+	"\vmarket_code\x18\x05 \x01(\aR\n" +
 	"marketCode\x12\x1d\n" +
 	"\n" +
-	"signer_uid\x18\t \x01(\x04R\tsignerUid\x12\x14\n" +
-	"\x05nonce\x18\n" +
-	" \x01(\x04R\x05nonce\x12\x1d\n" +
+	"signer_uid\x18\x06 \x01(\x04R\tsignerUid\x12\x14\n" +
+	"\x05nonce\x18\a \x01(\x04R\x05nonce\x12\x1d\n" +
 	"\n" +
-	"min_height\x18\v \x01(\x04R\tminHeight\x12\x1d\n" +
+	"min_height\x18\b \x01(\x04R\tminHeight\x12\x1d\n" +
 	"\n" +
-	"max_height\x18\f \x01(\x04R\tmaxHeight\x12\x1c\n" +
-	"\tsignature\x18\r \x01(\fR\tsignature\"\x8d\x01\n" +
-	"\x18BatchedTransactionHeader\x12!\n" +
-	"\fpayload_size\x18\x01 \x01(\rR\vpayloadSize\x12\x17\n" +
-	"\aop_code\x18\x02 \x01(\rR\x06opCode\x12\x1f\n" +
-	"\vmarket_code\x18\b \x01(\aR\n" +
+	"max_height\x18\t \x01(\x04R\tmaxHeight\x12\x1c\n" +
+	"\tsignature\x18\n" +
+	" \x01(\fR\tsignature\"j\n" +
+	"\x18BatchedTransactionHeader\x12\x17\n" +
+	"\aop_code\x18\x01 \x01(\rR\x06opCode\x12\x1f\n" +
+	"\vmarket_code\x18\x02 \x01(\aR\n" +
 	"marketCode\x12\x14\n" +
-	"\x05nonce\x18\n" +
-	" \x01(\x04R\x05nonce\"\x8e\x05\n" +
+	"\x05nonce\x18\x03 \x01(\x04R\x05nonce\"\x8e\x05\n" +
 	"\vTransaction\x12/\n" +
 	"\x06header\x18\x01 \x01(\v2\x15.tx.TransactionHeaderH\x00R\x06header\x12A\n" +
 	"\fbatch_header\x18\x02 \x01(\v2\x1c.tx.BatchedTransactionHeaderH\x00R\vbatchHeader\x122\n" +
