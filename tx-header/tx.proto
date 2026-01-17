@@ -4,6 +4,9 @@ package tx;
 
 option go_package = "/tx";
 
+// 1. Добавляем импорт расширений vtprotobuf
+//import "github.com/planetscale/vtprotobuf/vtproto/ext.proto";
+
 //Тип сети 
 enum ChainType {
 	DEVNET			= 0;
@@ -168,6 +171,11 @@ enum OpCode {
 	UNKNOWN_OR_UNREALISED					= 2047; 								
 }
 
+// Новое сообщение-контейнер, чтобы рассылать блок, состоящий из массива суб-блоков, экономим на парсинге 
+message TransactionList {
+    repeated Transaction txs = 1;
+}
+
 // TransactionHeader defines the header for a transaction.
 message TransactionHeader {
   ChainType chain_type = 1;
@@ -208,7 +216,7 @@ message TransactionHeader {
 
   // signature is the ed25519 signature. 
   // Опционально (для батча), но так как это bytes нет нужды указывать optional
-  bytes signature = 12; // Fixed 64 bytes
+  bytes signature = 12; //[(vtproto.ext).allow_alias = true] // Fixed 64 bytes
 }
 
 // BatchedTransactionHeader defines the small header for a transaction, grouped at batch ONLY!
@@ -273,7 +281,7 @@ message Transaction {
 //Содержит полный заголовок и подпись, встроеные сообщения же - только краткий
 //Это ползволит комбинировать любые тразакции из поддерживаемых системой (кроме вложенных батчей, конечно!)
 message BatchTransaction {
-  TransactionHeader 			header 	= 1; // Полный заголовок (id=1 для совместимости)
+  TransactionHeader 			header 	= 1; // Полный заголовок
   
   repeated	Transaction			payload = 2; //Содержит любое количесто сообщений с обычными транзакциями (но с упрощенными заголовками!)
 }
@@ -290,7 +298,7 @@ message MetaReservePayload {
 
 // OrderID - 16 байт, UUIDv7
 message OrderID {
-  bytes id = 1; // Фиксированные 16 байт.
+  bytes id = 1; //[(vtproto.ext).allow_alias = true]  // Фиксированные 16 байт.
 }
 
 //Группируем флаги в enum-ы
@@ -369,7 +377,7 @@ message AmendItem {
 
 //TODO: MetaBlobPayload
 message MetaBlobPayload {
-	bytes payload = 1; // 1 байт, default пустой
+	bytes payload = 1; // [(vtproto.ext).allow_alias = true];
 }
 
 //TODO: MetaBatchPayload

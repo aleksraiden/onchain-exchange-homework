@@ -804,6 +804,51 @@ func (TriggerPrice) EnumDescriptor() ([]byte, []int) {
 	return file_tx_proto_rawDescGZIP(), []int{8}
 }
 
+// Новое сообщение-контейнер, чтобы рассылать блок, состоящий из массива суб-блоков, экономим на парсинге
+type TransactionList struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Txs           []*Transaction         `protobuf:"bytes,1,rep,name=txs,proto3" json:"txs,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TransactionList) Reset() {
+	*x = TransactionList{}
+	mi := &file_tx_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TransactionList) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TransactionList) ProtoMessage() {}
+
+func (x *TransactionList) ProtoReflect() protoreflect.Message {
+	mi := &file_tx_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TransactionList.ProtoReflect.Descriptor instead.
+func (*TransactionList) Descriptor() ([]byte, []int) {
+	return file_tx_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *TransactionList) GetTxs() []*Transaction {
+	if x != nil {
+		return x.Txs
+	}
+	return nil
+}
+
 // TransactionHeader defines the header for a transaction.
 type TransactionHeader struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
@@ -841,7 +886,7 @@ type TransactionHeader struct {
 
 func (x *TransactionHeader) Reset() {
 	*x = TransactionHeader{}
-	mi := &file_tx_proto_msgTypes[0]
+	mi := &file_tx_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -853,7 +898,7 @@ func (x *TransactionHeader) String() string {
 func (*TransactionHeader) ProtoMessage() {}
 
 func (x *TransactionHeader) ProtoReflect() protoreflect.Message {
-	mi := &file_tx_proto_msgTypes[0]
+	mi := &file_tx_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -866,7 +911,7 @@ func (x *TransactionHeader) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TransactionHeader.ProtoReflect.Descriptor instead.
 func (*TransactionHeader) Descriptor() ([]byte, []int) {
-	return file_tx_proto_rawDescGZIP(), []int{0}
+	return file_tx_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *TransactionHeader) GetChainType() ChainType {
@@ -971,7 +1016,7 @@ type BatchedTransactionHeader struct {
 
 func (x *BatchedTransactionHeader) Reset() {
 	*x = BatchedTransactionHeader{}
-	mi := &file_tx_proto_msgTypes[1]
+	mi := &file_tx_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -983,7 +1028,7 @@ func (x *BatchedTransactionHeader) String() string {
 func (*BatchedTransactionHeader) ProtoMessage() {}
 
 func (x *BatchedTransactionHeader) ProtoReflect() protoreflect.Message {
-	mi := &file_tx_proto_msgTypes[1]
+	mi := &file_tx_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -996,7 +1041,7 @@ func (x *BatchedTransactionHeader) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchedTransactionHeader.ProtoReflect.Descriptor instead.
 func (*BatchedTransactionHeader) Descriptor() ([]byte, []int) {
-	return file_tx_proto_rawDescGZIP(), []int{1}
+	return file_tx_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *BatchedTransactionHeader) GetOpCode() OpCode {
@@ -1057,7 +1102,7 @@ type Transaction struct {
 
 func (x *Transaction) Reset() {
 	*x = Transaction{}
-	mi := &file_tx_proto_msgTypes[2]
+	mi := &file_tx_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1069,7 +1114,7 @@ func (x *Transaction) String() string {
 func (*Transaction) ProtoMessage() {}
 
 func (x *Transaction) ProtoReflect() protoreflect.Message {
-	mi := &file_tx_proto_msgTypes[2]
+	mi := &file_tx_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1082,7 +1127,7 @@ func (x *Transaction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Transaction.ProtoReflect.Descriptor instead.
 func (*Transaction) Descriptor() ([]byte, []int) {
-	return file_tx_proto_rawDescGZIP(), []int{2}
+	return file_tx_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *Transaction) GetHeaderData() isTransaction_HeaderData {
@@ -1278,7 +1323,7 @@ type BatchTransaction struct {
 
 func (x *BatchTransaction) Reset() {
 	*x = BatchTransaction{}
-	mi := &file_tx_proto_msgTypes[3]
+	mi := &file_tx_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1290,7 +1335,7 @@ func (x *BatchTransaction) String() string {
 func (*BatchTransaction) ProtoMessage() {}
 
 func (x *BatchTransaction) ProtoReflect() protoreflect.Message {
-	mi := &file_tx_proto_msgTypes[3]
+	mi := &file_tx_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1303,7 +1348,7 @@ func (x *BatchTransaction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchTransaction.ProtoReflect.Descriptor instead.
 func (*BatchTransaction) Descriptor() ([]byte, []int) {
-	return file_tx_proto_rawDescGZIP(), []int{3}
+	return file_tx_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *BatchTransaction) GetHeader() *TransactionHeader {
@@ -1330,7 +1375,7 @@ type MetaNoopPayload struct {
 
 func (x *MetaNoopPayload) Reset() {
 	*x = MetaNoopPayload{}
-	mi := &file_tx_proto_msgTypes[4]
+	mi := &file_tx_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1342,7 +1387,7 @@ func (x *MetaNoopPayload) String() string {
 func (*MetaNoopPayload) ProtoMessage() {}
 
 func (x *MetaNoopPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_tx_proto_msgTypes[4]
+	mi := &file_tx_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1355,7 +1400,7 @@ func (x *MetaNoopPayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MetaNoopPayload.ProtoReflect.Descriptor instead.
 func (*MetaNoopPayload) Descriptor() ([]byte, []int) {
-	return file_tx_proto_rawDescGZIP(), []int{4}
+	return file_tx_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *MetaNoopPayload) GetPayload() []byte {
@@ -1375,7 +1420,7 @@ type MetaReservePayload struct {
 
 func (x *MetaReservePayload) Reset() {
 	*x = MetaReservePayload{}
-	mi := &file_tx_proto_msgTypes[5]
+	mi := &file_tx_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1387,7 +1432,7 @@ func (x *MetaReservePayload) String() string {
 func (*MetaReservePayload) ProtoMessage() {}
 
 func (x *MetaReservePayload) ProtoReflect() protoreflect.Message {
-	mi := &file_tx_proto_msgTypes[5]
+	mi := &file_tx_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1400,7 +1445,7 @@ func (x *MetaReservePayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MetaReservePayload.ProtoReflect.Descriptor instead.
 func (*MetaReservePayload) Descriptor() ([]byte, []int) {
-	return file_tx_proto_rawDescGZIP(), []int{5}
+	return file_tx_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *MetaReservePayload) GetPayload() []byte {
@@ -1420,7 +1465,7 @@ type OrderID struct {
 
 func (x *OrderID) Reset() {
 	*x = OrderID{}
-	mi := &file_tx_proto_msgTypes[6]
+	mi := &file_tx_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1432,7 +1477,7 @@ func (x *OrderID) String() string {
 func (*OrderID) ProtoMessage() {}
 
 func (x *OrderID) ProtoReflect() protoreflect.Message {
-	mi := &file_tx_proto_msgTypes[6]
+	mi := &file_tx_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1445,7 +1490,7 @@ func (x *OrderID) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OrderID.ProtoReflect.Descriptor instead.
 func (*OrderID) Descriptor() ([]byte, []int) {
-	return file_tx_proto_rawDescGZIP(), []int{6}
+	return file_tx_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *OrderID) GetId() []byte {
@@ -1479,7 +1524,7 @@ type OrderItem struct {
 
 func (x *OrderItem) Reset() {
 	*x = OrderItem{}
-	mi := &file_tx_proto_msgTypes[7]
+	mi := &file_tx_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1491,7 +1536,7 @@ func (x *OrderItem) String() string {
 func (*OrderItem) ProtoMessage() {}
 
 func (x *OrderItem) ProtoReflect() protoreflect.Message {
-	mi := &file_tx_proto_msgTypes[7]
+	mi := &file_tx_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1504,7 +1549,7 @@ func (x *OrderItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OrderItem.ProtoReflect.Descriptor instead.
 func (*OrderItem) Descriptor() ([]byte, []int) {
-	return file_tx_proto_rawDescGZIP(), []int{7}
+	return file_tx_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *OrderItem) GetOrderId() *OrderID {
@@ -1614,7 +1659,7 @@ type AmendItem struct {
 
 func (x *AmendItem) Reset() {
 	*x = AmendItem{}
-	mi := &file_tx_proto_msgTypes[8]
+	mi := &file_tx_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1626,7 +1671,7 @@ func (x *AmendItem) String() string {
 func (*AmendItem) ProtoMessage() {}
 
 func (x *AmendItem) ProtoReflect() protoreflect.Message {
-	mi := &file_tx_proto_msgTypes[8]
+	mi := &file_tx_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1639,7 +1684,7 @@ func (x *AmendItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AmendItem.ProtoReflect.Descriptor instead.
 func (*AmendItem) Descriptor() ([]byte, []int) {
-	return file_tx_proto_rawDescGZIP(), []int{8}
+	return file_tx_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *AmendItem) GetOrderId() *OrderID {
@@ -1701,7 +1746,7 @@ type MetaBlobPayload struct {
 
 func (x *MetaBlobPayload) Reset() {
 	*x = MetaBlobPayload{}
-	mi := &file_tx_proto_msgTypes[9]
+	mi := &file_tx_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1713,7 +1758,7 @@ func (x *MetaBlobPayload) String() string {
 func (*MetaBlobPayload) ProtoMessage() {}
 
 func (x *MetaBlobPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_tx_proto_msgTypes[9]
+	mi := &file_tx_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1726,7 +1771,7 @@ func (x *MetaBlobPayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MetaBlobPayload.ProtoReflect.Descriptor instead.
 func (*MetaBlobPayload) Descriptor() ([]byte, []int) {
-	return file_tx_proto_rawDescGZIP(), []int{9}
+	return file_tx_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *MetaBlobPayload) GetPayload() []byte {
@@ -1746,7 +1791,7 @@ type MetaBatchPayload struct {
 
 func (x *MetaBatchPayload) Reset() {
 	*x = MetaBatchPayload{}
-	mi := &file_tx_proto_msgTypes[10]
+	mi := &file_tx_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1758,7 +1803,7 @@ func (x *MetaBatchPayload) String() string {
 func (*MetaBatchPayload) ProtoMessage() {}
 
 func (x *MetaBatchPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_tx_proto_msgTypes[10]
+	mi := &file_tx_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1771,7 +1816,7 @@ func (x *MetaBatchPayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MetaBatchPayload.ProtoReflect.Descriptor instead.
 func (*MetaBatchPayload) Descriptor() ([]byte, []int) {
-	return file_tx_proto_rawDescGZIP(), []int{10}
+	return file_tx_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *MetaBatchPayload) GetPayload() []byte {
@@ -1791,7 +1836,7 @@ type OrderCreatePayload struct {
 
 func (x *OrderCreatePayload) Reset() {
 	*x = OrderCreatePayload{}
-	mi := &file_tx_proto_msgTypes[11]
+	mi := &file_tx_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1803,7 +1848,7 @@ func (x *OrderCreatePayload) String() string {
 func (*OrderCreatePayload) ProtoMessage() {}
 
 func (x *OrderCreatePayload) ProtoReflect() protoreflect.Message {
-	mi := &file_tx_proto_msgTypes[11]
+	mi := &file_tx_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1816,7 +1861,7 @@ func (x *OrderCreatePayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OrderCreatePayload.ProtoReflect.Descriptor instead.
 func (*OrderCreatePayload) Descriptor() ([]byte, []int) {
-	return file_tx_proto_rawDescGZIP(), []int{11}
+	return file_tx_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *OrderCreatePayload) GetOrders() []*OrderItem {
@@ -1836,7 +1881,7 @@ type OrderCancelPayload struct {
 
 func (x *OrderCancelPayload) Reset() {
 	*x = OrderCancelPayload{}
-	mi := &file_tx_proto_msgTypes[12]
+	mi := &file_tx_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1848,7 +1893,7 @@ func (x *OrderCancelPayload) String() string {
 func (*OrderCancelPayload) ProtoMessage() {}
 
 func (x *OrderCancelPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_tx_proto_msgTypes[12]
+	mi := &file_tx_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1861,7 +1906,7 @@ func (x *OrderCancelPayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OrderCancelPayload.ProtoReflect.Descriptor instead.
 func (*OrderCancelPayload) Descriptor() ([]byte, []int) {
-	return file_tx_proto_rawDescGZIP(), []int{12}
+	return file_tx_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *OrderCancelPayload) GetOrderId() []*OrderID {
@@ -1881,7 +1926,7 @@ type OrderCancelAllPayload struct {
 
 func (x *OrderCancelAllPayload) Reset() {
 	*x = OrderCancelAllPayload{}
-	mi := &file_tx_proto_msgTypes[13]
+	mi := &file_tx_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1893,7 +1938,7 @@ func (x *OrderCancelAllPayload) String() string {
 func (*OrderCancelAllPayload) ProtoMessage() {}
 
 func (x *OrderCancelAllPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_tx_proto_msgTypes[13]
+	mi := &file_tx_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1906,7 +1951,7 @@ func (x *OrderCancelAllPayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OrderCancelAllPayload.ProtoReflect.Descriptor instead.
 func (*OrderCancelAllPayload) Descriptor() ([]byte, []int) {
-	return file_tx_proto_rawDescGZIP(), []int{13}
+	return file_tx_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *OrderCancelAllPayload) GetPayload() []byte {
@@ -1928,7 +1973,7 @@ type OrderCancelReplacePayload struct {
 
 func (x *OrderCancelReplacePayload) Reset() {
 	*x = OrderCancelReplacePayload{}
-	mi := &file_tx_proto_msgTypes[14]
+	mi := &file_tx_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1940,7 +1985,7 @@ func (x *OrderCancelReplacePayload) String() string {
 func (*OrderCancelReplacePayload) ProtoMessage() {}
 
 func (x *OrderCancelReplacePayload) ProtoReflect() protoreflect.Message {
-	mi := &file_tx_proto_msgTypes[14]
+	mi := &file_tx_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1953,7 +1998,7 @@ func (x *OrderCancelReplacePayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OrderCancelReplacePayload.ProtoReflect.Descriptor instead.
 func (*OrderCancelReplacePayload) Descriptor() ([]byte, []int) {
-	return file_tx_proto_rawDescGZIP(), []int{14}
+	return file_tx_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *OrderCancelReplacePayload) GetCanceledOrderId() *OrderID {
@@ -1981,7 +2026,7 @@ type OrderAmendPayload struct {
 
 func (x *OrderAmendPayload) Reset() {
 	*x = OrderAmendPayload{}
-	mi := &file_tx_proto_msgTypes[15]
+	mi := &file_tx_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1993,7 +2038,7 @@ func (x *OrderAmendPayload) String() string {
 func (*OrderAmendPayload) ProtoMessage() {}
 
 func (x *OrderAmendPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_tx_proto_msgTypes[15]
+	mi := &file_tx_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2006,7 +2051,7 @@ func (x *OrderAmendPayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OrderAmendPayload.ProtoReflect.Descriptor instead.
 func (*OrderAmendPayload) Descriptor() ([]byte, []int) {
-	return file_tx_proto_rawDescGZIP(), []int{15}
+	return file_tx_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *OrderAmendPayload) GetAmends() []*AmendItem {
@@ -2020,7 +2065,9 @@ var File_tx_proto protoreflect.FileDescriptor
 
 const file_tx_proto_rawDesc = "" +
 	"\n" +
-	"\btx.proto\x12\x02tx\"\xd3\x03\n" +
+	"\btx.proto\x12\x02tx\"4\n" +
+	"\x0fTransactionList\x12!\n" +
+	"\x03txs\x18\x01 \x03(\v2\x0f.tx.TransactionR\x03txs\"\xd3\x03\n" +
 	"\x11TransactionHeader\x12,\n" +
 	"\n" +
 	"chain_type\x18\x01 \x01(\x0e2\r.tx.ChainTypeR\tchainType\x12#\n" +
@@ -2315,7 +2362,7 @@ func file_tx_proto_rawDescGZIP() []byte {
 }
 
 var file_tx_proto_enumTypes = make([]protoimpl.EnumInfo, 9)
-var file_tx_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_tx_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_tx_proto_goTypes = []any{
 	(ChainType)(0),                    // 0: tx.ChainType
 	(TxAuthType)(0),                   // 1: tx.TxAuthType
@@ -2326,62 +2373,64 @@ var file_tx_proto_goTypes = []any{
 	(OrderType)(0),                    // 6: tx.OrderType
 	(TimeInForce)(0),                  // 7: tx.TimeInForce
 	(TriggerPrice)(0),                 // 8: tx.TriggerPrice
-	(*TransactionHeader)(nil),         // 9: tx.TransactionHeader
-	(*BatchedTransactionHeader)(nil),  // 10: tx.BatchedTransactionHeader
-	(*Transaction)(nil),               // 11: tx.Transaction
-	(*BatchTransaction)(nil),          // 12: tx.BatchTransaction
-	(*MetaNoopPayload)(nil),           // 13: tx.MetaNoopPayload
-	(*MetaReservePayload)(nil),        // 14: tx.MetaReservePayload
-	(*OrderID)(nil),                   // 15: tx.OrderID
-	(*OrderItem)(nil),                 // 16: tx.OrderItem
-	(*AmendItem)(nil),                 // 17: tx.AmendItem
-	(*MetaBlobPayload)(nil),           // 18: tx.MetaBlobPayload
-	(*MetaBatchPayload)(nil),          // 19: tx.MetaBatchPayload
-	(*OrderCreatePayload)(nil),        // 20: tx.OrderCreatePayload
-	(*OrderCancelPayload)(nil),        // 21: tx.OrderCancelPayload
-	(*OrderCancelAllPayload)(nil),     // 22: tx.OrderCancelAllPayload
-	(*OrderCancelReplacePayload)(nil), // 23: tx.OrderCancelReplacePayload
-	(*OrderAmendPayload)(nil),         // 24: tx.OrderAmendPayload
+	(*TransactionList)(nil),           // 9: tx.TransactionList
+	(*TransactionHeader)(nil),         // 10: tx.TransactionHeader
+	(*BatchedTransactionHeader)(nil),  // 11: tx.BatchedTransactionHeader
+	(*Transaction)(nil),               // 12: tx.Transaction
+	(*BatchTransaction)(nil),          // 13: tx.BatchTransaction
+	(*MetaNoopPayload)(nil),           // 14: tx.MetaNoopPayload
+	(*MetaReservePayload)(nil),        // 15: tx.MetaReservePayload
+	(*OrderID)(nil),                   // 16: tx.OrderID
+	(*OrderItem)(nil),                 // 17: tx.OrderItem
+	(*AmendItem)(nil),                 // 18: tx.AmendItem
+	(*MetaBlobPayload)(nil),           // 19: tx.MetaBlobPayload
+	(*MetaBatchPayload)(nil),          // 20: tx.MetaBatchPayload
+	(*OrderCreatePayload)(nil),        // 21: tx.OrderCreatePayload
+	(*OrderCancelPayload)(nil),        // 22: tx.OrderCancelPayload
+	(*OrderCancelAllPayload)(nil),     // 23: tx.OrderCancelAllPayload
+	(*OrderCancelReplacePayload)(nil), // 24: tx.OrderCancelReplacePayload
+	(*OrderAmendPayload)(nil),         // 25: tx.OrderAmendPayload
 }
 var file_tx_proto_depIdxs = []int32{
-	0,  // 0: tx.TransactionHeader.chain_type:type_name -> tx.ChainType
-	4,  // 1: tx.TransactionHeader.op_code:type_name -> tx.OpCode
-	1,  // 2: tx.TransactionHeader.auth_type:type_name -> tx.TxAuthType
-	2,  // 3: tx.TransactionHeader.execution_mode:type_name -> tx.TxExecMode
-	3,  // 4: tx.TransactionHeader.market_code:type_name -> tx.Markets
-	4,  // 5: tx.BatchedTransactionHeader.op_code:type_name -> tx.OpCode
-	3,  // 6: tx.BatchedTransactionHeader.market_code:type_name -> tx.Markets
-	9,  // 7: tx.Transaction.header:type_name -> tx.TransactionHeader
-	10, // 8: tx.Transaction.batch_header:type_name -> tx.BatchedTransactionHeader
-	13, // 9: tx.Transaction.meta_noop:type_name -> tx.MetaNoopPayload
-	18, // 10: tx.Transaction.meta_blob:type_name -> tx.MetaBlobPayload
-	14, // 11: tx.Transaction.meta_reserve:type_name -> tx.MetaReservePayload
-	20, // 12: tx.Transaction.order_create:type_name -> tx.OrderCreatePayload
-	21, // 13: tx.Transaction.order_cancel:type_name -> tx.OrderCancelPayload
-	22, // 14: tx.Transaction.order_cancel_all:type_name -> tx.OrderCancelAllPayload
-	23, // 15: tx.Transaction.order_cancel_replace:type_name -> tx.OrderCancelReplacePayload
-	24, // 16: tx.Transaction.order_amend:type_name -> tx.OrderAmendPayload
-	9,  // 17: tx.BatchTransaction.header:type_name -> tx.TransactionHeader
-	11, // 18: tx.BatchTransaction.payload:type_name -> tx.Transaction
-	15, // 19: tx.OrderItem.order_id:type_name -> tx.OrderID
-	5,  // 20: tx.OrderItem.side:type_name -> tx.Side
-	6,  // 21: tx.OrderItem.order_type:type_name -> tx.OrderType
-	7,  // 22: tx.OrderItem.exec_type:type_name -> tx.TimeInForce
-	8,  // 23: tx.OrderItem.stop_price_type:type_name -> tx.TriggerPrice
-	8,  // 24: tx.OrderItem.take_price_type:type_name -> tx.TriggerPrice
-	15, // 25: tx.AmendItem.order_id:type_name -> tx.OrderID
-	8,  // 26: tx.AmendItem.stop_price_type:type_name -> tx.TriggerPrice
-	8,  // 27: tx.AmendItem.take_price_type:type_name -> tx.TriggerPrice
-	16, // 28: tx.OrderCreatePayload.orders:type_name -> tx.OrderItem
-	15, // 29: tx.OrderCancelPayload.order_id:type_name -> tx.OrderID
-	15, // 30: tx.OrderCancelReplacePayload.canceled_order_id:type_name -> tx.OrderID
-	20, // 31: tx.OrderCancelReplacePayload.replaced_order:type_name -> tx.OrderCreatePayload
-	17, // 32: tx.OrderAmendPayload.amends:type_name -> tx.AmendItem
-	33, // [33:33] is the sub-list for method output_type
-	33, // [33:33] is the sub-list for method input_type
-	33, // [33:33] is the sub-list for extension type_name
-	33, // [33:33] is the sub-list for extension extendee
-	0,  // [0:33] is the sub-list for field type_name
+	12, // 0: tx.TransactionList.txs:type_name -> tx.Transaction
+	0,  // 1: tx.TransactionHeader.chain_type:type_name -> tx.ChainType
+	4,  // 2: tx.TransactionHeader.op_code:type_name -> tx.OpCode
+	1,  // 3: tx.TransactionHeader.auth_type:type_name -> tx.TxAuthType
+	2,  // 4: tx.TransactionHeader.execution_mode:type_name -> tx.TxExecMode
+	3,  // 5: tx.TransactionHeader.market_code:type_name -> tx.Markets
+	4,  // 6: tx.BatchedTransactionHeader.op_code:type_name -> tx.OpCode
+	3,  // 7: tx.BatchedTransactionHeader.market_code:type_name -> tx.Markets
+	10, // 8: tx.Transaction.header:type_name -> tx.TransactionHeader
+	11, // 9: tx.Transaction.batch_header:type_name -> tx.BatchedTransactionHeader
+	14, // 10: tx.Transaction.meta_noop:type_name -> tx.MetaNoopPayload
+	19, // 11: tx.Transaction.meta_blob:type_name -> tx.MetaBlobPayload
+	15, // 12: tx.Transaction.meta_reserve:type_name -> tx.MetaReservePayload
+	21, // 13: tx.Transaction.order_create:type_name -> tx.OrderCreatePayload
+	22, // 14: tx.Transaction.order_cancel:type_name -> tx.OrderCancelPayload
+	23, // 15: tx.Transaction.order_cancel_all:type_name -> tx.OrderCancelAllPayload
+	24, // 16: tx.Transaction.order_cancel_replace:type_name -> tx.OrderCancelReplacePayload
+	25, // 17: tx.Transaction.order_amend:type_name -> tx.OrderAmendPayload
+	10, // 18: tx.BatchTransaction.header:type_name -> tx.TransactionHeader
+	12, // 19: tx.BatchTransaction.payload:type_name -> tx.Transaction
+	16, // 20: tx.OrderItem.order_id:type_name -> tx.OrderID
+	5,  // 21: tx.OrderItem.side:type_name -> tx.Side
+	6,  // 22: tx.OrderItem.order_type:type_name -> tx.OrderType
+	7,  // 23: tx.OrderItem.exec_type:type_name -> tx.TimeInForce
+	8,  // 24: tx.OrderItem.stop_price_type:type_name -> tx.TriggerPrice
+	8,  // 25: tx.OrderItem.take_price_type:type_name -> tx.TriggerPrice
+	16, // 26: tx.AmendItem.order_id:type_name -> tx.OrderID
+	8,  // 27: tx.AmendItem.stop_price_type:type_name -> tx.TriggerPrice
+	8,  // 28: tx.AmendItem.take_price_type:type_name -> tx.TriggerPrice
+	17, // 29: tx.OrderCreatePayload.orders:type_name -> tx.OrderItem
+	16, // 30: tx.OrderCancelPayload.order_id:type_name -> tx.OrderID
+	16, // 31: tx.OrderCancelReplacePayload.canceled_order_id:type_name -> tx.OrderID
+	21, // 32: tx.OrderCancelReplacePayload.replaced_order:type_name -> tx.OrderCreatePayload
+	18, // 33: tx.OrderAmendPayload.amends:type_name -> tx.AmendItem
+	34, // [34:34] is the sub-list for method output_type
+	34, // [34:34] is the sub-list for method input_type
+	34, // [34:34] is the sub-list for extension type_name
+	34, // [34:34] is the sub-list for extension extendee
+	0,  // [0:34] is the sub-list for field type_name
 }
 
 func init() { file_tx_proto_init() }
@@ -2389,7 +2438,7 @@ func file_tx_proto_init() {
 	if File_tx_proto != nil {
 		return
 	}
-	file_tx_proto_msgTypes[2].OneofWrappers = []any{
+	file_tx_proto_msgTypes[3].OneofWrappers = []any{
 		(*Transaction_Header)(nil),
 		(*Transaction_BatchHeader)(nil),
 		(*Transaction_MetaNoop)(nil),
@@ -2401,15 +2450,15 @@ func file_tx_proto_init() {
 		(*Transaction_OrderCancelReplace)(nil),
 		(*Transaction_OrderAmend)(nil),
 	}
-	file_tx_proto_msgTypes[7].OneofWrappers = []any{}
 	file_tx_proto_msgTypes[8].OneofWrappers = []any{}
+	file_tx_proto_msgTypes[9].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_tx_proto_rawDesc), len(file_tx_proto_rawDesc)),
 			NumEnums:      9,
-			NumMessages:   16,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

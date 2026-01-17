@@ -4,6 +4,7 @@ package main
 import (
 	"bytes"
 	"crypto/ed25519"
+	voied25519 "github.com/oasisprotocol/curve25519-voi/primitives/ed25519"
 	"crypto/rand"
 	"fmt"
 	"io"
@@ -35,6 +36,7 @@ type User struct {
 	uid   uint64
 	priv  ed25519.PrivateKey
 	pub   ed25519.PublicKey // Храним публичный ключ для проверки
+	expKey *voied25519.ExpandedPublicKey // Для супер-быстрой проверки (1.5 КБ)
 	nonce uint64
 }
 
@@ -68,14 +70,29 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
+		
+		// 1. РАСПАКОВКА (Делается 1 раз при создании аккаунта)
+		expKey, err := voied25519.NewExpandedPublicKey(voied25519.PublicKey(pub))
+		if err != nil { panic(err) }
+		
 		users = append(users, &User{
 			uid:   uint64(i),
 			priv:  priv,
 			pub:   pub,
+			expKey: expKey,
 			nonce: 0,
 		})
 	}
 	fmt.Println("Пользователи готовы.")
+	
+	// Константа для Meta-Transactions
+    const MetaBatchSize = 512 //256
+	
+	// НОВЫЙ Массив для Мета-Транзакций (блоков)
+    var allMetaTxBytes [][]byte
+    
+    // Буфер для накопления текущей пачки
+    currentBatch := make([]*tx.Transaction, 0, MetaBatchSize)
 
 	var allTxBytes [][]byte
 	var realTxCounter uint64 = 0
@@ -242,6 +259,32 @@ func main() {
 			}
 
 			allTxBytes = append(allTxBytes, finalBytes)
+			
+			// 2. НОВОЕ: Добавляем в Meta-Batch
+            // Нам нужно скопировать структуру или использовать указатель.
+            // Так как txx создается заново в каждой итерации (txx := &tx.Transaction{...}),
+            // можно безопасно сохранить указатель.
+            currentBatch = append(currentBatch, txx)
+
+            // Если набрали пачку — пакуем
+            if len(currentBatch) >= MetaBatchSize {
+                // Создаем лист
+                metaTx := &tx.TransactionList{
+                    Txs: currentBatch,
+                }
+                // Сериализуем БОЛЬШОЙ объект
+                metaBytes, err := proto.Marshal(metaTx)
+                if err != nil { panic(err) }
+                
+                allMetaTxBytes = append(allMetaTxBytes, metaBytes)
+                
+                // Сбрасываем буфер (alloc new slice to avoid side effects if proto keeps refs)
+                currentBatch = make([]*tx.Transaction, 0, MetaBatchSize)
+            }
+			
+			
+			
+			
 			u.nonce++
 		}
 	}
@@ -252,13 +295,31 @@ func main() {
 	for _, b := range allTxBytes {
 		totalSize += len(b)
 	}
+	
+	// Если остались "хвосты" в буфере
+    if len(currentBatch) > 0 {
+        metaTx := &tx.TransactionList{Txs: currentBatch}
+        metaBytes, _ := proto.Marshal(metaTx)
+        allMetaTxBytes = append(allMetaTxBytes, metaBytes)
+    }
 
 	avgSize := float64(totalSize) / float64(totalTx)
 	avgRealSize := float64(totalSize) / float64(realTxCounter)
+	
+	/** Раскоментировать для генерации обучающего словаря 
+	// Генерация чанков для создания словарей для zstd
+	// Сохраняем по 10 транзакций в файл в папку blocks/
+	err2 := SplitAndSaveTxBlocks(allTxBytes, "samples4", "tx_")
+	if err2 != nil {
+		fmt.Printf("Ошибка при разбиении на блоки: %v\n", err2)
+		os.Exit(1)
+	}
+	**/
 
 	fmt.Printf("\nГенерация завершена:\n")
 	fmt.Printf("  • Всего транзакций:        %d\n", totalTx)
 	fmt.Printf("  • Всего real tx:           %d\n", realTxCounter)
+	fmt.Printf("  • Мета-Транзакций (блоков по %d): %d\n", MetaBatchSize, len(allMetaTxBytes))
 	fmt.Printf("  • Общий размер:            %d байт\n", totalSize)
 	fmt.Printf("  • Средний размер tx:       %.1f байт\n", avgSize)
 	fmt.Printf("  • Средний размер real tx:  %.1f байт\n", avgRealSize)
@@ -292,6 +353,24 @@ func main() {
 	
 	//5. Fixed batching 
 	benchmarkFixedBatchPipeline(allTxBytes, users)
+	
+	//
+	benchmarkBatchCryptoPipeline(allTxBytes, users)
+	
+	// НОВЫЙ БЕНЧМАРК
+    benchmarkMetaTxDecoding(allMetaTxBytes)
+	
+	//Обработка мета-батчей (как на валидаторах)
+	benchmarkMetaTxCryptoPipeline(allMetaTxBytes, users)
+
+	// Сравнение ExpKey с обычным параллелизмом
+	benchmarkParallelPipelineExp(allTxBytes, users)
+
+	// Сравнение ExpKey с BatchCrypto (Fixed Batching)
+	benchmarkBatchCryptoPipelineExp(allTxBytes, users)
+
+	// Сравнение ExpKey с MetaTx + BatchVerifier
+	benchmarkMetaTxCryptoPipelineExp(allMetaTxBytes, users)
 }
 
 // CryptoTask - структура, передаваемая от Decoder-воркеров к Verifier-воркерам
@@ -319,6 +398,330 @@ type SmartBatch struct {
 
 // MixedBatch - пачка транзакций РАЗНЫХ юзеров (ключ внутри каждого элемента)
 type MixedBatch []CryptoTask
+
+// Структура для передачи данных от Decoder к Verifier
+// Содержит всё необходимое для проверки целого блока
+type MetaBatchTask struct {
+	PubKeys []voied25519.PublicKey
+	Msgs    [][]byte
+	Sigs    [][]byte
+}
+
+//Extended key 
+// Задача для одиночного пайплайна с ExpKey
+type CryptoTaskExp struct {
+	ExpKey    *voied25519.ExpandedPublicKey
+	Signature []byte
+	Data      []byte
+}
+
+// Батч задач с ExpKey
+type CryptoTaskBatchExp struct {
+	Items []CryptoTaskExp
+}
+
+// Мета-задача для блока транзакций с ExpKey
+type MetaBatchTaskExp struct {
+	ExpKeys []*voied25519.ExpandedPublicKey
+	Msgs    [][]byte
+	Sigs    [][]byte
+}
+
+func benchmarkParallelPipelineExp(allTxs [][]byte, users []*User) {
+	if len(allTxs) == 0 { return }
+	count := len(allTxs)
+
+	// Конфигурация
+	var (
+		Decoders  = runtime.NumCPU()
+		Verifiers = runtime.NumCPU()
+		BufSize   = 10000
+	)
+
+	fmt.Printf("\n=== PARALLEL PIPELINE EXP (Expanded Keys) (%d tx) ===\n", count)
+	fmt.Printf("Config: Decoders=%d, Verifiers=%d\n", Decoders, Verifiers)
+
+	runtime.GC()
+	rawChan := make(chan []byte, BufSize)
+	// Канал теперь передает задачу с ExpandedKey
+	cryptoChan := make(chan CryptoTaskExp, BufSize)
+	
+	var wgD, wgV sync.WaitGroup
+	var validCount int64
+
+	start := time.Now()
+
+	// STAGE 1: DECODERS
+	for i := 0; i < Decoders; i++ {
+		wgD.Add(1)
+		go func() {
+			defer wgD.Done()
+			var txx tx.Transaction
+			emptySig := make([]byte, 64)
+
+			for b := range rawChan {
+				txx.Reset()
+				if proto.Unmarshal(b, &txx) != nil { continue }
+				h := txx.GetHeader()
+				if h == nil { continue }
+				uid := h.SignerUid
+				if uid == 0 || uid > uint64(len(users)) { continue }
+
+				// БЕРЕМ EXPANDED KEY ИЗ ЮЗЕРА
+				expKey := users[uid-1].expKey
+				sig := h.Signature
+				h.Signature = emptySig
+				data, _ := proto.Marshal(&txx)
+
+				cryptoChan <- CryptoTaskExp{
+					ExpKey:    expKey,
+					Signature: sig,
+					Data:      data,
+				}
+			}
+		}()
+	}
+
+	// STAGE 2: VERIFIERS (Используем Verify у ExpKey)
+	for i := 0; i < Verifiers; i++ {
+		wgV.Add(1)
+		go func() {
+			defer wgV.Done()
+			for task := range cryptoChan {
+				hash := blake3.Sum256(task.Data)
+				
+				// БЫСТРАЯ ПРОВЕРКА
+				// Verify принимает (msg, sig). Так как мы подписывали хеш, передаем хеш как msg.
+				if voied25519.VerifyExpanded(task.ExpKey, hash[:], task.Signature) {
+					atomic.AddInt64(&validCount, 1)
+				}
+			}
+		}()
+	}
+
+	go func() {
+		for _, b := range allTxs { rawChan <- b }
+		close(rawChan)
+	}()
+
+	wgD.Wait()
+	close(cryptoChan)
+	wgV.Wait()
+
+	dur := time.Since(start)
+	fmt.Printf("Speed:            %10s | %.0f tx/sec\n", dur, float64(count)/dur.Seconds())
+	fmt.Printf("Valid:            %d/%d\n", validCount, count)
+}
+
+func benchmarkBatchCryptoPipelineExp(allTxs [][]byte, users []*User) {
+	if len(allTxs) == 0 { return }
+	count := len(allTxs)
+
+	const BatchSize = 512
+	var (
+		Decoders  = runtime.NumCPU()
+		Verifiers = runtime.NumCPU()
+		BufSize   = 1000
+	)
+	
+	fmt.Printf("\n=== BATCH PIPELINE EXP (Fixed Batch + ExpKey Verify) ===\n")
+	fmt.Printf("Config: Decoders=%d, Verifiers=%d, BatchSize=%d\n", Decoders, Verifiers, BatchSize)
+
+	runtime.GC()
+	rawChan := make(chan []byte, 100000)
+	// Передаем батч задач с ExpKey
+	cryptoChan := make(chan CryptoTaskBatchExp, BufSize)
+	var wgD, wgV sync.WaitGroup
+	var validCount int64
+
+	start := time.Now()
+
+	// STAGE 1: DECODE & GROUP
+	for i := 0; i < Decoders; i++ {
+		wgD.Add(1)
+		go func() {
+			defer wgD.Done()
+			var txx tx.Transaction
+			emptySig := make([]byte, 64)
+			
+			batch := make([]CryptoTaskExp, 0, BatchSize)
+
+			flush := func() {
+				if len(batch) > 0 {
+					toSend := make([]CryptoTaskExp, len(batch))
+					copy(toSend, batch)
+					cryptoChan <- CryptoTaskBatchExp{Items: toSend}
+					batch = batch[:0]
+				}
+			}
+
+			for b := range rawChan {
+				txx.Reset()
+				if proto.Unmarshal(b, &txx) != nil { continue }
+				h := txx.GetHeader()
+				if h == nil { continue }
+				uid := h.SignerUid
+				if uid == 0 || uid > uint64(len(users)) { continue }
+
+				expKey := users[uid-1].expKey
+				sig := h.Signature
+				h.Signature = emptySig
+				data, _ := proto.Marshal(&txx)
+
+				batch = append(batch, CryptoTaskExp{
+					ExpKey:    expKey,
+					Signature: sig,
+					Data:      data,
+				})
+
+				if len(batch) >= BatchSize {
+					flush()
+				}
+			}
+			flush()
+		}()
+	}
+
+	// STAGE 2: VERIFIERS (Loop with ExpKey)
+	for i := 0; i < Verifiers; i++ {
+		wgV.Add(1)
+		go func() {
+			defer wgV.Done()
+			var locValid int64
+			for batch := range cryptoChan {
+				for _, task := range batch.Items {
+					hash := blake3.Sum256(task.Data)
+					// Используем ускоренную проверку
+					if voied25519.VerifyExpanded(task.ExpKey, hash[:], task.Signature) {
+						locValid++
+					}
+				}
+			}
+			atomic.AddInt64(&validCount, locValid)
+		}()
+	}
+
+	go func() {
+		for _, b := range allTxs { rawChan <- b }
+		close(rawChan)
+	}()
+
+	wgD.Wait()
+	close(cryptoChan)
+	wgV.Wait()
+
+	dur := time.Since(start)
+	fmt.Printf("Speed:            %10s | %.0f tx/sec\n", dur, float64(count)/dur.Seconds())
+	fmt.Printf("Valid:            %d/%d\n", validCount, count)
+}
+
+
+func benchmarkMetaTxCryptoPipelineExp(metaBlocks [][]byte, users []*User) {
+	if len(metaBlocks) == 0 { return }
+	
+	testList := &tx.TransactionList{}
+	_ = proto.Unmarshal(metaBlocks[0], testList)
+	txsPerBlock := len(testList.Txs)
+	totalTxs := len(metaBlocks) * txsPerBlock
+
+	var (
+		Decoders  = runtime.NumCPU()
+		Verifiers = runtime.NumCPU()
+		BufSize   = 1000
+	)
+
+	fmt.Printf("\n=== META-TX + EXP KEY PIPELINE ===\n")
+	fmt.Printf("Input: %d blocks (~%d txs total)\n", len(metaBlocks), totalTxs)
+	fmt.Printf("Config: Decoders=%d, Verifiers=%d\n", Decoders, Verifiers)
+
+	runtime.GC()
+	rawChan := make(chan []byte, BufSize)
+	cryptoChan := make(chan MetaBatchTaskExp, BufSize)
+	
+	var wgD, wgV sync.WaitGroup
+	var validCount int64
+
+	start := time.Now()
+
+	// STAGE 1: DECODE & PREPARE
+	for i := 0; i < Decoders; i++ {
+		wgD.Add(1)
+		go func() {
+			defer wgD.Done()
+			txList := &tx.TransactionList{}
+			emptySig := make([]byte, 64)
+
+			for blockData := range rawChan {
+				txList.Reset()
+				if err := proto.Unmarshal(blockData, txList); err != nil { continue }
+
+				count := len(txList.Txs)
+				task := MetaBatchTaskExp{
+					ExpKeys: make([]*voied25519.ExpandedPublicKey, 0, count),
+					Msgs:    make([][]byte, 0, count),
+					Sigs:    make([][]byte, 0, count),
+				}
+
+				for _, txx := range txList.Txs {
+					h := txx.GetHeader()
+					if h == nil { continue }
+					uid := h.SignerUid
+					if uid == 0 || uid > uint64(len(users)) { continue }
+
+					expKey := users[uid-1].expKey
+
+					sig := h.Signature
+					h.Signature = emptySig
+					data, _ := proto.Marshal(txx)
+					txHash := blake3.Sum256(data)
+
+					hashCopy := make([]byte, 32)
+					copy(hashCopy, txHash[:])
+
+					task.ExpKeys = append(task.ExpKeys, expKey)
+					task.Msgs    = append(task.Msgs, hashCopy)
+					task.Sigs    = append(task.Sigs, sig)
+				}
+				cryptoChan <- task
+			}
+		}()
+	}
+
+	// STAGE 2: VERIFY
+	for i := 0; i < Verifiers; i++ {
+		wgV.Add(1)
+		go func() {
+			defer wgV.Done()
+			var locValid int64
+			for task := range cryptoChan {
+				for k := 0; k < len(task.ExpKeys); k++ {
+					// ИСПРАВЛЕНИЕ 4: VerifyExpanded
+					if voied25519.VerifyExpanded(task.ExpKeys[k], task.Msgs[k], task.Sigs[k]) {
+						locValid++
+					}
+				}
+			}
+			atomic.AddInt64(&validCount, locValid)
+		}()
+	}
+
+	go func() {
+		for _, b := range metaBlocks { rawChan <- b }
+		close(rawChan)
+	}()
+
+	wgD.Wait()
+	close(cryptoChan)
+	wgV.Wait()
+
+	dur := time.Since(start)
+	fmt.Printf("Speed:            %10s | %.0f tx/sec\n", dur, float64(totalTxs)/dur.Seconds())
+	fmt.Printf("Valid:            %d/%d\n", validCount, totalTxs)
+	fmt.Printf("=======================================\n")
+}
+
+//=================================================================================================================
+
 
 // benchmarkFullPipeline - ЭТАЛОН (Single Thread)
 func benchmarkFullPipeline(allTxs [][]byte, users []*User) {
@@ -479,7 +882,6 @@ func benchmarkParallelPipeline(allTxs [][]byte, users []*User) {
 	fmt.Println("===========================================")
 }
 
-// 3. SMART BATCHING (NEW)
 // 3. SMART BATCHING (Обновленная: с замерами стадий)
 func benchmarkBatchedPipeline(allTxs [][]byte, users []*User) {
 	if len(allTxs) == 0 { return }
@@ -849,6 +1251,365 @@ func benchmarkFixedBatchPipeline(allTxs [][]byte, users []*User) {
 		durFull, float64(count)/durFull.Seconds(), float64(durFull.Microseconds())/float64(count))
 	fmt.Printf("   Valid: %d/%d\n", validCount, count)
 	fmt.Println("===========================================")
+}
+
+// 5. BATCH CRYPTO VERIFICATION (Исправленная версия с BatchVerifier)
+func benchmarkBatchCryptoPipeline(allTxs [][]byte, users []*User) {
+	if len(allTxs) == 0 { return }
+	count := len(allTxs)
+
+	const (
+		BatchSize = 512 //лучшие результаты 
+		Decoders  = 16
+		Verifiers = 32
+		BufSize   = 1000
+	)
+	
+	fmt.Printf("\n=== BATCH CRYPTO PIPELINE (%d tx) ===\n", count)
+	fmt.Printf("Config: Decoders=%d, Verifiers=%d, BatchVerify=Enabled (Voi BatchVerifier)\n", Decoders, Verifiers)
+
+	// --- STAGE 1: PREPARATION ---
+	runtime.GC()
+	rawChan := make(chan []byte, 100000)
+	cryptoChan := make(chan MixedBatch, BufSize)
+	var wgD, wgV sync.WaitGroup
+	var validCount int64
+
+	start := time.Now()
+
+	// Decoders (Без изменений)
+	for i := 0; i < Decoders; i++ {
+		wgD.Add(1)
+		go func() {
+			defer wgD.Done()
+			var txx tx.Transaction
+			emptySig := make([]byte, 64)
+			
+			batch := make(MixedBatch, 0, BatchSize)
+
+			flush := func() {
+				if len(batch) > 0 {
+					toSend := make(MixedBatch, len(batch))
+					copy(toSend, batch)
+					cryptoChan <- toSend
+					batch = batch[:0]
+				}
+			}
+
+			for b := range rawChan {
+				txx.Reset()
+				if proto.Unmarshal(b, &txx) != nil { continue }
+				h := txx.GetHeader()
+				if h == nil { continue }
+				uid := h.SignerUid
+				if uid == 0 || uid > uint64(len(users)) { continue }
+
+				pub := users[uid-1].pub
+				sig := h.Signature
+				h.Signature = emptySig
+				data, _ := proto.Marshal(&txx)
+
+				batch = append(batch, CryptoTask{
+					PubKey:    pub,
+					Signature: sig,
+					Data:      data,
+				})
+
+				if len(batch) >= BatchSize {
+					flush()
+				}
+			}
+			flush()
+		}()
+	}
+
+	// Verifiers (С ИСПОЛЬЗОВАНИЕМ VOI BatchVerifier)
+	for i := 0; i < Verifiers; i++ {
+		wgV.Add(1)
+		go func() {
+			defer wgV.Done()
+			
+			// 1. Создаем верификатор с запасом емкости
+			verifier := voied25519.NewBatchVerifierWithCapacity(BatchSize)
+			
+			// Опции (можно nil, если стандартные)
+			// opts := &voied25519.VerifyOptions{} 
+
+			for batch := range cryptoChan {
+				// Сбрасываем верификатор перед новым батчем (Reset очищает внутренние буферы)
+				// Внимание: В curve25519-voi нет метода Reset() у BatchVerifier в старых версиях,
+				// но в новых он есть, или проще создавать новый, если аллокации дешевые.
+				// Самый надежный способ в Go для Voi - создавать New на каждый цикл, 
+				// так как он внутри использует sync.Pool или сложные структуры.
+				// Но для макс. скорости попробуем пересоздавать:
+				verifier = voied25519.NewBatchVerifierWithCapacity(len(batch))
+
+				for _, task := range batch {
+					h := blake3.Sum256(task.Data)
+					
+					// Voi.Add копирует данные, поэтому можно передавать слайс хеша
+					// (но лучше скопировать в temp буфер, если blake3 возвращает массив)
+					// blake3 возвращает [32]byte, Add требует []byte
+					
+					verifier.Add(
+						voied25519.PublicKey(task.PubKey), 
+						h[:], 
+						task.Signature,
+					)
+				}
+
+				// 2. ПРОВЕРКА
+				// Verify возвращает (bool, error) или просто bool (зависит от версии, обычно (bool, bool))
+				// Проверяем успех
+				valid, _ := verifier.Verify(nil) // nil = random source (не нужен для проверки)
+				
+				if valid {
+					atomic.AddInt64(&validCount, int64(len(batch)))
+				}
+			}
+		}()
+	}
+
+	go func() {
+		for _, b := range allTxs { rawChan <- b }
+		close(rawChan)
+	}()
+
+	wgD.Wait()
+	close(cryptoChan)
+	wgV.Wait()
+
+	durFull := time.Since(start)
+
+	fmt.Printf("2. BATCH CRYPTO:        %10s | %.0f ops/sec | %.2f µs/op\n",
+		durFull, float64(count)/durFull.Seconds(), float64(durFull.Microseconds())/float64(count))
+	fmt.Printf("   Valid: %d/%d\n", validCount, count)
+	fmt.Println("===========================================")
+}
+
+// ----------------------------------------------------------------
+// БЕНЧМАРК META-TX (PROTOBUF BATCHING)
+// ----------------------------------------------------------------
+func benchmarkMetaTxDecoding(metaBlocks [][]byte) {
+    if len(metaBlocks) == 0 { return }
+    
+    // Считаем общее число транзакций внутри блоков для корректного расчета TPS
+    totalTxs := 0
+    // Пробный декодинг одного блока, чтобы узнать размер
+    testList := &tx.TransactionList{}
+    _ = proto.Unmarshal(metaBlocks[0], testList)
+    itemsPerBlock := len(testList.Txs)
+    totalTxs = len(metaBlocks) * itemsPerBlock // Приблизительно, если хвост был неполный
+
+    fmt.Printf("\n=== META-TX DECODING BENCHMARK ===\n")
+    fmt.Printf("Input: %d blocks (approx %d txs total)\n", len(metaBlocks), totalTxs)
+    fmt.Printf("Block Size: ~%.2f KB\n", float64(len(metaBlocks[0]))/1024.0)
+
+    const Decoders = 8
+    
+    runtime.GC()
+    
+    // Канал с блоками
+    blockChan := make(chan []byte, 1000)
+    var wg sync.WaitGroup
+    var decodedCount int64
+
+    start := time.Now()
+
+    for i := 0; i < Decoders; i++ {
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            // Реиспользуем структуру списка, чтобы не аллоцировать память каждый раз
+            txList := &tx.TransactionList{}
+            
+            var localCount int64
+            
+            for blockData := range blockChan {
+                txList.Reset() // Сброс буфера Protobuf (Zero Allocation)
+                
+                if err := proto.Unmarshal(blockData, txList); err != nil {
+                    continue
+                }
+                
+                // Проходимся по списку, чтобы эмулировать доступ к данным 
+                // (иначе компилятор может слишком сильно оптимизировать)
+                for _, t := range txList.Txs {
+                    if t.GetHeader() != nil {
+                        localCount++
+                    }
+                }
+            }
+            atomic.AddInt64(&decodedCount, localCount)
+        }()
+    }
+
+    // Feeder
+    go func() {
+        for _, b := range metaBlocks {
+            blockChan <- b
+        }
+        close(blockChan)
+    }()
+
+    wg.Wait()
+
+    dur := time.Since(start)
+
+    fmt.Printf("Time:             %v\n", dur)
+    fmt.Printf("Throughput (TXs): %.0f tx/sec\n", float64(decodedCount)/dur.Seconds())
+    fmt.Printf("Throughput (Blk): %.0f blocks/sec\n", float64(len(metaBlocks))/dur.Seconds())
+    fmt.Printf("Decoded Total:    %d\n", decodedCount)
+    fmt.Printf("==================================\n")
+}
+
+// 7. META-TX + BATCH CRYPTO (ULTIMATE BENCHMARK)
+func benchmarkMetaTxCryptoPipeline(metaBlocks [][]byte, users []*User) {
+	if len(metaBlocks) == 0 { return }
+	
+	// Вычисляем общее кол-во транзакций для статистики
+	// (считаем по первому блоку)
+	testList := &tx.TransactionList{}
+	_ = proto.Unmarshal(metaBlocks[0], testList)
+	txsPerBlock := len(testList.Txs)
+	totalTxs := len(metaBlocks) * txsPerBlock
+
+	const (
+		//Decoders    = 16		
+		ChannelBuf  = 1000
+	)
+	
+	var Decoders    = runtime.NumCPU()
+	var Verifiers   = runtime.NumCPU()	//e.g 48 for our Xeon
+
+	fmt.Printf("\n=== META-TX + BATCH CRYPTO PIPELINE ===\n")
+	fmt.Printf("Input: %d blocks (~%d txs total)\n", len(metaBlocks), totalTxs)
+	fmt.Printf("Batch Size: %d (Defined by Proto)\n", txsPerBlock)
+	fmt.Printf("Config: Decoders=%d, Verifiers=%d\n", Decoders, Verifiers)
+
+	runtime.GC()
+	
+	// Канал входящих блоков (Meta-Tx bytes)
+	rawChan := make(chan []byte, ChannelBuf)
+	
+	// Канал готовых пачек для проверки
+	// Обратите внимание: мы передаем НЕ транзакции, а готовые крипто-примитивы
+	cryptoChan := make(chan MetaBatchTask, ChannelBuf)
+	
+	var wgDecoders sync.WaitGroup
+	var wgVerifiers sync.WaitGroup
+	var validCount int64
+
+	start := time.Now()
+
+	// --- STAGE 1: DECODE & PREPARE ---
+	for i := 0; i < Decoders; i++ {
+		wgDecoders.Add(1)
+		go func() {
+			defer wgDecoders.Done()
+			
+			// Реиспользуем структуру списка
+			txList := &tx.TransactionList{}
+			emptySig := make([]byte, 64)
+
+			for blockData := range rawChan {
+				txList.Reset()
+				if err := proto.Unmarshal(blockData, txList); err != nil {
+					continue
+				}
+
+				// Подготавливаем структуру для верификатора
+				// Аллоцируем слайсы под размер батча
+				count := len(txList.Txs)
+				task := MetaBatchTask{
+					PubKeys: make([]voied25519.PublicKey, 0, count),
+					Msgs:    make([][]byte, 0, count),
+					Sigs:    make([][]byte, 0, count),
+				}
+
+				for _, txx := range txList.Txs {
+					h := txx.GetHeader()
+					if h == nil { continue }
+					uid := h.SignerUid
+					if uid == 0 || uid > uint64(len(users)) { continue }
+
+					// 1. Получаем ключ (Эмуляция State Lookup)
+					// Кастуем в voied25519
+					pub := voied25519.PublicKey(users[uid-1].pub)
+
+					// 2. Подготовка хеша
+					sig := h.Signature
+					h.Signature = emptySig // Обнуляем для хеширования
+					data, _ := proto.Marshal(txx) // Маршалим одну TX
+					txHash := blake3.Sum256(data)
+
+					// Копируем хеш (важно, т.к. blake3 возвращает массив, а нам нужен слайс)
+					hashCopy := make([]byte, 32)
+					copy(hashCopy, txHash[:])
+
+					// 3. Добавляем в задачу
+					task.PubKeys = append(task.PubKeys, pub)
+					task.Msgs    = append(task.Msgs, hashCopy)
+					task.Sigs    = append(task.Sigs, sig)
+				}
+
+				// Отправляем готовую пачку верификатору
+				if len(task.PubKeys) > 0 {
+					cryptoChan <- task
+				}
+			}
+		}()
+	}
+
+	// --- STAGE 2: BATCH VERIFY ---
+	for i := 0; i < Verifiers; i++ {
+		wgVerifiers.Add(1)
+		go func() {
+			defer wgVerifiers.Done()
+			
+			// Создаем верификатор с запасом (под размер батча)
+			// txsPerBlock - это ожидаемый размер, но берем с запасом
+			verifier := voied25519.NewBatchVerifierWithCapacity(txsPerBlock)
+
+			for task := range cryptoChan {
+				// Пересоздаем (или Reset, если версия либы позволяет)
+				// NewBatchVerifierWithCapacity - дешевая операция (структура + слайсы)
+				verifier = voied25519.NewBatchVerifierWithCapacity(len(task.PubKeys))
+
+				for k := 0; k < len(task.PubKeys); k++ {
+					verifier.Add(task.PubKeys[k], task.Msgs[k], task.Sigs[k])
+				}
+
+				// ПРОВЕРКА ВСЕГО БЛОКА ОДНИМ МАХОМ
+				valid, _ := verifier.Verify(nil)
+				
+				if valid {
+					atomic.AddInt64(&validCount, int64(len(task.PubKeys)))
+				} else {
+					// Fallback logic here if needed
+				}
+			}
+		}()
+	}
+
+	// Feeder
+	go func() {
+		for _, b := range metaBlocks {
+			rawChan <- b
+		}
+		close(rawChan)
+	}()
+
+	wgDecoders.Wait()
+	close(cryptoChan)
+	wgVerifiers.Wait()
+
+	dur := time.Since(start)
+
+	fmt.Printf("Time:             %v\n", dur)
+	fmt.Printf("Throughput:       %.0f tx/sec\n", float64(totalTxs)/dur.Seconds())
+	fmt.Printf("Valid:            %d/%d\n", validCount, totalTxs)
+	fmt.Printf("=======================================\n")
 }
 
 // ──────────────────────────────────────────────────────────────
