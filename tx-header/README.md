@@ -1,3 +1,50 @@
+###
+## TODO: use optimized planetscale/vtprotobuf
+## TODO: use Buf
+
+
+Генерация оптимизированного прото:
+
+- default (google): protoc --go_out=. tx.proto
+
+Тестировани распаковки:
+
+2026/01/17 15:13:49 Всего обработано: 53205 шт.
+2026/01/17 15:13:49 Общее время:      47.137472ms
+2026/01/17 15:13:49 Среднее время:    886.0 ns/tx (наносекунд)
+2026/01/17 15:13:49 Скорость:         1128720 tx/sec
+2026/01/17 15:13:49 CheckSum:         3358310
+
+
+# Тест разный пайплайнов с проверками
+
+
+=== BASELINE: SINGLE-CORE PIPELINE (53205 tx) ===
+Скорость:         1.834746443s | 28999 tx/sec
+Latnecy (avg):    34.48 µs/tx
+Valid:            53205/53205
+
+=== MULTI-CORE PIPELINE (53205 tx) ===
+Config: Decoders=8, Verifiers=16
+Скорость:         226.92434ms | 234461 tx/sec
+Valid:            53205/53205
+
+=== SMART BATCHING PIPELINE (53205 tx) ===
+Config: Decoders=8, Verifiers=16, Strategy=By User (Burst)
+1. Prep (Decode+Group): 33.751621ms | 1576369 ops/sec | 0.63 µs/op
+2. FULL PIPELINE:       232.043404ms | 229289 ops/sec | 4.36 µs/op
+   Valid: 53205/53205
+
+=== FIXED BATCHING PIPELINE (53205 tx) ===
+Config: Decoders=8, Verifiers=32, BatchSize=100
+1. Prep (Decode+Group): 19.455599ms | 2734688 ops/sec | 0.37 µs/op
+2. FULL PIPELINE:       223.059888ms | 238523 ops/sec | 4.19 µs/op
+   Valid: 53205/53205
+===========================================
+
+
+#############################################################################
+
 ### ReOptimize v5 (chain type and version divided by two separate field)
 
 Генерация завершена:

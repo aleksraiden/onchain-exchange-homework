@@ -834,7 +834,7 @@ type TransactionHeader struct {
 	MaxHeight uint64 `protobuf:"varint,11,opt,name=max_height,json=maxHeight,proto3" json:"max_height,omitempty"`
 	// signature is the ed25519 signature.
 	// Опционально (для батча), но так как это bytes нет нужды указывать optional
-	Signature     []byte `protobuf:"bytes,12,opt,name=signature,proto3" json:"signature,omitempty"` // Fixed 64 bytes
+	Signature     []byte `protobuf:"bytes,12,opt,name=signature,proto3" json:"signature,omitempty"` //[(vtproto.ext).allow_alias = true] // Fixed 64 bytes
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1270,7 +1270,7 @@ func (*Transaction_OrderAmend) isTransaction_Payload() {}
 // Это ползволит комбинировать любые тразакции из поддерживаемых системой (кроме вложенных батчей, конечно!)
 type BatchTransaction struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Header        *TransactionHeader     `protobuf:"bytes,1,opt,name=header,proto3" json:"header,omitempty"`   // Полный заголовок (id=1 для совместимости)
+	Header        *TransactionHeader     `protobuf:"bytes,1,opt,name=header,proto3" json:"header,omitempty"`   // Полный заголовок
 	Payload       []*Transaction         `protobuf:"bytes,2,rep,name=payload,proto3" json:"payload,omitempty"` //Содержит любое количесто сообщений с обычными транзакциями (но с упрощенными заголовками!)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1413,7 +1413,7 @@ func (x *MetaReservePayload) GetPayload() []byte {
 // OrderID - 16 байт, UUIDv7
 type OrderID struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            []byte                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"` // Фиксированные 16 байт.
+	Id            []byte                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"` //[(vtproto.ext).allow_alias = true]  // Фиксированные 16 байт.
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1694,7 +1694,7 @@ func (x *AmendItem) GetTakePrice() uint64 {
 // TODO: MetaBlobPayload
 type MetaBlobPayload struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Payload       []byte                 `protobuf:"bytes,1,opt,name=payload,proto3" json:"payload,omitempty"` // 1 байт, default пустой
+	Payload       []byte                 `protobuf:"bytes,1,opt,name=payload,proto3" json:"payload,omitempty"` // [(vtproto.ext).allow_alias = true];
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
