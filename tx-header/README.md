@@ -17,8 +17,42 @@
 
 
 # Тест разный пайплайнов с проверками
+# Итого лучшее время декодера + верификации подписей ~ 65 мс. (725 - 900K tx/sec)
+
+=== META-TX + BATCH CRYPTO PIPELINE ===
+Input: 104 blocks (~53248 txs total)
+Batch Size: 512 (Defined by Proto)
+Config: Decoders=48, Verifiers=48
+Time:             65.445495ms
+Throughput:       813624 tx/sec
+Valid:            53205/53248
+
+Для пропосера (одиночные проверки чаще + иногда батчинг) - использовать ExtendedPubkey (496k против 290k)
+Для валидаторов - batchVerify быстрее 
+
+В итоге у нас ~500K будет на входе и 815К при проверках на валидаторах.
 
 
+=== PARALLEL PIPELINE EXP (Expanded Keys) (53205 tx) ===
+Config: Decoders=48, Verifiers=48
+Speed:            107.174829ms | 496432 tx/sec
+Valid:            53205/53205
+
+=== BATCH PIPELINE EXP (Fixed Batch + ExpKey Verify) ===
+Config: Decoders=48, Verifiers=48, BatchSize=512
+Speed:            132.524134ms | 401474 tx/sec
+Valid:            53205/53205
+
+=== META-TX + EXP KEY PIPELINE ===
+Input: 104 blocks (~53248 txs total)
+Config: Decoders=48, Verifiers=48
+Speed:            112.62818ms | 472777 tx/sec
+Valid:            53205/53248
+
+
+
+
+#i5
 === BASELINE: SINGLE-CORE PIPELINE (53205 tx) ===
 Скорость:         1.834746443s | 28999 tx/sec
 Latnecy (avg):    34.48 µs/tx
@@ -41,6 +75,78 @@ Config: Decoders=8, Verifiers=32, BatchSize=100
 2. FULL PIPELINE:       223.059888ms | 238523 ops/sec | 4.19 µs/op
    Valid: 53205/53205
 ===========================================
+
+# Intel Xeon Gold (AVX512)
+
+=== BASELINE: SINGLE-CORE PIPELINE (53205 tx) ===
+Скорость:         3.892913183s | 13667 tx/sec
+Latnecy (avg):    73.17 µs/tx
+Valid:            53205/53205
+
+=== MULTI-CORE PIPELINE (53205 tx) ===
+Config: Decoders=8, Verifiers=16
+Скорость:         250.513003ms | 212384 tx/sec
+Valid:            53205/53205
+
+=== SMART BATCHING PIPELINE (53205 tx) ===
+Config: Decoders=8, Verifiers=16, Strategy=By User (Burst)
+1. Prep (Decode+Group): 58.070435ms | 916215 ops/sec | 1.09 µs/op
+2. FULL PIPELINE:       264.154403ms | 201416 ops/sec | 4.96 µs/op
+   Valid: 53205/53205
+
+=== FIXED BATCHING PIPELINE (53205 tx) ===
+Config: Decoders=8, Verifiers=32, BatchSize=100
+1. Prep (Decode+Group): 34.289654ms | 1551634 ops/sec | 0.64 µs/op
+2. FULL PIPELINE:       163.883331ms | 324652 ops/sec | 3.08 µs/op
+   Valid: 53205/53205
+===========================================
+
+Оптимизация  (мета-лит батчинг по 512 и столько же на верифаере, 32 потока, Xeon):
+
+=== BASELINE: SINGLE-CORE PIPELINE (53205 tx) ===
+Скорость:         3.553928876s | 14971 tx/sec
+Latnecy (avg):    66.80 µs/tx
+Valid:            53205/53205
+
+=== MULTI-CORE PIPELINE (53205 tx) ===
+Config: Decoders=8, Verifiers=16
+Скорость:         254.973741ms | 208669 tx/sec
+Valid:            53205/53205
+
+=== SMART BATCHING PIPELINE (53205 tx) ===
+Config: Decoders=8, Verifiers=16, Strategy=By User (Burst)
+1. Prep (Decode+Group): 60.428028ms | 880469 ops/sec | 1.14 µs/op
+2. FULL PIPELINE:       267.605486ms | 198819 ops/sec | 5.03 µs/op
+   Valid: 53205/53205
+
+=== FIXED BATCHING PIPELINE (53205 tx) ===
+Config: Decoders=8, Verifiers=32, BatchSize=100
+1. Prep (Decode+Group): 35.190992ms | 1511893 ops/sec | 0.66 µs/op
+2. FULL PIPELINE:       178.600343ms | 297900 ops/sec | 3.36 µs/op
+   Valid: 53205/53205
+
+=== BATCH CRYPTO PIPELINE (53205 tx) ===
+Config: Decoders=16, Verifiers=32, BatchVerify=Enabled (Voi BatchVerifier)
+2. BATCH CRYPTO:        75.274472ms | 706813 ops/sec | 1.41 µs/op
+   Valid: 53205/53205
+===========================================
+
+=== META-TX DECODING BENCHMARK ===
+Input: 104 blocks (approx 53248 txs total)
+Block Size: ~72.47 KB
+Time:             15.814905ms
+Throughput (TXs): 3364231 tx/sec
+Throughput (Blk): 6576 blocks/sec
+Decoded Total:    53205
+
+=== META-TX + BATCH CRYPTO PIPELINE ===
+Input: 104 blocks (~53248 txs total)
+Batch Size: 512 (Defined by Proto)
+Config: Decoders=16, Verifiers=32
+Time:             77.207313ms
+Throughput:       689676 tx/sec
+Valid:            53205/53248
+=======================================
 
 
 #############################################################################
