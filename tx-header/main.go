@@ -42,6 +42,139 @@ type User struct {
 	nonce uint64
 }
 
+// ----------------------------------------------------------------
+// UUIDv7 VALIDATOR & SHARDED CACHE
+// ----------------------------------------------------------------
+
+// Константы 
+const (
+	CacheShards = 256 // 256 шардов (по байту), степень двойки
+	
+	// Допустимое отклонение времени в миллисекундах (например, +/- 30 секунд)
+	// Для теста ставим побольше, так как мы генерируем данные заранее.
+	// В проде здесь будет 1000-5000 мс.
+	MaxTimeDeviationMS = 60000 
+)
+
+// ShardedCache - потокобезопасный кеш для проверки уникальности
+type ShardedCache struct {
+	shards [CacheShards]*cacheShard
+}
+
+type cacheShard struct {
+	sync.RWMutex
+	// Используем массив [16]byte как ключ (Go умеет это делать без аллокаций в map)
+	items map[[16]byte]struct{}
+}
+
+// FastTimeKeeper - позволяет читать время без syscall в горячем цикле
+var globalTime atomic.Int64
+
+// Запускаем это в main() один раз
+func startFastTimeKeeper() {
+	// Инициализация
+	globalTime.Store(time.Now().UnixMilli())
+	
+	go func() {
+		ticker := time.NewTicker(10 * time.Millisecond) // Обновляем раз в 10мс (достаточно для UUIDv7)
+		defer ticker.Stop()
+		for t := range ticker.C {
+			globalTime.Store(t.UnixMilli())
+		}
+	}()
+}
+
+func NewShardedCache(prefillCount int) *ShardedCache {
+	sc := &ShardedCache{}
+	for i := 0; i < CacheShards; i++ {
+		sc.shards[i] = &cacheShard{
+			items: make(map[[16]byte]struct{}),
+		}
+	}
+
+	// Предзаполнение случайными UUIDv7
+	if prefillCount > 0 {
+		fmt.Printf("Предзаполнение кеша (%d UUIDs)...\n", prefillCount)
+		for i := 0; i < prefillCount; i++ {
+			u, _ := uuid.NewV7()
+			// Имитируем добавление
+			sc.Seen(u[:])
+		}
+	}
+	return sc
+}
+
+// Seen проверяет наличие и добавляет, если нет.
+// Возвращает true, если элемент УЖЕ БЫЛ (дубликат).
+func (sc *ShardedCache) Seen(id []byte) bool {
+	if len(id) != 16 {
+		return false // Некорректная длина - не считаем дублем (валидатор отловит)
+	}
+
+	// ВАЖНО: UUIDv7 упорядочен по времени (начало).
+	// Чтобы размазать нагрузку по шардам, берем ПОСЛЕДНИЙ байт (там рандом).
+	shardIdx := id[15] 
+	shard := sc.shards[shardIdx]
+
+	// Преобразуем слайс в массив для ключа мапы
+	var key [16]byte
+	copy(key[:], id)
+
+	// 1. Быстрая проверка (Read Lock)
+	shard.RLock()
+	_, exists := shard.items[key]
+	shard.RUnlock()
+	if exists {
+		return true
+	}
+
+	// 2. Запись (Write Lock)
+	shard.Lock()
+	// Double check внутри блокировки
+	if _, exists := shard.items[key]; exists {
+		shard.Unlock()
+		return true
+	}
+	shard.items[key] = struct{}{}
+	shard.Unlock()
+	return false
+}
+
+// IsValidUUIDv7 проверяет формат И время
+func IsValidUUIDv7(id []byte) bool {
+	if len(id) != 16 {
+		return false
+	}
+
+	// 1. Проверка версии (7) и варианта (2) - битовые маски
+	// octet 6: 0111xxxx -> high nibble == 7
+	if (id[6] >> 4) != 7 {
+		return false
+	}
+	// octet 8: 10xxxxxx -> high 2 bits == 2 (binary 10)
+	if (id[8] >> 6) != 2 {
+		return false
+	}
+
+	// 2. ИЗВЛЕЧЕНИЕ ВРЕМЕНИ (Big Endian 48 bit)
+	// UUIDv7: 0-5 байты = Unix Timestamp (ms)
+	ts := uint64(id[0])<<40 | uint64(id[1])<<32 | uint64(id[2])<<24 |
+		uint64(id[3])<<16 | uint64(id[4])<<8 | uint64(id[5])
+
+	// 3. ПРОВЕРКА ВРЕМЕНИ (Zero allocation, atomic read)
+	now := uint64(globalTime.Load())
+	
+	// Вычисляем дельту (избегаем переполнения uint)
+	var diff uint64
+	if ts > now {
+		diff = ts - now // Время из будущего
+	} else {
+		diff = now - ts // Время из прошлого
+	}
+
+	return diff <= MaxTimeDeviationMS
+}
+
 func main() {
 	var zstdDict []byte
 	if data, err := os.ReadFile("./dictionary_v7.zstd"); err == nil {
@@ -52,6 +185,8 @@ func main() {
 	}
 
 	mrand.Seed(time.Now().UnixNano())
+	
+	startFastTimeKeeper()
 
 	// OpCodes:
 	txCounts := map[tx.OpCode]int{
@@ -378,6 +513,9 @@ func main() {
 	benchmarkLockFreePipeline(allTxBytes, users)
 	
 	benchmarkLockFreePipelineExp(allTxBytes, users)
+	
+	//Проверка UUId-ов
+	benchmarkLogicPipeline(allTxBytes, users)
 }
 
 // CryptoTask - структура, передаваемая от Decoder-воркеров к Verifier-воркерам
@@ -1634,7 +1772,7 @@ func benchmarkLockFreePipeline(allTxs [][]byte, users []*User) {
 		Decoders  = runtime.NumCPU()
 		Verifiers = runtime.NumCPU()
 		// RingBuffer должен быть степенью двойки
-		RbSize    = 32768
+		RbSize    = 32768 * 2
 	)
 
 	fmt.Printf("\n=== LOCKFREE PARALLEL PIPELINE (%d tx) ===\n", count)
@@ -1756,7 +1894,7 @@ func benchmarkLockFreePipelineExp(allTxs [][]byte, users []*User) {
 	var (
 		Decoders  = runtime.NumCPU()
 		Verifiers = runtime.NumCPU()
-		RbSize    = 32768
+		RbSize    = 32768 * 2 
 	)
 
 	fmt.Printf("\n=== LOCKFREE PARALLEL PIPELINE EXP (Expanded Keys) (%d tx) ===\n", count)
@@ -1855,6 +1993,139 @@ func benchmarkLockFreePipelineExp(allTxs [][]byte, users []*User) {
 	dur := time.Since(start)
 	fmt.Printf("Speed:            %10s | %.0f tx/sec\n", dur, float64(count)/dur.Seconds())
 	fmt.Printf("Valid:            %d/%d\n", validCount, count)
+}
+
+
+func benchmarkLogicPipeline(allTxs [][]byte, users []*User) {
+	if len(allTxs) == 0 { return }
+	count := len(allTxs)
+
+	var (
+		Decoders  = runtime.NumCPU()
+		Verifiers = runtime.NumCPU()
+		BufSize   = 10000
+	)
+
+	// Запускаем "быстрое время"
+	//startFastTimeKeeper()
+	
+	// Кеш для дедупликации
+	orderCache := NewShardedCache(100_000)
+
+	fmt.Printf("\n=== LOGIC PIPELINE (Sig + UUIDv7 TimeCheck + Dedup) ===\n", count)
+	fmt.Printf("Config: Decoders=%d, Verifiers=%d. Deviation=%dms\n", Decoders, Verifiers, MaxTimeDeviationMS)
+
+	runtime.GC()
+	
+	rawChan := make(chan []byte, BufSize)
+	cryptoChan := make(chan CryptoTaskExp, BufSize)
+	
+	var wgD, wgV sync.WaitGroup
+	var validCount int64
+	var logicErrors int64
+
+	start := time.Now()
+
+	// STAGE 1: DECODE -> VALIDATE -> DEDUP
+	for i := 0; i < Decoders; i++ {
+		wgD.Add(1)
+		go func() {
+			defer wgD.Done()
+			var txx tx.Transaction
+			emptySig := make([]byte, 64)
+
+			for b := range rawChan {
+				txx.Reset()
+				if proto.Unmarshal(b, &txx) != nil { continue }
+				h := txx.GetHeader()
+				if h == nil { continue }
+				
+				// --- ВАЛИДАЦИЯ ---
+				var oid []byte
+				
+				switch p := txx.Payload.(type) {
+				case *tx.Transaction_OrderCreate:
+					if len(p.OrderCreate.Orders) > 0 {
+						oid = p.OrderCreate.Orders[0].OrderId.Id
+					}
+				case *tx.Transaction_OrderCancel:
+					if len(p.OrderCancel.OrderId) > 0 {
+						oid = p.OrderCancel.OrderId[0].Id
+					}
+				}
+
+				if len(oid) > 0 {
+					// ВАЖНО ДЛЯ ТЕСТА: 
+					// Так как мы сгенерировали транзакции давно, их UUIDv7 устарели.
+					// Валидатор времени их отвергнет.
+					// Чтобы тест показал ПРОПУСКНУЮ СПОСОБНОСТЬ (а не просто reject),
+					// мы здесь "хакнем" первый байт времени, чтобы он казался свежим,
+					// ИЛИ просто позволим ему отвергнуть (если хотим замерить скорость reject-а).
+					
+					// Для честности теста math operations - мы выполняем IsValidUUIDv7.
+					// Если вернет false (по времени) - это ок, главное, что CPU потрачен на проверку.
+					
+					if !IsValidUUIDv7(oid) {
+						atomic.AddInt64(&logicErrors, 1)
+						// В реальности тут continue, но для теста криптографии
+						// мы можем пропустить дальше, если хотим нагрузить верификаторы.
+						// Но правильнее - отвергнуть.
+						continue 
+					}
+
+					// Проверка на дубликаты
+					if orderCache.Seen(oid) {
+						atomic.AddInt64(&logicErrors, 1)
+						continue
+					}
+				}
+				// ----------------
+
+				uid := h.SignerUid
+				if uid == 0 || uid > uint64(len(users)) { continue }
+
+				expKey := users[uid-1].expKey
+				sig := h.Signature
+				h.Signature = emptySig
+				data, _ := proto.Marshal(&txx)
+
+				cryptoChan <- CryptoTaskExp{
+					ExpKey:    expKey,
+					Signature: sig,
+					Data:      data,
+				}
+			}
+		}()
+	}
+
+	// STAGE 2: VERIFIERS
+	for i := 0; i < Verifiers; i++ {
+		wgV.Add(1)
+		go func() {
+			defer wgV.Done()
+			for task := range cryptoChan {
+				hash := blake3.Sum256(task.Data)
+				if voied25519.VerifyExpanded(task.ExpKey, hash[:], task.Signature) {
+					atomic.AddInt64(&validCount, 1)
+				}
+			}
+		}()
+	}
+
+	go func() {
+		for _, b := range allTxs { rawChan <- b }
+		close(rawChan)
+	}()
+
+	wgD.Wait()
+	close(cryptoChan)
+	wgV.Wait()
+
+	dur := time.Since(start)
+	
+	fmt.Printf("Speed:            %10s | %.0f tx/sec\n", dur, float64(count)/dur.Seconds())
+	fmt.Printf("Valid:            %d\n", validCount)
+	fmt.Printf("Logic Rejects:    %d (Time/Dup/Format)\n", logicErrors)
 }
 
 
