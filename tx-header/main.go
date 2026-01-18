@@ -1634,7 +1634,7 @@ func benchmarkLockFreePipeline(allTxs [][]byte, users []*User) {
 		Decoders  = runtime.NumCPU()
 		Verifiers = runtime.NumCPU()
 		// RingBuffer должен быть степенью двойки
-		RbSize    = 32768 
+		RbSize    = 32768 * 2
 	)
 
 	fmt.Printf("\n=== LOCKFREE PARALLEL PIPELINE (%d tx) ===\n", count)
@@ -1756,7 +1756,7 @@ func benchmarkLockFreePipelineExp(allTxs [][]byte, users []*User) {
 	var (
 		Decoders  = runtime.NumCPU()
 		Verifiers = runtime.NumCPU()
-		RbSize    = 32768 
+		RbSize    = 32768 * 2 
 	)
 
 	fmt.Printf("\n=== LOCKFREE PARALLEL PIPELINE EXP (Expanded Keys) (%d tx) ===\n", count)

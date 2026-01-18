@@ -2,6 +2,21 @@
 ## TODO: use optimized planetscale/vtprotobuf
 ## TODO: use Buf
 
+Using lock-free buffer:
+Xeon: 
+=== LOCKFREE PARALLEL PIPELINE (53205 tx) ===
+Config: Decoders=48, Verifiers=48, RingBuf=32768 (Generics)
+Speed:             154.541ms | 344278 tx/sec
+Valid:            53205/53205
+
+=== LOCKFREE PARALLEL PIPELINE EXP (Expanded Keys) (53205 tx) ===  <== Best 
+Config: Decoders=48, Verifiers=48, RingBuf=32768 (Generics)
+Speed:            97.374857ms | 546394 tx/sec
+Valid:            53205/53205
+
+Тесты показали что оптимальный размер буфера (для Xeon) - RbSize    = 32768
+
+
 
 Генерация оптимизированного прото:
 
@@ -43,6 +58,8 @@ Proposer (Xeon):
 Config: Decoders=48, Verifiers=48
 Speed:            107.211369ms | 496263 tx/sec
 Valid:            53205/53205
+
+
 
 
 
