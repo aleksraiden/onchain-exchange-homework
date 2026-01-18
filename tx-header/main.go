@@ -23,6 +23,8 @@ import (
 	"github.com/zeebo/blake3" // Подключаем BLAKE3
 	"google.golang.org/protobuf/proto"
 	"tx-generator/tx"
+	
+	"github.com/hedzr/go-ringbuf/v2"
 )
 
 // CompressionFunc теперь принимает словарь (или nil)
@@ -371,6 +373,11 @@ func main() {
 
 	// Сравнение ExpKey с MetaTx + BatchVerifier
 	benchmarkMetaTxCryptoPipelineExp(allMetaTxBytes, users)
+	
+	//Тестим Lock-free (ring buffer)
+	benchmarkLockFreePipeline(allTxBytes, users)
+	
+	benchmarkLockFreePipelineExp(allTxBytes, users)
 }
 
 // CryptoTask - структура, передаваемая от Decoder-воркеров к Verifier-воркерам
@@ -1611,6 +1618,245 @@ func benchmarkMetaTxCryptoPipeline(metaBlocks [][]byte, users []*User) {
 	fmt.Printf("Valid:            %d/%d\n", validCount, totalTxs)
 	fmt.Printf("=======================================\n")
 }
+
+// ----------------------------------------------------------------
+// LOCK-FREE BENCHMARKS (hedzr/go-ringbuf v2 with GENERICS)
+// ----------------------------------------------------------------
+
+// Poison Pill - специальный маркер для остановки воркеров
+//var poisonPill = []byte("DIE")
+
+func benchmarkLockFreePipeline(allTxs [][]byte, users []*User) {
+	if len(allTxs) == 0 { return }
+	count := len(allTxs)
+
+	var (
+		Decoders  = runtime.NumCPU()
+		Verifiers = runtime.NumCPU()
+		// RingBuffer должен быть степенью двойки
+		RbSize    = 32768 
+	)
+
+	fmt.Printf("\n=== LOCKFREE PARALLEL PIPELINE (%d tx) ===\n", count)
+	fmt.Printf("Config: Decoders=%d, Verifiers=%d, RingBuf=%d (Generics)\n", Decoders, Verifiers, RbSize)
+
+	runtime.GC()
+	
+	// 1. Создаем СТРОГО ТИПИЗИРОВАННЫЙ Ring Buffer
+	// Больше нет interface{}! Это прямой доступ к памяти.
+	// CryptoTask - это структура, она будет копироваться (дешево, т.к. внутри слайсы)
+	rb := ringbuf.New[CryptoTask](uint32(RbSize))
+
+	rawChan := make(chan []byte, 10000)
+	
+	var wgD, wgV sync.WaitGroup
+	var validCount int64
+
+	start := time.Now()
+
+	// STAGE 1: DECODERS -> RING BUFFER
+	for i := 0; i < Decoders; i++ {
+		wgD.Add(1)
+		go func() {
+			defer wgD.Done()
+			var txx tx.Transaction
+			emptySig := make([]byte, 64)
+
+			for b := range rawChan {
+				txx.Reset()
+				if proto.Unmarshal(b, &txx) != nil { continue }
+				h := txx.GetHeader()
+				if h == nil { continue }
+				uid := h.SignerUid
+				if uid == 0 || uid > uint64(len(users)) { continue }
+
+				pubKey := users[uid-1].pub
+				sig := h.Signature
+				h.Signature = emptySig
+				data, _ := proto.Marshal(&txx)
+
+				// ENQUEUE (Typed)
+				task := CryptoTask{
+					PubKey:    pubKey,
+					Signature: sig,
+					Data:      data,
+				}
+				
+				// Крутимся в цикле (Spin-lock), пока не вставим
+				for {
+					if err := rb.Enqueue(task); err == nil {
+						break
+					}
+					runtime.Gosched()
+				}
+			}
+		}()
+	}
+
+	// STAGE 2: VERIFIERS <- RING BUFFER
+	for i := 0; i < Verifiers; i++ {
+		wgV.Add(1)
+		go func() {
+			defer wgV.Done()
+			
+			for {
+				// DEQUEUE (Typed)
+				task, err := rb.Dequeue()
+				if err != nil {
+					// Любая ошибка здесь означает, что очередь пуста.
+					// Просто уступаем процессор и пробуем снова.
+					runtime.Gosched()
+					continue
+				}
+
+				// Poison Pill Logic (проверка на пустые данные)
+				if len(task.Signature) == 0 && len(task.Data) == 0 {
+					return 
+				}
+
+				// Обычная проверка
+				hash := blake3.Sum256(task.Data)
+				if ed25519.Verify(task.PubKey, hash[:], task.Signature) {
+					atomic.AddInt64(&validCount, 1)
+				}
+			}
+		}()
+	}
+
+	// FEEDER
+	go func() {
+		for _, b := range allTxs { rawChan <- b }
+		close(rawChan)
+	}()
+
+	wgD.Wait()
+
+	// Отправляем Poison Pills (Пустые структуры)
+	for i := 0; i < Verifiers; i++ {
+		poison := CryptoTask{} // Пустая задача как сигнал стоп
+		for {
+			if err := rb.Enqueue(poison); err == nil {
+				break
+			}
+			runtime.Gosched()
+		}
+	}
+
+	wgV.Wait()
+
+	dur := time.Since(start)
+	fmt.Printf("Speed:            %10s | %.0f tx/sec\n", dur, float64(count)/dur.Seconds())
+	fmt.Printf("Valid:            %d/%d\n", validCount, count)
+}
+
+func benchmarkLockFreePipelineExp(allTxs [][]byte, users []*User) {
+	if len(allTxs) == 0 { return }
+	count := len(allTxs)
+
+	var (
+		Decoders  = runtime.NumCPU()
+		Verifiers = runtime.NumCPU()
+		RbSize    = 32768 
+	)
+
+	fmt.Printf("\n=== LOCKFREE PARALLEL PIPELINE EXP (Expanded Keys) (%d tx) ===\n", count)
+	fmt.Printf("Config: Decoders=%d, Verifiers=%d, RingBuf=%d (Generics)\n", Decoders, Verifiers, RbSize)
+
+	runtime.GC()
+	// ТИПИЗИРОВАННЫЙ БУФЕР [CryptoTaskExp]
+	rb := ringbuf.New[CryptoTaskExp](uint32(RbSize))
+	
+	rawChan := make(chan []byte, 10000)
+	
+	var wgD, wgV sync.WaitGroup
+	var validCount int64
+
+	start := time.Now()
+
+	// STAGE 1: DECODERS
+	for i := 0; i < Decoders; i++ {
+		wgD.Add(1)
+		go func() {
+			defer wgD.Done()
+			var txx tx.Transaction
+			emptySig := make([]byte, 64)
+
+			for b := range rawChan {
+				txx.Reset()
+				if proto.Unmarshal(b, &txx) != nil { continue }
+				h := txx.GetHeader()
+				if h == nil { continue }
+				uid := h.SignerUid
+				if uid == 0 || uid > uint64(len(users)) { continue }
+
+				// Используем Expanded Key
+				expKey := users[uid-1].expKey
+				sig := h.Signature
+				h.Signature = emptySig
+				data, _ := proto.Marshal(&txx)
+
+				task := CryptoTaskExp{
+					ExpKey:    expKey,
+					Signature: sig,
+					Data:      data,
+				}
+				
+				for {
+					if err := rb.Enqueue(task); err == nil { break }
+					runtime.Gosched()
+				}
+			}
+		}()
+	}
+
+	// STAGE 2: VERIFIERS
+	for i := 0; i < Verifiers; i++ {
+		wgV.Add(1)
+		go func() {
+			defer wgV.Done()
+			for {
+				task, err := rb.Dequeue()
+				if err != nil {
+					// Если ошибка - очередь пуста, крутимся дальше
+					runtime.Gosched()
+					continue
+				}
+
+				// Poison Pill Check
+				if task.ExpKey == nil { return }
+
+				hash := blake3.Sum256(task.Data)
+				
+				// Verify Expanded
+				if voied25519.VerifyExpanded(task.ExpKey, hash[:], task.Signature) {
+					atomic.AddInt64(&validCount, 1)
+				}
+			}
+		}()
+	}
+
+	go func() {
+		for _, b := range allTxs { rawChan <- b }
+		close(rawChan)
+	}()
+
+	wgD.Wait()
+	
+	// Stop consumers
+	for i := 0; i < Verifiers; i++ {
+		poison := CryptoTaskExp{ExpKey: nil} // Nil ExpKey as poison
+		for {
+			if err := rb.Enqueue(poison); err == nil { break }
+			runtime.Gosched()
+		}
+	}
+	wgV.Wait()
+
+	dur := time.Since(start)
+	fmt.Printf("Speed:            %10s | %.0f tx/sec\n", dur, float64(count)/dur.Seconds())
+	fmt.Printf("Valid:            %d/%d\n", validCount, count)
+}
+
 
 // ──────────────────────────────────────────────────────────────
 // Helpers

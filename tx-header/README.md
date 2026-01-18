@@ -32,6 +32,46 @@ Valid:            53205/53248
 
 В итоге у нас ~500K будет на входе и 815К при проверках на валидаторах.
 
+Proposer (i5):
+=== PARALLEL PIPELINE EXP (Expanded Keys) (53205 tx) ===
+Config: Decoders=20, Verifiers=20
+Speed:            159.787141ms | 332974 tx/sec
+Valid:            53205/53205
+
+Proposer (Xeon):
+=== PARALLEL PIPELINE EXP (Expanded Keys) (53205 tx) ===
+Config: Decoders=48, Verifiers=48
+Speed:            107.211369ms | 496263 tx/sec
+Valid:            53205/53205
+
+
+
+Validator (i5):
+=== META-TX + BATCH CRYPTO PIPELINE ===
+Input: 104 blocks (~53248 txs total)
+Batch Size: 512 (Defined by Proto)
+Config: Decoders=20, Verifiers=20
+Time:             84.308585ms
+Throughput:       631585 tx/sec
+Valid:            53205/53248
+
+Validator (Xeon):
+=== META-TX + BATCH CRYPTO PIPELINE ===
+Input: 104 blocks (~53248 txs total)
+Batch Size: 512 (Defined by Proto)
+Config: Decoders=48, Verifiers=48
+Time:             64.601654ms
+Throughput:       824251 tx/sec
+Valid:            53205/53248
+
+
+
+
+
+
+
+
+
 
 === PARALLEL PIPELINE EXP (Expanded Keys) (53205 tx) ===
 Config: Decoders=48, Verifiers=48
