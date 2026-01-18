@@ -17,6 +17,32 @@ Valid:            53205/53205
 Тесты показали что оптимальный размер буфера (для Xeon) - RbSize    = 32768
 
 
+Тест кеша (Sharded, Flat, Bloom) показали, что шардед кеш + блум
+
+Пусть в идеальных условиях блум немного замедляет, но это позволит отбрасывать при DDos (можно автоматизировать - если за последние Х времени было более N невалидных) 
+
+Xeon:
+=== LOGIC PIPELINE (Sig + UUIDv7 TimeCheck + Dedup, ShardedCache) ===
+%!(EXTRA int=53205)Config: Decoders=48, Verifiers=48. Deviation=60000ms
+Speed:            108.391362ms | 490860 tx/sec
+Valid:            53205
+Logic Rejects:    0 (Time/Dup/Format)
+Предзаполнение кеша (100000 UUIDs)...
+
+=== LOGIC PIPELINE (Sig + UUIDv7 TimeCheck + Dedup, ShardedCache + Bloom) ===
+%!(EXTRA int=53205)Config: Decoders=48, Verifiers=48. Deviation=60000ms
+Speed:            106.268417ms | 500666 tx/sec
+Valid:            53205
+Logic Rejects:    0 (Time/Dup/Format)
+
+=== LOGIC PIPELINE (Sig + UUIDv7 TimeCheck + Dedup, FlatCache) ===
+%!(EXTRA int=53205)Config: Decoders=48, Verifiers=48. Deviation=60000ms
+Speed:            111.594318ms | 476772 tx/sec
+Valid:            53205
+Logic Rejects:    0 (Time/Dup/Format)
+
+
+
 
 Генерация оптимизированного прото:
 

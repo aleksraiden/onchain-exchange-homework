@@ -92,6 +92,55 @@ func (b *FastBloom) MayContain(id []byte) bool {
 	return true // Возможно есть (надо проверить в Map)
 }
 
+func (b *FastBloom) Clear() {
+	// Просто зануляем память. Это быстро (memset).
+	// В Go это делается присваиванием новой пустой структуры или циклом.
+	// Для массива это безопасно делать даже под нагрузкой (просто будут ложно-отрицательные, что ок).
+	for i := range b.data {
+		atomic.StoreUint64(&b.data[i], 0)
+	}
+}
+
+var (
+	// Флаги состояния
+	AdaptiveBloomEnabled atomic.Bool
+	DuplicateCounter     atomic.Int64 // Считает кол-во дублей за интервал
+)
+
+// Конфигурация порогов
+const (
+	DDoSThresholdStart = 1000 // Если дублей > 1000 в сек -> ВКЛЮЧИТЬ защиту
+	DDoSThresholdStop  = 100  // Если дублей < 100 в сек -> ВЫКЛЮЧИТЬ защиту
+)
+
+// Фоновый монитор
+func startDDoSMonitor(bloom *FastBloom) {
+	go func() {
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			// 1. Снимаем показания и сбрасываем счетчик
+			dups := DuplicateCounter.Swap(0)
+			
+			isEnabled := AdaptiveBloomEnabled.Load()
+
+			if !isEnabled && dups > DDoSThresholdStart {
+				// --- НАЧАЛО АТАКИ ---
+				fmt.Printf("⚠️ DDoS DETECTED (%d dups/sec). Activating Bloom Shield!\n", dups)
+				// Очищаем Блум перед использованием, чтобы он был свежим
+				bloom.Clear() 
+				AdaptiveBloomEnabled.Store(true)
+				
+			} else if isEnabled && dups < DDoSThresholdStop {
+				// --- КОНЕЦ АТАКИ ---
+				fmt.Println("✅ Attack subsided. Disabling Bloom Shield.")
+				AdaptiveBloomEnabled.Store(false)
+			}
+		}
+	}()
+}
+
 // ----------------------------------------------------------------
 // UUIDv7 VALIDATOR & SHARDED CACHE
 // ----------------------------------------------------------------
@@ -2374,27 +2423,36 @@ func benchmarkLogicPipelineShardedCacheBloom(allTxs [][]byte, users []*User) {
 						continue 
 					}
 
-					// Проверка на дубликаты
-					// 2. BLOOM FILTER + CACHE
-                    
-                    // Шаг А: Спрашиваем Блум (это очень быстро)
-                    if !bloom.MayContain(oid) {
-                        // Блум сказал: "Этого точно нет".
-                        // Значит, это НЕ дубль.
-                        
-                        bloom.Add(oid)      // Добавляем в Блум
-                        orderCache.Put(oid) // Пишем в мапу (сразу Lock, без RLock)
-                        
-                    } else {
-                        // Блум сказал: "Возможно есть".
-                        // Придется проверять мапу честно (RLock -> Lock).
-                        if orderCache.Seen(oid) {
-                            atomic.AddInt64(&logicErrors, 1) // Это реальный дубль
-                            continue
-                        }
-                        // Если Seen вернул false, значит это была коллизия Блума (False Positive),
-                        // но элемент мы добавили в мапу внутри Seen.
-                    }
+					// 2. АДАПТИВНАЯ ДЕДУПЛИКАЦИЯ
+					isWarMode := AdaptiveBloomEnabled.Load()
+					//isDuplicate := false
+
+					if isWarMode {
+						// --- РЕЖИМ ВОЙНЫ (Включен Блум) ---
+						// Сначала дешевый Блум
+						if !bloom.MayContain(oid) {
+							// Блум говорит: "Точно нет".
+							// Мы НЕ идем в Cache.Seen (экономим RLock).
+							// Мы сразу пишем.
+							bloom.Add(oid)      // Греем Блум
+							orderCache.Put(oid) // Fast Write
+							// isDuplicate = false (по умолчанию)
+						} else {
+							// Блум говорит: "Возможно есть". Проверяем мапу честно.
+							if orderCache.Seen(oid) {
+								DuplicateCounter.Add(1) // +1 к счетчику дублей
+								return // &tx.TxResult{Code: 102}, nil
+							}
+							// False positive Блума - не дубль, пропустили.
+						}
+					} else {
+						// --- МИРНОЕ ВРЕМЯ (Блум выключен) ---
+						// Сразу идем в мапу. Никакого хеширования Блума. Максимальная скорость.
+						if orderCache.Seen(oid) {
+							DuplicateCounter.Add(1) // +1 к счетчику дублей
+							return //&tx.TxResult{Code: 102}, nil
+						}
+					}
 				}
 				// ----------------
 
