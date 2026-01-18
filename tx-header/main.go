@@ -45,6 +45,54 @@ type User struct {
 }
 
 // ----------------------------------------------------------------
+// BLOOM FILTER (Zero Alloc, Bitwise)
+// ----------------------------------------------------------------
+
+const BloomSize = 1024 * 1024 * 8 // 8 MB (влезает в L3 кеш современных CPU)
+
+type FastBloom struct {
+	data [BloomSize]uint64 // Битовое поле
+}
+
+// Простейший хеш для UUIDv7 (берем энтропию из конца)
+func bloomHash(id []byte) (uint64, uint64) {
+	// UUIDv7: последние 8 байт - это чистый рандом (var + rand_b)
+	// Используем их как хеш. Это супер-быстро (1 mov инструкция)
+	h1 := binary.LittleEndian.Uint64(id[8:])
+	// Для второго хеша возьмем смещение (или просто h1 + const)
+	h2 := h1 * 0x9e3779b97f4a7c15 // Fibonacci hashing mixer
+	return h1, h2
+}
+
+func (b *FastBloom) Add(id []byte) {
+	h1, h2 := bloomHash(id)
+	// Ставим 2 бита (можно 3 для точности)
+	idx1 := h1 & (BloomSize*64 - 1)
+	idx2 := h2 & (BloomSize*64 - 1)
+	
+	// Atomic OR (Lock-free write)
+	// data[word] |= bit
+	atomic.OrUint64(&b.data[idx1/64], 1<<(idx1%64))
+	atomic.OrUint64(&b.data[idx2/64], 1<<(idx2%64))
+}
+
+// MayContain возвращает false, если элемента ТОЧНО нет.
+func (b *FastBloom) MayContain(id []byte) bool {
+	h1, h2 := bloomHash(id)
+	idx1 := h1 & (BloomSize*64 - 1)
+	idx2 := h2 & (BloomSize*64 - 1)
+
+	// Atomic Load (Lock-free read)
+	val1 := atomic.LoadUint64(&b.data[idx1/64])
+	if val1&(1<<(idx1%64)) == 0 { return false }
+
+	val2 := atomic.LoadUint64(&b.data[idx2/64])
+	if val2&(1<<(idx2%64)) == 0 { return false }
+
+	return true // Возможно есть (надо проверить в Map)
+}
+
+// ----------------------------------------------------------------
 // UUIDv7 VALIDATOR & SHARDED CACHE
 // ----------------------------------------------------------------
 
@@ -140,6 +188,20 @@ func (sc *ShardedCache) Seen(id []byte) bool {
 	shard.items[key] = struct{}{}
 	shard.Unlock()
 	return false
+}
+
+// Put - принудительная вставка без проверки (используется, когда Bloom сказал "Нет")
+// Экономит RLock/RUnlock
+func (sc *ShardedCache) Put(id []byte) {
+	shardIdx := id[15]
+	shard := sc.shards[shardIdx]
+
+	var key [16]byte
+	copy(key[:], id)
+
+	shard.Lock()
+	shard.items[key] = struct{}{}
+	shard.Unlock()
 }
 
 // ----------------------------------------------------------------
@@ -617,6 +679,9 @@ func main() {
 	//Проверка UUId-ов
 	//benchmarkLogicPipeline(allTxBytes, users)
 	benchmarkLogicPipelineShardedCache(allTxBytes, users)
+	
+	//С блум-фильтром перед кешем
+	benchmarkLogicPipelineShardedCacheBloom(allTxBytes, users)
 	
 	benchmarkLogicPipelineFlatCache(allTxBytes, users)
 }
@@ -2230,6 +2295,156 @@ func benchmarkLogicPipelineShardedCache(allTxs [][]byte, users []*User) {
 	fmt.Printf("Valid:            %d\n", validCount)
 	fmt.Printf("Logic Rejects:    %d (Time/Dup/Format)\n", logicErrors)
 }
+
+func benchmarkLogicPipelineShardedCacheBloom(allTxs [][]byte, users []*User) {
+	if len(allTxs) == 0 { return }
+	count := len(allTxs)
+
+	var (
+		Decoders  = runtime.NumCPU()
+		Verifiers = runtime.NumCPU()
+		BufSize   = 10000
+	)
+
+	// Запускаем "быстрое время"
+	//startFastTimeKeeper()
+	
+	// Кеш для дедупликации
+	orderCache := NewShardedCache(100_000)
+	bloom := &FastBloom{} // Создаем фильтр
+
+	fmt.Printf("\n=== LOGIC PIPELINE (Sig + UUIDv7 TimeCheck + Dedup, ShardedCache + Bloom) ===\n", count)
+	fmt.Printf("Config: Decoders=%d, Verifiers=%d. Deviation=%dms\n", Decoders, Verifiers, MaxTimeDeviationMS)
+
+	runtime.GC()
+	
+	rawChan := make(chan []byte, BufSize)
+	cryptoChan := make(chan CryptoTaskExp, BufSize)
+	
+	var wgD, wgV sync.WaitGroup
+	var validCount int64
+	var logicErrors int64
+
+	start := time.Now()
+
+	// STAGE 1: DECODE -> VALIDATE -> DEDUP
+	for i := 0; i < Decoders; i++ {
+		wgD.Add(1)
+		go func() {
+			defer wgD.Done()
+			var txx tx.Transaction
+			emptySig := make([]byte, 64)
+
+			for b := range rawChan {
+				txx.Reset()
+				if proto.Unmarshal(b, &txx) != nil { continue }
+				h := txx.GetHeader()
+				if h == nil { continue }
+				
+				// --- ВАЛИДАЦИЯ ---
+				var oid []byte
+				
+				switch p := txx.Payload.(type) {
+				case *tx.Transaction_OrderCreate:
+					if len(p.OrderCreate.Orders) > 0 {
+						oid = p.OrderCreate.Orders[0].OrderId.Id
+					}
+				case *tx.Transaction_OrderCancel:
+					if len(p.OrderCancel.OrderId) > 0 {
+						oid = p.OrderCancel.OrderId[0].Id
+					}
+				}
+
+				if len(oid) > 0 {
+					// ВАЖНО ДЛЯ ТЕСТА: 
+					// Так как мы сгенерировали транзакции давно, их UUIDv7 устарели.
+					// Валидатор времени их отвергнет.
+					// Чтобы тест показал ПРОПУСКНУЮ СПОСОБНОСТЬ (а не просто reject),
+					// мы здесь "хакнем" первый байт времени, чтобы он казался свежим,
+					// ИЛИ просто позволим ему отвергнуть (если хотим замерить скорость reject-а).
+					
+					// Для честности теста math operations - мы выполняем IsValidUUIDv7.
+					// Если вернет false (по времени) - это ок, главное, что CPU потрачен на проверку.
+					
+					if !IsValidUUIDv7(oid) {
+						atomic.AddInt64(&logicErrors, 1)
+						// В реальности тут continue, но для теста криптографии
+						// мы можем пропустить дальше, если хотим нагрузить верификаторы.
+						// Но правильнее - отвергнуть.
+						continue 
+					}
+
+					// Проверка на дубликаты
+					// 2. BLOOM FILTER + CACHE
+                    
+                    // Шаг А: Спрашиваем Блум (это очень быстро)
+                    if !bloom.MayContain(oid) {
+                        // Блум сказал: "Этого точно нет".
+                        // Значит, это НЕ дубль.
+                        
+                        bloom.Add(oid)      // Добавляем в Блум
+                        orderCache.Put(oid) // Пишем в мапу (сразу Lock, без RLock)
+                        
+                    } else {
+                        // Блум сказал: "Возможно есть".
+                        // Придется проверять мапу честно (RLock -> Lock).
+                        if orderCache.Seen(oid) {
+                            atomic.AddInt64(&logicErrors, 1) // Это реальный дубль
+                            continue
+                        }
+                        // Если Seen вернул false, значит это была коллизия Блума (False Positive),
+                        // но элемент мы добавили в мапу внутри Seen.
+                    }
+				}
+				// ----------------
+
+				uid := h.SignerUid
+				if uid == 0 || uid > uint64(len(users)) { continue }
+
+				expKey := users[uid-1].expKey
+				sig := h.Signature
+				h.Signature = emptySig
+				data, _ := proto.Marshal(&txx)
+
+				cryptoChan <- CryptoTaskExp{
+					ExpKey:    expKey,
+					Signature: sig,
+					Data:      data,
+				}
+			}
+		}()
+	}
+
+	// STAGE 2: VERIFIERS
+	for i := 0; i < Verifiers; i++ {
+		wgV.Add(1)
+		go func() {
+			defer wgV.Done()
+			for task := range cryptoChan {
+				hash := blake3.Sum256(task.Data)
+				if voied25519.VerifyExpanded(task.ExpKey, hash[:], task.Signature) {
+					atomic.AddInt64(&validCount, 1)
+				}
+			}
+		}()
+	}
+
+	go func() {
+		for _, b := range allTxs { rawChan <- b }
+		close(rawChan)
+	}()
+
+	wgD.Wait()
+	close(cryptoChan)
+	wgV.Wait()
+
+	dur := time.Since(start)
+	
+	fmt.Printf("Speed:            %10s | %.0f tx/sec\n", dur, float64(count)/dur.Seconds())
+	fmt.Printf("Valid:            %d\n", validCount)
+	fmt.Printf("Logic Rejects:    %d (Time/Dup/Format)\n", logicErrors)
+}
+
 
 func benchmarkLogicPipelineFlatCache(allTxs [][]byte, users []*User) {
 	if len(allTxs) == 0 { return }
