@@ -14,6 +14,8 @@ import (
 	"time"
 	"sync"
 	"sync/atomic"
+	
+	"encoding/binary"
 
 	"github.com/google/uuid"
 	"github.com/klauspost/compress/gzip"
@@ -138,6 +140,104 @@ func (sc *ShardedCache) Seen(id []byte) bool {
 	shard.items[key] = struct{}{}
 	shard.Unlock()
 	return false
+}
+
+// ----------------------------------------------------------------
+// HFT FLAT CACHE (Linear Probing, No Go-Map, No GC Overhead)
+// ----------------------------------------------------------------
+
+const (
+    // Размер таблицы должен быть степенью двойки
+    TableSize = 131072 // 128k слотов на шард
+    MaxProbes = 16     // Сколько ячеек проверять при коллизии (защита от вечного цикла)
+)
+
+// Элемент кеша (32 байта: 16 ключ + 16 паддинг/метаданные)
+// Выравнивание по памяти важно для скорости
+type cacheEntry struct {
+    Key   [16]byte // Сам UUID
+    Valid bool     // Занят ли слот (можно оптимизировать через битовую маску, но так проще)
+    // Можно добавить Timestamp для TTL (Time To Live)
+    Timestamp uint64 
+}
+
+type flatShard struct {
+    sync.Mutex // Используем обычный Mutex (он быстрее RWMutex на частых записях в HFT)
+    entries []cacheEntry
+    mask    uint32 // len(entries) - 1
+}
+
+type FlatShardedCache struct {
+    shards [256]*flatShard
+}
+
+func NewFlatCache() *FlatShardedCache {
+    fc := &FlatShardedCache{}
+    for i := 0; i < 256; i++ {
+        // Выделяем ОДИН большой кусок памяти. GC счастлив.
+        entries := make([]cacheEntry, TableSize)
+        fc.shards[i] = &flatShard{
+            entries: entries,
+            mask:    uint32(TableSize - 1),
+        }
+    }
+    return fc
+}
+
+// Быстрый хеш для UUID (просто берем кусок байт, так как UUIDv7 уже рандомный в конце)
+// Inline candidate
+func fastHash(id []byte) uint32 {
+    // Берем последние 4 байта UUID (там максимальная энтропия)
+    // id[12], id[13], id[14], id[15]
+    return binary.LittleEndian.Uint32(id[12:])
+}
+
+func (fc *FlatShardedCache) Seen(id []byte) bool {
+    // 1. Шардирование по последнему байту (как и раньше)
+    shardIdx := id[15]
+    shard := fc.shards[shardIdx]
+
+    // 2. Хеширование для позиции внутри шарда
+    // Используем байты 8-12 для хеша (чтобы не совпадало с шардингом)
+    hash := binary.LittleEndian.Uint32(id[8:12])
+    idx := hash & shard.mask
+    
+    // Копируем ключ для сравнения (stack allocation)
+    var key [16]byte
+    copy(key[:], id)
+
+    shard.Lock()
+    defer shard.Unlock()
+
+    // 3. Linear Probing (Бежим вперед, если занято)
+    for i := 0; i < MaxProbes; i++ {
+        slot := &shard.entries[idx]
+        
+        if !slot.Valid {
+            // Слот пуст -> Записываем (Новый)
+            slot.Key = key
+            slot.Valid = true
+            return false // Не дубль
+        }
+
+        if slot.Key == key {
+            // Ключи совпали -> Это дубль!
+            return true 
+        }
+
+        // Коллизия: идем к следующему слоту (Ring buffer wrap logic)
+        idx = (idx + 1) & shard.mask
+    }
+
+    // Если мы здесь - таблица переполнена в этом кластере (редкий случай для UUID)
+    // HFT решение: Перезаписать старый (Eviction policy: Force overwrite)
+    // Или дропнуть (Panic safety). Для теста просто перезапишем текущий idx.
+    // В проде тут нужен Resize, но Resize убивает латентность.
+    // Лучше иметь огромный буфер с запасом.
+    shard.entries[idx].Key = key
+    shard.entries[idx].Valid = true
+    
+    return false
 }
 
 // IsValidUUIDv7 проверяет формат И время
@@ -515,7 +615,10 @@ func main() {
 	benchmarkLockFreePipelineExp(allTxBytes, users)
 	
 	//Проверка UUId-ов
-	benchmarkLogicPipeline(allTxBytes, users)
+	//benchmarkLogicPipeline(allTxBytes, users)
+	benchmarkLogicPipelineShardedCache(allTxBytes, users)
+	
+	benchmarkLogicPipelineFlatCache(allTxBytes, users)
 }
 
 // CryptoTask - структура, передаваемая от Decoder-воркеров к Verifier-воркерам
@@ -1995,8 +2098,8 @@ func benchmarkLockFreePipelineExp(allTxs [][]byte, users []*User) {
 	fmt.Printf("Valid:            %d/%d\n", validCount, count)
 }
 
-
-func benchmarkLogicPipeline(allTxs [][]byte, users []*User) {
+//
+func benchmarkLogicPipelineShardedCache(allTxs [][]byte, users []*User) {
 	if len(allTxs) == 0 { return }
 	count := len(allTxs)
 
@@ -2012,7 +2115,7 @@ func benchmarkLogicPipeline(allTxs [][]byte, users []*User) {
 	// Кеш для дедупликации
 	orderCache := NewShardedCache(100_000)
 
-	fmt.Printf("\n=== LOGIC PIPELINE (Sig + UUIDv7 TimeCheck + Dedup) ===\n", count)
+	fmt.Printf("\n=== LOGIC PIPELINE (Sig + UUIDv7 TimeCheck + Dedup, ShardedCache) ===\n", count)
 	fmt.Printf("Config: Decoders=%d, Verifiers=%d. Deviation=%dms\n", Decoders, Verifiers, MaxTimeDeviationMS)
 
 	runtime.GC()
@@ -2127,6 +2230,139 @@ func benchmarkLogicPipeline(allTxs [][]byte, users []*User) {
 	fmt.Printf("Valid:            %d\n", validCount)
 	fmt.Printf("Logic Rejects:    %d (Time/Dup/Format)\n", logicErrors)
 }
+
+func benchmarkLogicPipelineFlatCache(allTxs [][]byte, users []*User) {
+	if len(allTxs) == 0 { return }
+	count := len(allTxs)
+
+	var (
+		Decoders  = runtime.NumCPU()
+		Verifiers = runtime.NumCPU()
+		BufSize   = 10000
+	)
+
+	// Запускаем "быстрое время"
+	//startFastTimeKeeper()
+	
+	// Кеш для дедупликации
+	orderCache := NewFlatCache() //100_000)
+
+	fmt.Printf("\n=== LOGIC PIPELINE (Sig + UUIDv7 TimeCheck + Dedup, FlatCache) ===\n", count)
+	fmt.Printf("Config: Decoders=%d, Verifiers=%d. Deviation=%dms\n", Decoders, Verifiers, MaxTimeDeviationMS)
+
+	runtime.GC()
+	
+	rawChan := make(chan []byte, BufSize)
+	cryptoChan := make(chan CryptoTaskExp, BufSize)
+	
+	var wgD, wgV sync.WaitGroup
+	var validCount int64
+	var logicErrors int64
+
+	start := time.Now()
+
+	// STAGE 1: DECODE -> VALIDATE -> DEDUP
+	for i := 0; i < Decoders; i++ {
+		wgD.Add(1)
+		go func() {
+			defer wgD.Done()
+			var txx tx.Transaction
+			emptySig := make([]byte, 64)
+
+			for b := range rawChan {
+				txx.Reset()
+				if proto.Unmarshal(b, &txx) != nil { continue }
+				h := txx.GetHeader()
+				if h == nil { continue }
+				
+				// --- ВАЛИДАЦИЯ ---
+				var oid []byte
+				
+				switch p := txx.Payload.(type) {
+				case *tx.Transaction_OrderCreate:
+					if len(p.OrderCreate.Orders) > 0 {
+						oid = p.OrderCreate.Orders[0].OrderId.Id
+					}
+				case *tx.Transaction_OrderCancel:
+					if len(p.OrderCancel.OrderId) > 0 {
+						oid = p.OrderCancel.OrderId[0].Id
+					}
+				}
+
+				if len(oid) > 0 {
+					// ВАЖНО ДЛЯ ТЕСТА: 
+					// Так как мы сгенерировали транзакции давно, их UUIDv7 устарели.
+					// Валидатор времени их отвергнет.
+					// Чтобы тест показал ПРОПУСКНУЮ СПОСОБНОСТЬ (а не просто reject),
+					// мы здесь "хакнем" первый байт времени, чтобы он казался свежим,
+					// ИЛИ просто позволим ему отвергнуть (если хотим замерить скорость reject-а).
+					
+					// Для честности теста math operations - мы выполняем IsValidUUIDv7.
+					// Если вернет false (по времени) - это ок, главное, что CPU потрачен на проверку.
+					
+					if !IsValidUUIDv7(oid) {
+						atomic.AddInt64(&logicErrors, 1)
+						// В реальности тут continue, но для теста криптографии
+						// мы можем пропустить дальше, если хотим нагрузить верификаторы.
+						// Но правильнее - отвергнуть.
+						continue 
+					}
+
+					// Проверка на дубликаты
+					if orderCache.Seen(oid) {
+						atomic.AddInt64(&logicErrors, 1)
+						continue
+					}
+				}
+				// ----------------
+
+				uid := h.SignerUid
+				if uid == 0 || uid > uint64(len(users)) { continue }
+
+				expKey := users[uid-1].expKey
+				sig := h.Signature
+				h.Signature = emptySig
+				data, _ := proto.Marshal(&txx)
+
+				cryptoChan <- CryptoTaskExp{
+					ExpKey:    expKey,
+					Signature: sig,
+					Data:      data,
+				}
+			}
+		}()
+	}
+
+	// STAGE 2: VERIFIERS
+	for i := 0; i < Verifiers; i++ {
+		wgV.Add(1)
+		go func() {
+			defer wgV.Done()
+			for task := range cryptoChan {
+				hash := blake3.Sum256(task.Data)
+				if voied25519.VerifyExpanded(task.ExpKey, hash[:], task.Signature) {
+					atomic.AddInt64(&validCount, 1)
+				}
+			}
+		}()
+	}
+
+	go func() {
+		for _, b := range allTxs { rawChan <- b }
+		close(rawChan)
+	}()
+
+	wgD.Wait()
+	close(cryptoChan)
+	wgV.Wait()
+
+	dur := time.Since(start)
+	
+	fmt.Printf("Speed:            %10s | %.0f tx/sec\n", dur, float64(count)/dur.Seconds())
+	fmt.Printf("Valid:            %d\n", validCount)
+	fmt.Printf("Logic Rejects:    %d (Time/Dup/Format)\n", logicErrors)
+}
+
 
 
 // ──────────────────────────────────────────────────────────────
