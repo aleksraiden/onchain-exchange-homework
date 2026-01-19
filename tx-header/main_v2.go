@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	mrand "math/rand"
+	mrand2 "math/rand/v2"
 	"os"
 	"runtime"
 	"time"
@@ -334,19 +335,24 @@ func main() {
 	fmt.Println("Пользователи готовы.")
 	
 	// Массив для хранения исходных структур транзакций (нужен для теста сжатия)
+	// Сначала готовим все транзакции, потом соберем с нее нужные блоки 	
     var allTxsStructs []*tx.Transaction
 	
+	
+	
 	// Константа для Meta-Transactions
-    const MetaBatchSize = 512 //256
+    const MetaBatchSize = 512
 	
 	// НОВЫЙ Массив для Мета-Транзакций (блоков)
     var allMetaTxBytes [][]byte
     
     // Буфер для накопления текущей пачки
-    currentBatch := make([]*tx.Transaction, 0, MetaBatchSize)
+    //currentBatch := make([]*tx.Transaction, 0, MetaBatchSize)
 
 	var allTxBytes [][]byte
 	var realTxCounter uint64 = 0
+
+	//надо улучшить код, чтобы транзакции шли рандомно 
 
 	for opCode, count := range txCounts {
 		for i := 0; i < count; i++ {
@@ -501,10 +507,16 @@ func main() {
 			// Подписываем хеш
 			sig := ed25519.Sign(u.priv, hash[:])
 			
-			// Сохраняем подпись в структуру (чтобы она была полноценной)
+			// Сохраняем подпись в структуру (чтобы легче обрабатывать дальше)
             header.Signature = sig
 			
 			
+			// Добавляем структуру в коллекцию для бенчмарка сжатия
+            // Важно: txx внутри цикла создается заново (txx := &tx.Transaction{...}),
+            // поэтому можно просто сохранить указатель.
+            allTxsStructs = append(allTxsStructs, txx)
+			
+/***			
 			// Финальная сериализация - собираем raw bytes 
 			// 4. Сборка пакета: [Sig (64)] + [ProtoBytes (N)]
 			// Оптимизация: выделяем массив сразу нужного размера
@@ -516,13 +528,7 @@ func main() {
 			copy(finalBytes[64:], dataToSign)
 			
 			allTxBytes = append(allTxBytes, finalBytes)
-			
-			// Добавляем структуру в коллекцию для бенчмарка сжатия
-            // Важно: txx внутри цикла создается заново (txx := &tx.Transaction{...}),
-            // поэтому можно просто сохранить указатель.
-            allTxsStructs = append(allTxsStructs, txx)
-			
- 			
+			 			
 			// 2. НОВОЕ: Добавляем в Meta-Batch
             // Нам нужно скопировать структуру или использовать указатель.
             // Так как txx создается заново в каждой итерации (txx := &tx.Transaction{...}),
@@ -544,40 +550,48 @@ func main() {
                 // Сбрасываем буфер (alloc new slice to avoid side effects if proto keeps refs)
                 currentBatch = make([]*tx.Transaction, 0, MetaBatchSize)
             }
+***/		
 			
-			
-			
-			
+			//Обновим nonce
 			u.nonce++
 		}
 	}
+	
+	//Перемешаем, чтобы блок был более правильный 
+	mrand2.Shuffle(len(allTxsStructs), func(i, j int) {
+		allTxsStructs[i], allTxsStructs[j] = allTxsStructs[j], allTxsStructs[i]
+	})
+	
+	
 
 	// Статистика
-	totalTx := len(allTxBytes)
-	var totalSize int
-	for _, b := range allTxBytes {
-		totalSize += len(b)
-	}
+	totalTx := len(allTxsStructs)
+//	totalTx := len(allTxBytes)
+//	var totalSize int
+//	for _, b := range allTxBytes {
+//		totalSize += len(b)
+//	}
 
-	
+/**	
 	// Если остались "хвосты" в буфере
     if len(currentBatch) > 0 {
         metaTx := &tx.TransactionList{Txs: currentBatch}
         metaBytes, _ := proto.Marshal(metaTx)
         allMetaTxBytes = append(allMetaTxBytes, metaBytes)
     }
-
-	avgSize := float64(totalSize) / float64(totalTx)
-	avgRealSize := float64(totalSize) / float64(realTxCounter)
+**/
+//	avgSize := float64(totalSize) / float64(totalTx)
+//	avgRealSize := float64(totalSize) / float64(realTxCounter)
 	
 	fmt.Printf("\nГенерация завершена:\n")
-	fmt.Printf("  • Всего транзакций:        %d\n", totalTx)
-	fmt.Printf("  • Всего real tx:           %d\n", realTxCounter)
-	fmt.Printf("  • Мета-Транзакций (блоков по %d): %d\n", MetaBatchSize, len(allMetaTxBytes))
-	fmt.Printf("  • Общий размер:            %d байт\n", totalSize)
-	fmt.Printf("  • Средний размер tx:       %.1f байт\n", avgSize)
-	fmt.Printf("  • Средний размер real tx:  %.1f байт\n", avgRealSize)
+	fmt.Printf("  • Всего транзакций (chain-level):        	%d\n", totalTx)
+	fmt.Printf("  • Всего ops (batching-level):           	%d\n", realTxCounter)
+//	fmt.Printf("  • Мета-Транзакций (блоков по %d): %d\n", MetaBatchSize, len(allMetaTxBytes))
+//	fmt.Printf("  • Общий размер:            %d байт\n", totalSize)
+//	fmt.Printf("  • Средний размер tx:       %.1f байт\n", avgSize)
+//	fmt.Printf("  • Средний размер real tx:  %.1f байт\n", avgRealSize)
 
+/**
 	// Запись в файл
 	f, err := os.Create("txs.bin")
 	if err != nil {
@@ -590,6 +604,12 @@ func main() {
 		}
 	}
 	fmt.Printf("Сгенерировано %d транзакций → txs.bin\n", len(allTxBytes))
+**/
+	//Тестируем только два пайплайна:
+	//Proposer 	- получает поток транзакций tx-by-tx (bytes: sign + proto)
+	//Validator - получает блоками сразу все (сигнатуры + все прото вместе)
+
+
 
 
 
