@@ -5,7 +5,7 @@
 - add ExtendedKey if more than N tx sended by a time window
 
 Using lock-free buffer:
-``
+
 Xeon: 
 === LOCKFREE PARALLEL PIPELINE (53205 tx) ===
 Config: Decoders=48, Verifiers=48, RingBuf=32768 (Generics)
@@ -16,7 +16,7 @@ Valid:            53205/53205
 Config: Decoders=48, Verifiers=48, RingBuf=32768 (Generics)
 Speed:            97.374857ms | 546394 tx/sec
 Valid:            53205/53205
-``
+
 
 Тесты показали что оптимальный размер буфера (для Xeon) - RbSize    = 32768
 
