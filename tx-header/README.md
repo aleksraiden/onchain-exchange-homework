@@ -54,6 +54,9 @@ Logic Rejects:    0 (Time/Dup/Format)
 
 - default (google): protoc --go_out=. tx.proto
 
+Генерация словаря для zstd 
+zstd --train --maxdict=131072 --train-cover=k=32,d=8,steps=256 tx_* -o ../dictionary_v7.zstd
+
 Тестировани распаковки:
 
 2026/01/17 15:13:49 Всего обработано: 53205 шт.
