@@ -3,6 +3,8 @@
 - use optimized planetscale/vtprotobuf
 - use Buf
 - add ExtendedKey if more than N tx sended by a time window
+- use Golint 
+- usage Bloom-filter before cache
 
 Using lock-free buffer:
 `

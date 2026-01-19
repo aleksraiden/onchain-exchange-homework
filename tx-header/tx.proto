@@ -26,7 +26,7 @@ enum TxAuthType {
   UID 				= 0;	//внутренний UID 
   BATCHED			= 1;	//Указывает, что это батч, где отдельные транзакции не имеют своих подписей
   ED25519_PK	 	= 2;	//Public key ed25519 
-  ED25519_MSIG	 	= 3;	//Multisig
+  ED25519_MSIG		= 3;	//Multisig
   
   SEC256k1_PK		= 4;	//На будущее оставим 
   SEC256k1_MSIG		= 5;	//На будущее оставим 
@@ -171,6 +171,28 @@ enum OpCode {
 	UNKNOWN_OR_UNREALISED					= 2047; 								
 }
 
+// Для простой поддержки Multi-sig мы добавим отдельный вид пейлоада 
+// Важно - храним для аккаунта или же в системной таблице сколько подписей надо для каждой команды
+// Мы фиксируем что максимм 5 подписей будет (n-of-5)
+message SigEntry {
+  uint64 	signer_uid 	= 1;      // UID который подписывает
+  uint64 	nonce 		= 2;     // Sequence number аккаунта 
+  bytes 	signature 	= 3;  	// Ed25519 индивидуальная подпись
+}
+
+//Специальный пейлоад структура, минимум 2 подписи всегда будет 
+message MultiSigBlock {
+  SigEntry 			sig1 = 1;
+  SigEntry 			sig2 = 2;
+
+  //остальные опционально   
+  optional SigEntry sig3 = 3;
+  optional SigEntry sig4 = 4;
+  optional SigEntry sig5 = 5;
+}
+
+
+
 // Новое сообщение-контейнер, чтобы рассылать блок, состоящий из массива суб-блоков, экономим на парсинге 
 message TransactionList {
     repeated Transaction txs = 1;
@@ -272,7 +294,9 @@ message Transaction {
     // ORD_AMEND (opCode 0x6B): Изменение ордера (с поддержкой батчинга).
     OrderAmendPayload order_amend = 10;
 
-
+	
+	
+	SysUpgradePayload sys_upgrade = 101; //ТЕСТ
     //... Добавляйте другие по мере необходимости.
   }
 }
@@ -294,6 +318,13 @@ message MetaNoopPayload {
 // MetaReservePayload - для META_RESERVE (opCode 0xFF).
 message MetaReservePayload {
   bytes payload = 1; // 1 байт, default пустой
+}
+
+// SYS_UPGRADE - тестируем первую команду с мультисигом 
+message SysUpgradePayload {
+	MultiSigBlock 	multi_sig = 1; //Первым идет блок мульти-подписей 
+
+	bytes 			payload = 2; //Зарезервируем для реального пейлоада дальше 
 }
 
 // OrderID - 16 байт, UUIDv7
