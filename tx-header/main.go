@@ -2382,9 +2382,16 @@ func benchmarkLogicPipelineShardedCacheBloom(allTxs [][]byte, users []*User) {
 		go func() {
 			defer wgD.Done()
 			var txx tx.Transaction
+			
 			emptySig := make([]byte, 64)
 
 			for b := range rawChan {
+				
+				//Быстрая проверка валидности
+				if !FastProtoScan(b){
+					return
+				}
+				
 				txx.Reset()
 				if proto.Unmarshal(b, &txx) != nil { continue }
 				h := txx.GetHeader()
@@ -2745,4 +2752,118 @@ func gzipCompress(data []byte, dict []byte) ([]byte, error) {
 func gzipDecompress(compressed []byte, dict []byte) ([]byte, error) {
 	r, _ := gzip.NewReader(bytes.NewReader(compressed))
 	return io.ReadAll(r)
+}
+
+
+// Wire Types (из спецификации Protobuf)
+const (
+	WireVarint     = 0
+	WireFixed64    = 1
+	WireBytes      = 2
+	WireStartGroup = 3 // Deprecated, но могут встретиться
+	WireEndGroup   = 4 // Deprecated
+	WireFixed32    = 5
+)
+
+// FastProtoScan - сверхбыстрая валидация структуры Protobuf без аллокаций.
+// Возвращает true, если байты структурно корректны.
+func FastProtoScan(buf []byte) bool {
+	i := 0
+	l := len(buf)
+
+	for i < l {
+		// --- 1. ЧИТАЕМ TAG (Key) ---
+		// Tag - это Varint. Нам нужны нижние 3 бита (WireType).
+		
+		// Быстрый путь: однобайтовый тег (номера полей 1..15)
+		// Это 99% случаев в HFT
+		var wireType uint8
+		if buf[i] < 0x80 {
+			wireType = buf[i] & 7
+			i++
+		} else {
+			// Медленный путь: многобайтовый тег
+			// Пропускаем varint, пока не найдем байт без MSB (0x80)
+			// (Макс 10 байт для 64 бит, но мы не парсим значение, просто скачем)
+			start := i
+			for {
+				if i >= l { return false } // EOF посреди varint
+				b := buf[i]
+				i++
+				if b < 0x80 {
+					wireType = b & 7 // Берем тип из последнего байта?
+					// НЕТ! WireType всегда в ПЕРВОМ байте Varint-а.
+					// Ошибка в логике выше исправлена:
+					// WireType сидит в младших 3 битах САМОГО ПЕРВОГО байта тега.
+					wireType = buf[start] & 7
+					break
+				}
+				if i-start > 10 { return false } // Varint too long
+			}
+		}
+
+		if i > l { return false } // Вылетели
+
+		// --- 2. ПРОПУСКАЕМ VALUE ---
+		switch wireType {
+		case WireVarint: // 0: int32, int64, uint32, bool, enum
+			// Скачем пока байт >= 0x80
+			for {
+				if i >= l { return false }
+				if buf[i] < 0x80 {
+					i++
+					break
+				}
+				i++
+				// Защита от бесконечного/битого varint (макс 10 байт)
+				// Для супер-скорости можно убрать счетчик, если доверяем i < l
+			}
+
+		case WireFixed64: // 1: fixed64, sfixed64, double
+			i += 8
+
+		case WireBytes: // 2: string, bytes, embedded messages, packed repeated
+			// Сначала читаем длину (Varint)
+			if i >= l { return false }
+			
+			// Декодируем длину (Varint) чтобы узнать, сколько прыгать
+			// Тут нам нужно значение длины
+			var length uint64
+			var shift uint
+			
+			// Fast path decoding varint
+			for {
+				if i >= l { return false }
+				b := buf[i]
+				i++
+				length |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+				shift += 7
+				if shift > 63 { return false } // Overflow
+			}
+
+			// Прыгаем на length
+			// Важно: проверяем переполнение uint/int при сложении
+			nextI := i + int(length)
+			if nextI < i || nextI > l { // nextI < i ловит int overflow
+				return false 
+			}
+			i = nextI
+
+		case WireFixed32: // 5: fixed32, sfixed32, float
+			i += 4
+
+		// Группы (Deprecated) - обычно фейлим, но можно просто ретурн false
+		case WireStartGroup, WireEndGroup:
+			return false 
+			
+		default:
+			return false // Неизвестный тип данных -> мусор
+		}
+	}
+
+	// Если мы вышли ровно в конец массива - значит структура целая
+	return i == l
 }
