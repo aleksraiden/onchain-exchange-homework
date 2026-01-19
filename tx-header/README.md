@@ -1,6 +1,8 @@
 ###
-## TODO: use optimized planetscale/vtprotobuf
-## TODO: use Buf
+## TODO
+- use optimized planetscale/vtprotobuf
+- use Buf
+- add ExtendedKey if more than N tx sended by a time window
 
 Using lock-free buffer:
 Xeon: 
