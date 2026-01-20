@@ -5,6 +5,7 @@
 - add ExtendedKey if more than N tx sended by a time window
 - use Golint 
 - usage Bloom-filter before cache
+- add some cache for latest processed signatures and message hashes (e.g. sharded cache 128K items each)
 
 Using lock-free buffer:
 

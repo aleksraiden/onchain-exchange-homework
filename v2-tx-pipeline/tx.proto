@@ -1,0 +1,446 @@
+syntax = "proto3";
+
+package tx;
+
+option go_package = "/tx";
+
+// 1. Добавляем импорт расширений vtprotobuf
+//import "github.com/planetscale/vtprotobuf/vtproto/ext.proto";
+
+//Тип сети 
+enum ChainType {
+	DEVNET			= 0;
+	TESTNET			= 1;
+	PUBLIC_TESTNET  = 2;
+	MAINNET_V1		= 3;
+	MAINNET_V2		= 4;
+	MAINNET_V3		= 5;
+	DARKNET			= 6;
+	
+	CI_AUTOTEST		= 7;
+	LOCALNET		= 8;	
+}
+
+//Спецификация вариантов аутенфикации транзакции 
+enum TxAuthType {
+  UID 				= 0;	//внутренний UID 
+  BATCHED			= 1;	//Указывает, что это батч, где отдельные транзакции не имеют своих подписей
+  ED25519_PK	 	= 2;	//Public key ed25519 
+  ED25519_MSIG		= 3;	//Multisig
+  
+  SEC256k1_PK		= 4;	//На будущее оставим 
+  SEC256k1_MSIG		= 5;	//На будущее оставим 
+  
+  UNKNOWN			= 6;
+}
+
+//Определяет режим исполнения транзакции и время ее жизни
+enum TxExecMode {
+	DEFAULT			= 0;
+	ASAP			= 1; //исполнить сразу, но до указанного validBeforeHeight
+	IMMEDIATLY		= 2; //приоритет исполнение немедленно, даже если есть другие tx
+	CURRENT_BLOCK	= 3; //исполнение только в текущем блоке
+	NEXT_BLOCK		= 4; //исполнение строго в следующем блок
+}
+
+//Опишем рынки 
+enum Markets {
+	UNDEFINED		= 0; //Дефолт - операция глобал, не в рынке
+	PERPETUAL		= 1; //Стандартные перпы 
+	SPOT			= 2; //Классический спот 
+	AMM_SWAP		= 3; //зарезервируем для свопов через AMM 
+	INVERSE_PERP	= 4; //Inverse linear contracts 
+	VANILLA_OPTIONS = 5;
+	PERPETUAL_OPTIONS 	= 6;
+	DIGITAL_OPTIONS   	= 7;
+	PREDICTION			= 8; // Для рынков предсказаний 
+	TRADFI				= 9; // Для рынков токенезированных акций
+	INDICES				= 10; // Рынки индексов
+	
+	EXOTIC				= 11; //Спишем все остальное	
+}
+
+//Опишем все наши команды 
+enum OpCode {
+	META_NOOP								= 0;
+	META_BLOB								= 1;
+	META_RESERVE							= 2;
+	META_BATCH								= 3;
+	
+	SYS_UPGRADE								= 4;
+	SYS_PAUSE								= 5;
+	SYS_RESUME								= 6;
+	SYS_SET_FLAG							= 7;
+	SYS_HEARTBEAT_CHECK						= 8;
+	SYS_UPDATE_VALIDATOR_PARAMS				= 9;
+	SYS_DEPOSIT_PAUSE						= 10;
+	SYS_WITHDRAW_PAUSE						= 11;
+	SYS_DEPOSIT_RESUME						= 12;
+	SYS_WITHDRAW_RESUME						= 13;
+
+	INS_FUND_CREATE 						= 14;
+	INS_FUND_OP								= 15;
+	INS_CREDIT								= 16;
+	INS_REPAY								= 17;
+	INS_PAYOUT								= 18;
+	INS_AUTO_REBALANCE						= 19;
+
+	GOV_ASSET_CREATE						= 20;
+	GOV_ASSET_UPDATE						= 21;
+	GOV_MARKET_CREATE						= 22;
+	GOV_MARKET_UPDATE						= 23;
+	GOV_MARKET_FREEZE						= 24;
+	GOV_MARKET_UNFREEZE						= 25;
+	GOV_MARKET_SETTLE						= 26;
+	GOV_MARKET_DELIST						= 27;
+	GOV_SET_ACC_FEE_TIER					= 28;
+	GOV_FEE_COLLECT							= 29;
+	GOV_INDX_ORACLE_FEED					= 30;
+	GOV_INDX_VALUE							= 31;
+	GOV_MARKET_FUNDING						= 32;
+	GOV_BALANCE_TRANSFER					= 33;
+	GOV_FEE_SCHEDULE_UPDATE					= 34;
+	GOV_MESSAGE								= 35;
+	GOV_APPROVE_PROPOSE						= 36;
+	GOV_VAULT_CREATE						= 37;
+	GOV_VAULT_PAUSE_DEPOSITS				= 38;
+	GOV_VAULT_RESUME_DEPOSITS				= 39;
+	GOV_VAULT_EMERGENCY_ENABLE_WITHDRAW		= 40;
+
+	ACC_REGISTER							= 41;
+	ACC_DEPOSIT								= 42;
+	ACC_WITHDRAW_REQUEST					= 43;
+	ACC_WITHDRAW_CLAIM						= 44;
+	ACC_WALLET_TRANSFER						= 45;
+	ACC_SET_FLAG							= 46;
+	ACC_FEE_PAY								= 47;
+	ACC_AGENT_REGISTER						= 48;
+	ACC_AGENT_REVOKE						= 49;
+	ACC_AGENT_UPDATE_LIMITS					= 50;
+	ACC_SUBACCOUNT_CREATE					= 51;
+	ACC_SESSION_HEARTBEAT					= 52;
+	ACC_NONCE_UPDATE						= 53;
+	ACC_WHITELIST_ADD						= 54;
+	ACC_WHITELIST_REMOVE					= 55;
+	ACC_KYC_SUBMIT_PROOF					= 56;
+	ACC_MESSAGE								= 57;
+	ACC_UPDATE_MESSAGE_KEY					= 58;
+	ACC_VOTE								= 59;
+	ACC_CREATE_PROPOSE						= 60;
+
+	ORD_CREATE								= 61;
+	ORD_CANCEL								= 62;
+	ORD_CANCEL_ALL							= 63;
+	ORD_CANCEL_REPLACE						= 64;
+	ORD_AMEND								= 65;
+	
+	reserved								66, 67, 68;
+	//ORD_CREATE_TRIGGER-Выделим создание Stop/Take и т.п.
+	//ORD_CREATE_TRIGGER_BATCH
+	//ORD_CANCEL_ALL_TRIGGER
+
+	ORD_REORDER								= 69;
+
+	POS_MARGIN_ADJ							= 70;
+	POS_CLOSE								= 71;
+	POS_LEVERAGE							= 72;
+	POS_ADL									= 73;
+	POS_SETTLE								= 74;
+
+	ERC20_TRANSFER							= 75;
+	ERC20_MINT								= 76;
+	ERC20_BURN								= 77;
+	ERC20_APPROVE							= 78;
+	ERC20_FREEZE							= 79;
+	ERC20_UNFREEZE							= 80;
+
+	VAULT_DEPOSIT							= 81;
+	VAULT_WITHDRAW_REQUEST					= 82;
+	VAULT_WITHDRAW_CLAIM					= 83;
+	VAULT_REWARDS_CLAIM						= 84;
+	VAULT_TOPUP_REWARDS						= 85;
+	VAULT_EMERGENCY_WITHDRAW				= 86;
+
+	KYC_COMPLIANCE_FLAG_SET					= 87;
+	KYC_COMPLIANCE_KYC_UPDATE				= 88;
+	KYC_COMPLIANCE_FREEZE					= 89;
+	KYC_COMPLIANCE_UNFREEZE					= 90;
+	KYC_SANCTIONS_LIST_UPDATE				= 91;
+	
+	
+	UNKNOWN_OR_UNREALISED					= 2047; 								
+}
+
+// Для простой поддержки Multi-sig мы добавим отдельный вид пейлоада 
+// Важно - храним для аккаунта или же в системной таблице сколько подписей надо для каждой команды
+// Мы фиксируем что максимм 5 подписей будет (n-of-5)
+message SigEntry {
+  uint64 	signer_uid 	= 1;      // UID который подписывает
+  uint64 	nonce 		= 2;     // Sequence number аккаунта 
+  bytes 	signature 	= 3;  	// Ed25519 индивидуальная подпись
+}
+
+//Специальный пейлоад структура, минимум 2 подписи всегда будет 
+message MultiSigBlock {
+  SigEntry 			sig1 = 1;
+  SigEntry 			sig2 = 2;
+
+  //остальные опционально   
+  optional SigEntry sig3 = 3;
+  optional SigEntry sig4 = 4;
+  optional SigEntry sig5 = 5;
+}
+
+
+
+// Новое сообщение-контейнер, чтобы рассылать блок, состоящий из массива суб-блоков, экономим на парсинге 
+message TransactionList {
+    repeated Transaction txs = 1;
+}
+
+// TransactionHeader defines the header for a transaction.
+message TransactionHeader {
+  ChainType chain_type = 1;
+  
+  // chainVersion determines the code version.
+  uint32 chain_version = 2;
+
+  // opCode is the command code.
+  OpCode 	op_code = 3;
+
+  // authType determines the transaction authorization method.
+  TxAuthType auth_type = 4;
+
+  // executionMode determines the execution mode and lifetime.
+  TxExecMode execution_mode = 5;
+
+  // marketCode defines the market
+  // Default: 0x0 (global chain operation)
+  Markets market_code = 6;
+  
+  //И теперь отдельно код торговой пары  
+  uint32 market_symbol = 7;
+
+  // signerUID is the internal user UID of the signer.
+  uint64 signer_uid = 8;
+
+  // nonce is the account nonce (0 allowed for some service commands).
+  uint64 nonce = 9;
+
+  // minHeight or lastKnownHeight: last known block height by sender.
+  // Tx discarded if current height is lower.
+  // Default: 0x0
+  uint64 min_height = 10;
+
+  // maxHeight or validBeforeHeight: height until tx is valid.
+  // Default: 0x0
+  uint64 max_height = 11;
+
+  // signature is the ed25519 signature. 
+  // Опционально (для батча), но так как это bytes нет нужды указывать optional
+  bytes signature = 12; //[(vtproto.ext).allow_alias = true] // Fixed 64 bytes
+}
+
+// BatchedTransactionHeader defines the small header for a transaction, grouped at batch ONLY!
+message BatchedTransactionHeader {
+  // opCode is the command code.
+  OpCode   op_code = 1;
+
+  // marketCode defines the market
+  // Default: 0x0 (global chain operation)
+  Markets market_code = 2;
+  
+  //И теперь отдельно код торговой пары  
+  uint32 market_symbol = 3;
+
+  // nonce is the account nonce (0 allowed for some service commands).
+  uint64 nonce = 4;
+}
+
+
+// Transaction - основное сообщение для полной tx.
+// Состоит из header и payload (oneof для разных типов в зависимости от opCode).
+message Transaction {
+  oneof header_data {
+    TransactionHeader 			header 			= 1;              // Полный заголовок (id=1 для совместимости)
+    BatchedTransactionHeader 	batch_header 	= 2; // Легкий заголовок
+  }
+
+  // Payload - oneof для типизированных сообщений.
+  // Каждый тип payload соответствует конкретному opCode (валидация в коде).
+  // Если payload_size == 0, то oneof пустой (nil в Go).
+  oneof payload {
+    // META_NOOP (opCode 0x00): Просто 1 пустой байт (например, bytes с нулевым значением).
+    MetaNoopPayload meta_noop = 3;
+	
+	// META_BLOB - служебная транзакция, произвольный блок который добавляет только пропоусер 
+	MetaBlobPayload meta_blob = 4;
+	
+	// META_RESERVE (opCode 0xFF): Зарезервированная, 1 байт.
+    MetaReservePayload meta_reserve = 5;
+	
+	// ORD_CREATE (opCode 0x60): Создание ордера.
+    OrderCreatePayload order_create = 6;
+
+    // ORD_CANCEL (opCode 0x64): Отмена одного ордера.
+    OrderCancelPayload order_cancel = 7;
+
+    // ORD_CANCEL_ALL (opCode 0x66): Отмена всех ордеров (payload пустой, но для oneof используем пустое сообщение).
+    OrderCancelAllPayload order_cancel_all = 8;
+
+    // ORD_CANCEL_REPLACE (opCode 0x6A): Атомарная отмена и создание (батчинг НЕ поддерживаеться).
+    OrderCancelReplacePayload order_cancel_replace = 9;
+
+    // ORD_AMEND (opCode 0x6B): Изменение ордера (с поддержкой батчинга).
+    OrderAmendPayload order_amend = 10;
+
+	
+	
+	SysUpgradePayload sys_upgrade = 101; //ТЕСТ
+    //... Добавляйте другие по мере необходимости.
+  }
+}
+
+//ТОЛЬКО для специальной команды META_BATCH 
+//Содержит полный заголовок и подпись, встроеные сообщения же - только краткий
+//Это ползволит комбинировать любые тразакции из поддерживаемых системой (кроме вложенных батчей, конечно!)
+message BatchTransaction {
+  TransactionHeader 			header 	= 1; // Полный заголовок
+  
+  repeated	Transaction			payload = 2; //Содержит любое количесто сообщений с обычными транзакциями (но с упрощенными заголовками!)
+}
+
+// MetaNoopPayload - для META_NOOP (opCode 0x00).
+message MetaNoopPayload {
+  bytes payload = 1; // 1 байт, default пустой (0x00)
+}
+
+// MetaReservePayload - для META_RESERVE (opCode 0xFF).
+message MetaReservePayload {
+  bytes payload = 1; // 1 байт, default пустой
+}
+
+// SYS_UPGRADE - тестируем первую команду с мультисигом 
+message SysUpgradePayload {
+	MultiSigBlock 	multi_sig = 1; //Первым идет блок мульти-подписей 
+
+	bytes 			payload = 2; //Зарезервируем для реального пейлоада дальше 
+}
+
+// OrderID - 16 байт, UUIDv7
+message OrderID {
+  bytes id = 1; //[(vtproto.ext).allow_alias = true]  // Фиксированные 16 байт.
+}
+
+//Группируем флаги в enum-ы
+enum Side {
+  BUY 		= 0;
+  SELL 		= 1;
+}
+
+//Тип ордера 
+enum OrderType {
+  MARKET 	= 0;
+  LIMIT 	= 1;
+  
+  STOP_MARKET	= 2;
+  STOP_LIMIT	= 3;
+  
+  TAKE_MARKET	= 4;
+  TAKE_LIMIT	= 5;
+}
+
+//Спецификация исполнения
+enum TimeInForce {
+  GTC 			= 0;
+  IOC 			= 1;
+  FOK 			= 2;
+}
+
+//Спецификация Trigger-price 
+enum TriggerPrice {
+  MARKPRICE			= 0;
+  SPOTPRICE 		= 1;
+  LASTTRADEPRICE 	= 2;
+  FUNDINGRATE	 	= 3;
+}
+
+//База - новый ордер 
+message OrderItem {
+	OrderID 		order_id 	= 1;	// OrderID - 16 байт, UUIDv7
+  
+	Side			side 		= 2;	//Buy/Sell side, BUY is default
+  
+	OrderType		order_type	= 3;	//Тип ордера, маркет дефолтный 
+  
+	TimeInForce		exec_type	= 4;	//Спецификация исполнения - GTC default
+  
+	//Несмотря на то, что многие относят эти поля к спецификации выполнения, лучше выделит отдельно
+	bool			reduce_only = 5;
+	bool			post_only 	= 6;
+  
+	uint64 			quantity 	= 7;	// Объем в base units.
+	uint64 			price 		= 8;	// Цена в quote units (игнорируется для market).
+  
+	//Попробуем указать параметры стопов и тейков
+	optional TriggerPrice	stop_price_type = 9;	// Тип цены для стоп-ордера
+	optional uint64			stop_price 		= 10;	// Само значение (то есть - цена из списка TriggerPrice), 0 для маркет или цена для лимитного
+	  
+	optional TriggerPrice	take_price_type = 11;	// Тип цены для тейк-ордера
+	optional uint64			take_price 		= 12;	// Само значение (то есть - цена из списка TriggerPrice)
+	
+	optional uint32 		market_code		= 13;	//Опционально, укажем код рынка (compressed, uint32) для мульти-маркет батчинга 
+}
+
+//Базовый блок для модификации ордера - пока можно менять только цену или обьем  
+message AmendItem {
+    OrderID 		order_id 	= 1;	// OrderID - 16 байт, UUIDv7
+    optional uint64 quantity 	= 2;
+    optional uint64 price 		= 3;
+	
+	optional TriggerPrice	stop_price_type = 4;	// Тип цены для стоп-ордера
+	optional uint64			stop_price 		= 5;	// Само значение (то есть - цена из списка TriggerPrice), 0 для маркет или цена для лимитного
+	  
+	optional TriggerPrice	take_price_type = 6;	// Тип цены для тейк-ордера
+	optional uint64			take_price 		= 7;	// Само значение (то есть - цена из списка TriggerPrice)
+}
+
+
+//TODO: MetaBlobPayload
+message MetaBlobPayload {
+	bytes payload = 1; // [(vtproto.ext).allow_alias = true];
+}
+
+//TODO: MetaBatchPayload
+message MetaBatchPayload {
+	bytes payload = 1; // 1 байт, default пустой
+}
+
+// OrderCreatePayload - для ORD_CREATE (opCode 0x60).
+message OrderCreatePayload {
+	repeated	OrderItem	orders = 1;  //Сразу любое количество новых ордеров 
+}
+
+// OrderCancelPayload - для ORD_CANCEL (opCode 0x64), поддерживает батчинг сразу
+message OrderCancelPayload {
+	repeated	OrderID		order_id = 1;	// OrderID - 16 байт, UUIDv7
+}
+
+// OrderCancelAllPayload - для ORD_CANCEL_ALL (opCode 0x66).
+message OrderCancelAllPayload {
+	bytes payload = 1; // 1 байт, default пустой
+}
+
+// OrderCancelReplacePayload - для ORD_CANCEL_REPLACE (opCode 0x6A). Батчинг таких ордеров не поддерживаеться
+message OrderCancelReplacePayload {
+  OrderID 				canceled_order_id 	= 1; 	// OrderID того ордера, который заменяем.
+  
+  //Новый ордер 
+  OrderCreatePayload	replaced_order		= 2; 	// Новый ордер (и OrderID внутри новый)
+}
+
+// OrderAmendPayload - для ORD_AMEND (opCode 0x6B), автоматическая поддержка BATCH-инга 
+// Для каждого ордера: ID + изменения.
+message OrderAmendPayload {  
+  repeated AmendItem amends = 1;
+}
