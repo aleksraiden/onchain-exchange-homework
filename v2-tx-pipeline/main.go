@@ -299,14 +299,19 @@ func main() {
 		}
 		
 		// 1. РАСПАКОВКА (Делается 1 раз при создании аккаунта)
-		//expKey, err := voied25519.NewExpandedPublicKey(voied25519.PublicKey(pub))
-		//if err != nil { panic(err) }
+		var expKey *voied25519.ExpandedPublicKey
+		
+		//Имитируем оптимизацию, что при загрузке мы части аккаунтов сразу распакуем 
+		if i < 2042 {		
+			expKey, err = voied25519.NewExpandedPublicKey(voied25519.PublicKey(pub))
+			if err != nil { panic(err) }
+		}
 		
 		users = append(users, &User{
 			uid:   uint64(i),
 			priv:  priv,
 			pub:   pub,
-			expKey: nil, //expKey,
+			expKey:  expKey, //nil,
 			nonce: 0,
 		})
 	}
