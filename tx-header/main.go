@@ -428,7 +428,7 @@ func main() {
 			priv:  priv,
 			pub:   pub,
 			expKey: expKey,
-			nonce: 0,
+			nonce: uint64(mrand.Intn(1000000)),
 		})
 	}
 	fmt.Println("Пользователи готовы.")
@@ -636,6 +636,11 @@ func main() {
 			u.nonce++
 		}
 	}
+	
+	//Перемешаем, чтобы блок был более правильный 
+	mrand2.Shuffle(len(allTxBytes), func(i, j int) {
+		allTxBytes[i], allTxBytes[j] = allTxBytes[j], allTxBytes[i]
+	})
 
 	// Статистика
 	totalTx := len(allTxBytes)
