@@ -32,7 +32,11 @@ type User struct {
 	priv  ed25519.PrivateKey
 	pub   ed25519.PublicKey // Храним публичный ключ для проверки
 	expKey *voied25519.ExpandedPublicKey // Для супер-быстрой проверки (1.5 КБ)
-	nonce uint64
+	
+	initNonce 	uint64
+	nonce 		uint64
+	
+	txGen		uint64
 	
 	// Механизм для однократной распаковки expKey
 	initOnce sync.Once
@@ -307,12 +311,17 @@ func main() {
 			if err != nil { panic(err) }
 		}
 		
+		initNonce := uint64( mrand.Intn(1000000) - 1)
+		
 		users = append(users, &User{
 			uid:   uint64(i),
 			priv:  priv,
 			pub:   pub,
 			expKey:  expKey, //nil,
-			nonce: 0,
+			initNonce: initNonce,
+			nonce: initNonce,	//чтобы начальный nonce был 
+			
+			txGen: 0, //сколько всего сгенерировано (для облегчения дебага)
 		})
 	}
 	fmt.Println("Пользователи готовы.")
@@ -341,7 +350,7 @@ func main() {
 		for i := 0; i < count; i++ {
 			// Выбираем случайного пользователя
 			u := users[mrand.Intn(len(users))]
-
+			
 			now := uint64(time.Now().Unix())
 
 			header := &tx.TransactionHeader{
@@ -537,6 +546,9 @@ func main() {
 			
 			//Обновим nonce
 			u.nonce++
+			
+			//счетчик транзакий
+			u.txGen++
 		}
 	}
 	
@@ -550,6 +562,14 @@ func main() {
 		allTxBytes[i], allTxBytes[j] = allTxBytes[j], allTxBytes[i]
 	})
 	
+	//Восстановим nonce из initNonce 
+	for _, u := range users {
+		u.nonce = u.initNonce - 1
+	}
+	
+//DEBUG 
+//pretty.Println(users)
+//return
 	
 
 	// Статистика
@@ -692,6 +712,7 @@ func main() {
 
 	
 	return
+	
 	// 3. Запуск полного бенчмарка (Распаковка -> Поиск юзера -> Хеш -> Проверка)
 	benchmarkFullPipeline(allTxBytes, users)
 	
@@ -801,13 +822,19 @@ type PipelineMetrics struct {
 	TotalDecodingTime   int64 // Наносекунды
 	TotalKeyExpTime     int64 // Время на распаковку ключей
 	TotalVerifyTime     int64 // Время на проверку подписи
+	TotalPrepareTime    int64 // Время подготовки транзакций
 	ItemsProcessed      int64 // Количество
 }
 
 type ProposerPipeline struct {
 	decoderJobs 	chan DecoderJob		// Внутренний канал задач
 	verifierJobs 	chan VerifierJob
+	prepareChans 	[]chan PrepareJob
+	
 	Output      	chan PipelineResult // Публичный канал выхода готовых данных
+	
+	//Роутер для распределению  обработчиков 
+	Router  TxRouter
 	
 	// Для корректного завершения
 	wg sync.WaitGroup
@@ -836,11 +863,55 @@ type VerifierJob struct {
 	SignerUID uint64
 }
 
+//Добавляем роутинг для стадии исполнения 
+type TxRouter struct {
+	SystemMaxUID uint64          // До какого UID считаем системными (например, 1000)
+	ManualRoutes map[uint64]int  // Ручные привязки: UID -> WorkerID
+	NumWorkers   int             // Общее число воркеров
+}
+
+// Метод вычисления ID воркера
+func (r *TxRouter) Route(uid uint64) int {
+	// 1. Ручное вмешательство (самый высокий приоритет)
+	if workerID, ok := r.ManualRoutes[uid]; ok {
+		// Защита от выхода за границы, если конфиг кривой
+		return workerID % r.NumWorkers
+	}
+
+	// 2. Системные транзакции -> Всегда Worker 0
+	if uid <= r.SystemMaxUID {
+		return 0
+	}
+
+	// 3. Обычные пользователи
+	// Распределяем по оставшимся воркерам (1 .. N-1)
+	// Если воркер всего 1, то все идут в 0
+	if r.NumWorkers <= 1 {
+		return 0
+	}
+
+	// GeneralWorkers = Total - 1 (минус системный)
+	generalWorkers := uint64(r.NumWorkers - 1)
+	
+	// Формула: 1 + (uid % generalWorkers)
+	// Смещение +1, чтобы не занимать нулевой слот
+	return 1 + int(uid % generalWorkers)
+}
+
+type PrepareJob struct {
+	Tx        *tx.Transaction
+	TxHash    [32]byte
+	SignerUID uint64
+}
+
 
 // Конструктор пайплайна
 func NewProposerPipeline() *ProposerPipeline {
 	// Определяем оптимальное число воркеров (равно числу логических ядер)
 	numWorkers := runtime.NumCPU()
+	
+	if numWorkers < 3 { numWorkers = 4 } //Минимальное количество 
+	
 	fmt.Printf("\n\nStarting ProposerPipeline with %d decoder workers...\n", numWorkers)
 	
 	// Буферы важны! Они сглаживают пики нагрузки.
@@ -850,8 +921,25 @@ func NewProposerPipeline() *ProposerPipeline {
 	p := &ProposerPipeline{
 		decoderJobs:  make(chan DecoderJob, 20000),
 		verifierJobs: make(chan VerifierJob, 20000),
+		prepareChans: make([]chan PrepareJob, numWorkers),
+	
 		Output:       make(chan PipelineResult, 20000),
+		
+		Router: TxRouter{
+			SystemMaxUID: 100,
+			ManualRoutes: make(map[uint64]int), // Можно заполнить из конфига
+			NumWorkers:   numWorkers,
+		},
 	}
+	
+	// 1. Создаем каналы и запускаем PrepareWorkers (они должны быть готовы принимать)
+	for i := 0; i < numWorkers; i++ {
+		p.prepareChans[i] = make(chan PrepareJob, 5000) // Буфер для каждого шарда
+		
+		// Запускаем воркер с привязкой к ID
+		go p.prepareExecutionWorker(i, p.prepareChans[i], p.Output)
+	}
+	
 
 	// Запускаем воркеры
 	for i := 0; i < numWorkers; i++ {
@@ -982,62 +1070,248 @@ func (p *ProposerPipeline) verifierWorker(jobs <-chan VerifierJob, out chan<- Pi
 
 		atomic.AddInt64(&p.metrics.ItemsProcessed, 1)
 		
+		// 1. Определяем, какому воркеру отдать
+		targetWorkerID := p.Router.Route(job.SignerUID)
+		
+		// 2. Отправляем в конкретный канал
+		p.prepareChans[targetWorkerID] <- PrepareJob{
+			Tx:        job.Tx,
+			TxHash:    job.TxHash,
+			SignerUID: job.SignerUID,
+		}
+		
+		/*
 		out <- PipelineResult{
 			Tx:     job.Tx,
 			TxHash: job.TxHash,
 		}
 		p.wg.Done()
+		*/
 	}
 }
 
-/**
-// Воркер теперь пишет прямо в output канал
-func (p *ProposerPipeline) worker(jobs <-chan DecoderJob, out chan<- PipelineResult) {
-	var txx tx.Transaction
+//У нас локальные очереди для каждого юзера 
+// PendingTx - обертка для хранения в буфере
+type PendingTx struct {
+	Nonce uint64
+	Job   PrepareJob
+}
+
+// UserBuffer - хранит "сиротливые" транзакции для одного юзера
+type UserBuffer struct {
+	// Храним отсортированными по Nonce
+	// Так как вставка обычно в начало или конец (из-за легкого джиттера), 
+	// слайс эффективен.
+	Queue []PendingTx
+}
+
+// Метод вставки с сохранением сортировки (Insertion Sort)
+func (ub *UserBuffer) Add(job PrepareJob, nonce uint64) {
+	// Оптимизация: если пусто или больше последнего - просто append
+	if len(ub.Queue) == 0 || nonce > ub.Queue[len(ub.Queue)-1].Nonce {
+		ub.Queue = append(ub.Queue, PendingTx{Nonce: nonce, Job: job})
+		return
+	}
 	
+	// Иначе ищем место и вставляем (бинарный поиск или линейный для малых N)
+	// Для простоты и малых N (<10) линейный проход с конца ОК.
+	ub.Queue = append(ub.Queue, PendingTx{}) // Растим
+	i := len(ub.Queue) - 1
+	for i > 0 && ub.Queue[i-1].Nonce > nonce {
+		ub.Queue[i] = ub.Queue[i-1]
+		i--
+	}
+	ub.Queue[i] = PendingTx{Nonce: nonce, Job: job}
+}
+
+//Обрабатываем индивидуально все транзакции по группе юзеров 
+func (p *ProposerPipeline) prepareExecutionWorker(workerID int, jobs <-chan PrepareJob, out chan<- PipelineResult) {
+	//fmt.Printf("PrepareWorker #%d started (System=%v)\n", workerID, workerID == 0)
+	
+	// Локальный буфер отложенных транзакций: Map[UserID] -> Buffer
+	pendingBuffers := make(map[uint64]*UserBuffer)
+
 	for job := range jobs {
 		start := time.Now()
-		
-		txx.Reset()
-		
-		// 1. Тяжелая математика (Хеш)
-		hash := blake3.Sum256(job.Body)
 
-		// 2. Тяжелый парсинг (Protobuf)
-		if err := proto.Unmarshal(job.Body, &txx); err != nil {
-			// Можно решить: отправлять ошибку дальше или просто дропать/логировать
-			// Для дебага отправим
-			p.wg.Done() // -1 задача
-			out <- PipelineResult{Err: err} 
+		// 1. Получаем User Object
+		// Так как мы знаем UID, мы берем его из глобального стейта.
+		// В реальном коде тут может быть загрузка из БД, если юзера нет в памяти.
+		if job.SignerUID == 0 || job.SignerUID > uint64(len(users)) {
+			// Критическая ошибка логики (верифайер должен был отловить, но на всякий случай)
+			p.wg.Done()
+			out <- PipelineResult{Err: fmt.Errorf("user not found in prepare: %d", job.SignerUID)}
 			continue
 		}
+		
+		user := users[job.SignerUID-1]
+		
+		// 1. Получаем Header (безопасно, вернет nil если его нет)
+        // Геттер GetHeader() удобен тем, что сам проверяет oneof и nil
+        header := job.Tx.GetHeader()
+		
+		if header == nil {
+            // Если это не полная транзакция, а батч или что-то другое,
+            // логика может отличаться. Проверяем BatchHeader?
+            // batchHeader := job.Tx.GetBatchHeader() ...
+            
+			atomic.AddInt64(&p.metrics.TotalPrepareTime, time.Since(start).Nanoseconds())
+            
+			// Если заголовка нет вообще - ошибка
+            p.wg.Done()
+            out <- PipelineResult{Err: fmt.Errorf("tx has no header")}
+            continue
+        }
 
-		// 3. Восстанавливаем подпись
-		h := txx.GetHeader()
-		if h != nil {
-			finalSig := make([]byte, 64)
-			copy(finalSig, job.Sig)
-			h.Signature = finalSig
+		//if job.SignerUID == 101 {
+		//	pretty.Println( job.Tx )
+		//}
+		
+		//Получим Tx nonce 
+		txNonce := header.Nonce
+		
+		// Текущий ожидаемый Nonce
+		expectedNonce := user.nonce + 1
+		
+		// 3. Получаем (или создаем) буфер
+		buf, exists := pendingBuffers[job.SignerUID]
+		
+		if !exists {
+			buf = &UserBuffer{Queue: make([]PendingTx, 0, 16)}	//выделю стразу место под 16 транзакции 
+			pendingBuffers[job.SignerUID] = buf
 		}
+		
+		// 4. ВСЕГДА добавляем в буфер (Insertion Sort)
+		// Это упрощает логику: не нужно думать "а вдруг это следующая?"
+		// Просто кладем, а "разгребатель" ниже сам разберется.
+		
+		//а вот старую транзакцию пропускаем 
+		if txNonce < expectedNonce {
+			atomic.AddInt64(&p.metrics.TotalPrepareTime, time.Since(start).Nanoseconds())
+            
+			if job.SignerUID == 6221 {
+				fmt.Printf("Too early tx found for UID: %d, expected nonce %d but incoming tx has %d\n", job.SignerUID, expectedNonce, txNonce)
+			}
+			
+            p.wg.Done()
+            //out <- PipelineResult{Err: fmt.Errorf("tx has too young nonce that current")}
+            continue
+		}
+				
+		// Защита от переполнения (Anti-DDoS)
+		if len(buf.Queue) < 1024 {
+			buf.Add(job, txNonce)
+		} else {
+			// Буфер переполнен - дропаем новую (или самую дальнюю)
+			// Для простоты дропаем новую
+			
+			//TODO: Тут важный момент - потом сделать 			
+			
+			p.wg.Done()
+			// continue нельзя, нам нужно все равно проверить Drain, вдруг место освободится?
+			// Но так как мы не добавили, Drain вряд ли поможет прямо сейчас, если expected не менялся.
+			// Просто выходим из итерации
+			continue 
+		}
+			
+		// Используем индекс смещения, чтобы не ресайзить слайс на каждой итерации
+		processedCount := 0
+		
+		initialQueueLen := len(buf.Queue)
+		
+		for _, pending := range buf.Queue {
+			if pending.Nonce == expectedNonce {
+				
+				if pending.Job.SignerUID == 6221 {
+					fmt.Printf("OK, tx are processed. expectedNonce %d, txNonce %d, uid %d, buffer: %d\n", expectedNonce, pending.Nonce, pending.Job.SignerUID, initialQueueLen)
+				}
+				
+				// А. Идеальное совпадение -> Исполняем
+				out <- PipelineResult{Tx: pending.Job.Tx, TxHash: pending.Job.TxHash}
+				
+				// Обновляем стейт
+				user.nonce++
+				expectedNonce++
+				
+				// Закрываем WG для этой транзакции
+				p.wg.Done()
+				
+				processedCount++
+				
+			} else {
+				// В. pending.Nonce > expectedNonce (Дырка)
+				// Дальше смотреть нет смысла, так как буфер отсортирован.
+				// Все следующие тоже будут > expected.
+				break
+			}
+		}
+		/*
+		if processedCount >= 1 {
+			// Вычисляем задержку (насколько транзакции опоздали)
+			// Это полезно для тюнинга сети.
+			fmt.Printf("🚀 Worker %d: FLUSHED %d txs for User %d (Buffer stats: %d/%d processed)\n", 
+				workerID, processedCount, job.SignerUID, processedCount, initialQueueLen)
+		}*/
 
-		// 4. Клонируем и отправляем результат
-		resTx := proto.Clone(&txx).(*tx.Transaction)
+		// 6. Чистим буфер
+		/**
+		if processedCount > 0 {
+			// 1. Помогаем GC (Зануляем ссылки в обработанной части)
+			// Это нужно, чтобы тяжелые структуры Tx могли удалиться из памяти,
+			// пока буфер живет вечно.
+			for i := 0; i < processedCount; i++ {
+				buf.Queue[i] = PendingTx{} // Затираем нулями
+			}
+
+			remaining := len(buf.Queue) - processedCount
+			if remaining == 0 {
+				// Ресет в начало (восстанавливаем Cap)
+				buf.Queue = buf.Queue[:0]
+			} else {
+				// Сдвиг
+				buf.Queue = buf.Queue[processedCount:]
+				
+				// Если мы хотим быть супер-экономными к памяти и избежать "дрейфа" даже при частичном заполнении:
+				// Можно сдвинуть оставшиеся элементы в начало.
+				// copy(buf.Queue, buf.Queue[processedCount:])
+				// buf.Queue = buf.Queue[:remaining]
+			}
+		}
+		**/
+		if processedCount > 0 {
+			// Зануляем ссылки для GC (чтобы не текла память в long-running process)
+			for i := 0; i < processedCount; i++ {
+				buf.Queue[i] = PendingTx{} 
+			}
+
+			remaining := len(buf.Queue) - processedCount
+			if remaining == 0 {
+				// Полный сброс (восстанавливаем capacity)
+				buf.Queue = buf.Queue[:0]
+			} else {
+				// Частичный сдвиг
+				buf.Queue = buf.Queue[processedCount:]
+			}
+		}
 		
-		// ⏱️ Стоп таймера декодинга
-		atomic.AddInt64(&p.metrics.TotalDecodingTime, time.Since(start).Nanoseconds())
-		atomic.AddInt64(&p.metrics.ItemsProcessed, 1) // +1 обработанная
 		
-		// NON-BLOCKING отправка (по желанию, но лучше буферизированный канал)
+		
+		atomic.AddInt64(&p.metrics.TotalPrepareTime, time.Since(start).Nanoseconds())
+/**		
+		// 3. Отправка результата (или запись в блок)
 		out <- PipelineResult{
-			Tx:     resTx,
-			TxHash: hash,
-			Err:    nil,
+			Tx:     job.Tx,
+			TxHash: job.TxHash,
+			// Можно добавить обогащенный контекст
 		}
 		
-		p.wg.Done() // -1 задача
+		// Работа завершена полностью
+		p.wg.Done()
+**/
 	}
 }
-***/
+
+
 
 // Push - принимает данные, валидирует легкую часть и отдает в работу.
 // Возвращает error только если валидация не прошла сразу (spam filter).
@@ -1093,6 +1367,7 @@ func (p *ProposerPipeline) PrintStats(totalWallTime time.Duration) {
 	tDec := time.Duration(atomic.LoadInt64(&p.metrics.TotalDecodingTime))
 	tExp := time.Duration(atomic.LoadInt64(&p.metrics.TotalKeyExpTime))
 	tVer := time.Duration(atomic.LoadInt64(&p.metrics.TotalVerifyTime))
+	tPrep := time.Duration(atomic.LoadInt64(&p.metrics.TotalPrepareTime))
 
 	fmt.Printf("\n====== PIPELINE REPORT (%d tx) ======\n", count)
 	fmt.Printf("Total Wall Time:  %v\n", totalWallTime)
@@ -1106,9 +1381,12 @@ func (p *ProposerPipeline) PrintStats(totalWallTime time.Duration) {
 	fmt.Printf("3. Key Expansion: %10s (Only new users)\n", tExp) 
 	
 	fmt.Printf("4. Verification:  %10s | %s/op\n", tVer, tVer/time.Duration(count))
+	
+	// Вывод новой стадии
+	fmt.Printf("5. Prepare Exec:  %10s | %s/op\n", tPrep, tPrep/time.Duration(count))
 
 	// Сумма времени работы процессоров
-	totalCPU := tVal + tDec + tExp + tVer
+	totalCPU := tVal + tDec + tExp + tVer + tPrep
 	parallelism := float64(totalCPU) / float64(totalWallTime)
 	
 	fmt.Printf("\nEfficiency: %.2fx parallelism (CPUs busy)\n", parallelism)

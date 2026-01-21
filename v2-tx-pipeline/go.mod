@@ -14,7 +14,7 @@ require (
 require (
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/kr/text v0.2.0 // indirect
-	github.com/rogpeppe/go-internal v1.12.0 // indirect
-	golang.org/x/crypto v0.44.0 // indirect
+	github.com/rogpeppe/go-internal v1.14.1 // indirect
+	golang.org/x/crypto v0.47.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
 )
