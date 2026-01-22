@@ -22,9 +22,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/zeebo/blake3"
 	"google.golang.org/protobuf/proto"
+//	"google.golang.org/protobuf/encoding/protowire"
 	
 	tx "tx-generator/tx"
 )
+
 
 // User структура для эмуляции БД пользователей
 type User struct {
@@ -330,8 +332,6 @@ func main() {
 	// Сначала готовим все транзакции, потом соберем с нее нужные блоки 	
     var allTxsStructs []*tx.Transaction
 	
-	
-	
 	// Константа для Meta-Transactions
     const MetaBatchSize = 512
 	
@@ -520,6 +520,12 @@ func main() {
 			copy(finalBytes[64:], dataToSign)
 			
 			allTxBytes = append(allTxBytes, finalBytes)
+			
+			//А теперь вторая, оптимизированная структура 
+			
+			
+			
+			
 /***			 			
 			// 2. НОВОЕ: Добавляем в Meta-Batch
             // Нам нужно скопировать структуру или использовать указатель.
@@ -1079,22 +1085,15 @@ func (p *ProposerPipeline) verifierWorker(jobs <-chan VerifierJob, out chan<- Pi
 			TxHash:    job.TxHash,
 			SignerUID: job.SignerUID,
 		}
-		
-		/*
-		out <- PipelineResult{
-			Tx:     job.Tx,
-			TxHash: job.TxHash,
-		}
-		p.wg.Done()
-		*/
 	}
 }
 
 //У нас локальные очереди для каждого юзера 
 // PendingTx - обертка для хранения в буфере
 type PendingTx struct {
-	Nonce uint64
-	Job   PrepareJob
+	Nonce 	uint64
+	Tx     *tx.Transaction
+	//Job   PrepareJob
 }
 
 // UserBuffer - хранит "сиротливые" транзакции для одного юзера
@@ -1106,28 +1105,30 @@ type UserBuffer struct {
 }
 
 // Метод вставки с сохранением сортировки (Insertion Sort)
-func (ub *UserBuffer) Add(job PrepareJob, nonce uint64) {
-	// Оптимизация: если пусто или больше последнего - просто append
-	if len(ub.Queue) == 0 || nonce > ub.Queue[len(ub.Queue)-1].Nonce {
-		ub.Queue = append(ub.Queue, PendingTx{Nonce: nonce, Job: job})
+func (ub *UserBuffer) Add(ptx PendingTx) {
+	// 1. Оптимизация: Пустой буфер или добавление в конец (самый частый случай)
+	if len(ub.Queue) == 0 || ptx.Nonce > ub.Queue[len(ub.Queue)-1].Nonce {
+		ub.Queue = append(ub.Queue, ptx)
 		return
 	}
-	
-	// Иначе ищем место и вставляем (бинарный поиск или линейный для малых N)
-	// Для простоты и малых N (<10) линейный проход с конца ОК.
-	ub.Queue = append(ub.Queue, PendingTx{}) // Растим
+
+	// 2. Вставка в середину (если пришел пакет из прошлого)
+	// Расширяем слайс
+	ub.Queue = append(ub.Queue, PendingTx{}) 
 	i := len(ub.Queue) - 1
-	for i > 0 && ub.Queue[i-1].Nonce > nonce {
+	
+	// Сдвигаем элементы вправо, пока не найдем место
+	for i > 0 && ub.Queue[i-1].Nonce > ptx.Nonce {
 		ub.Queue[i] = ub.Queue[i-1]
 		i--
 	}
-	ub.Queue[i] = PendingTx{Nonce: nonce, Job: job}
+	
+	// Вставляем
+	ub.Queue[i] = ptx
 }
 
 //Обрабатываем индивидуально все транзакции по группе юзеров 
 func (p *ProposerPipeline) prepareExecutionWorker(workerID int, jobs <-chan PrepareJob, out chan<- PipelineResult) {
-	//fmt.Printf("PrepareWorker #%d started (System=%v)\n", workerID, workerID == 0)
-	
 	// Локальный буфер отложенных транзакций: Map[UserID] -> Buffer
 	pendingBuffers := make(map[uint64]*UserBuffer)
 
@@ -1189,9 +1190,9 @@ func (p *ProposerPipeline) prepareExecutionWorker(workerID int, jobs <-chan Prep
 		if txNonce < expectedNonce {
 			atomic.AddInt64(&p.metrics.TotalPrepareTime, time.Since(start).Nanoseconds())
             
-			if job.SignerUID == 6221 {
-				fmt.Printf("Too early tx found for UID: %d, expected nonce %d but incoming tx has %d\n", job.SignerUID, expectedNonce, txNonce)
-			}
+			//if job.SignerUID == 6221 {
+			//	fmt.Printf("Too early tx found for UID: %d, expected nonce %d but incoming tx has %d\n", job.SignerUID, expectedNonce, txNonce)
+			//}
 			
             p.wg.Done()
             //out <- PipelineResult{Err: fmt.Errorf("tx has too young nonce that current")}
@@ -1200,7 +1201,11 @@ func (p *ProposerPipeline) prepareExecutionWorker(workerID int, jobs <-chan Prep
 				
 		// Защита от переполнения (Anti-DDoS)
 		if len(buf.Queue) < 1024 {
-			buf.Add(job, txNonce)
+			//buf.Add(job, txNonce)
+			buf.Add(PendingTx{
+				Nonce:  txNonce,
+				Tx:     job.Tx,     // Сохраняем только указатель
+			})
 		} else {
 			// Буфер переполнен - дропаем новую (или самую дальнюю)
 			// Для простоты дропаем новую
@@ -1217,17 +1222,20 @@ func (p *ProposerPipeline) prepareExecutionWorker(workerID int, jobs <-chan Prep
 		// Используем индекс смещения, чтобы не ресайзить слайс на каждой итерации
 		processedCount := 0
 		
-		initialQueueLen := len(buf.Queue)
+//initialQueueLen := len(buf.Queue)
 		
 		for _, pending := range buf.Queue {
 			if pending.Nonce == expectedNonce {
 				
-				if pending.Job.SignerUID == 6221 {
-					fmt.Printf("OK, tx are processed. expectedNonce %d, txNonce %d, uid %d, buffer: %d\n", expectedNonce, pending.Nonce, pending.Job.SignerUID, initialQueueLen)
-				}
+//if pending.Job.SignerUID == 6221 {
+//fmt.Printf("OK, tx are processed. expectedNonce %d, txNonce %d, uid %d, buffer: %d\n", expectedNonce, pending.Nonce, pending.Job.SignerUID, initialQueueLen)
+//}
 				
 				// А. Идеальное совпадение -> Исполняем
-				out <- PipelineResult{Tx: pending.Job.Tx, TxHash: pending.Job.TxHash}
+				out <- PipelineResult{
+					Tx:     pending.Tx,
+					//TxHash: pending.TxHash,
+				}
 				
 				// Обновляем стейт
 				user.nonce++
@@ -1254,47 +1262,37 @@ func (p *ProposerPipeline) prepareExecutionWorker(workerID int, jobs <-chan Prep
 		}*/
 
 		// 6. Чистим буфер
-		/**
 		if processedCount > 0 {
-			// 1. Помогаем GC (Зануляем ссылки в обработанной части)
-			// Это нужно, чтобы тяжелые структуры Tx могли удалиться из памяти,
-			// пока буфер живет вечно.
+			// ВАЖНО: Зануляем ссылки в той части слайса, которая уходит в небытие.
+			// Так как PendingTx содержит указатель *Tx, если мы этого не сделаем,
+			// GC не сможет удалить старые транзакции из памяти, пока жив буфер.
 			for i := 0; i < processedCount; i++ {
-				buf.Queue[i] = PendingTx{} // Затираем нулями
+				buf.Queue[i].Tx = nil // Убираем ссылку на Transaction
+				buf.Queue[i] = PendingTx{} // Обнуляем всё остальное
 			}
 
 			remaining := len(buf.Queue) - processedCount
+			
 			if remaining == 0 {
-				// Ресет в начало (восстанавливаем Cap)
+				// Полный сброс (восстанавливаем capacity без аллокаций)
 				buf.Queue = buf.Queue[:0]
-			} else {
-				// Сдвиг
-				buf.Queue = buf.Queue[processedCount:]
 				
-				// Если мы хотим быть супер-экономными к памяти и избежать "дрейфа" даже при частичном заполнении:
-				// Можно сдвинуть оставшиеся элементы в начало.
-				// copy(buf.Queue, buf.Queue[processedCount:])
-				// buf.Queue = buf.Queue[:remaining]
-			}
-		}
-		**/
-		if processedCount > 0 {
-			// Зануляем ссылки для GC (чтобы не текла память в long-running process)
-			for i := 0; i < processedCount; i++ {
-				buf.Queue[i] = PendingTx{} 
-			}
-
-			remaining := len(buf.Queue) - processedCount
-			if remaining == 0 {
-				// Полный сброс (восстанавливаем capacity)
-				buf.Queue = buf.Queue[:0]
+				// Если буфер пуст — можно удалить из мапы, чтобы не растить мапу бесконечно
+				// (особенно если пользователей миллиард)
+				// delete(pendingBuffers, job.SignerUID) 
 			} else {
-				// Частичный сдвиг
+				// Сдвиг (Slice Drift). 
+				// Если processedCount велик, лучше copy в начало, но для малых N это ок.
 				buf.Queue = buf.Queue[processedCount:]
 			}
+			
+			// Лог размотки затора
+			if processedCount > 1 {
+				// fmt.Printf("Worker %d: Flushed %d txs for User %d\n", workerID, processedCount, job.SignerUID)
+			}
 		}
 		
-		
+		  
 		
 		atomic.AddInt64(&p.metrics.TotalPrepareTime, time.Since(start).Nanoseconds())
 /**		

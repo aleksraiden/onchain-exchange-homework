@@ -1,0 +1,169 @@
+// Структура входящего оптимизированного пакета 
+type IncomingTx struct {
+	SignerUID uint64
+	Signature []byte
+	TxBody    []byte
+}
+
+// Пул буферов для сериализации (чтобы не выделять память при каждой отправке)
+var encodePool = sync.Pool{
+	New: func() interface{} {
+		// Резервируем с запасом под большие транзакции (например, 256KB + запас)
+		b := make([]byte, 0, 256*1024+512)
+		return &b
+	},
+}
+
+// MarshalManual собирает структуру в Protobuf-формат
+func (tx *IncomingTx) MarshalManual() []byte {
+	// Берем буфер из пула
+	bufPtr := encodePool.Get().(*[]byte)
+	buf := (*bufPtr)[:0] // Сбрасываем длину, сохраняя емкость
+
+	// 1. Кодируем signer_uid (Tag 1, WireType 1 - Fixed64)
+	buf = protowire.AppendTag(buf, 1, protowire.Fixed64Type)
+	buf = protowire.AppendFixed64(buf, tx.SignerUID)
+
+	// 2. Кодируем signature (Tag 2, WireType 2 - Bytes)
+	buf = protowire.AppendTag(buf, 2, protowire.BytesType)
+	buf = protowire.AppendVarint(buf, uint64(len(tx.Signature)))
+	buf = append(buf, tx.Signature...)
+
+	// 3. Кодируем tx_body (Tag 3, WireType 2 - Bytes)
+	buf = protowire.AppendTag(buf, 3, protowire.BytesType)
+	buf = protowire.AppendVarint(buf, uint64(len(tx.TxBody)))
+	buf = append(buf, tx.TxBody...)
+
+	// Важно: после использования этого буфера (например, после отправки в gRPC или записи в БД)
+	// его нужно вернуть в пул. Но так как gRPC/DB могут использовать его асинхронно,
+	// обычно делают копию или ждут завершения операции.
+	return buf
+}
+
+
+
+var encodePool = sync.Pool{
+	New: func() interface{} {
+		// Резервируем буфер под средний размер (например, 256КБ + заголовки)
+		b := make([]byte, 0, 256*1024+512)
+		return &b
+	},
+}
+
+// EncodeIncomingTx упаковывает поля в бинарный формат Protobuf без лишних аллокаций.
+func EncodeIncomingTx(signerUID uint64, signature []byte, txBody []byte) []byte {
+	// 1. Берем чистый буфер из пула
+	bufPtr := encodePool.Get().(*[]byte)
+	buf := (*bufPtr)[:0] 
+
+	// 2. Поле 1: signer_uid (fixed64) -> Tag 1, WireType 1
+	buf = protowire.AppendTag(buf, 1, protowire.Fixed64Type)
+	buf = protowire.AppendFixed64(buf, signerUID)
+
+	// 3. Поле 2: signature (bytes) -> Tag 2, WireType 2
+	buf = protowire.AppendTag(buf, 2, protowire.BytesType)
+	buf = protowire.AppendVarint(buf, uint64(len(signature)))
+	buf = append(buf, signature...)
+
+	// 4. Поле 3: tx_body (bytes) -> Tag 3, WireType 2
+	buf = protowire.AppendTag(buf, 3, protowire.BytesType)
+	buf = protowire.AppendVarint(buf, uint64(len(txBody)))
+	buf = append(buf, txBody...)
+
+	// Возвращаем результат
+	return buf
+}
+
+// ReleaseBuffer возвращает слайс в пул для повторного использования.
+// Важно: вызывайте это только когда данные уже отправлены/записаны.
+func ReleaseBuffer(buf []byte) {
+	raw := buf[:cap(buf)]
+	encodePool.Put(&raw)
+}
+
+//Теперь ручной декодер 
+type FastIncomingTx struct {
+	SignerUID  uint64
+	Signature  [64]byte   // Фиксировано: подпись всегда копируем сюда
+	TxBody     []byte     // Слайс, указывающий либо на inlineBody, либо на внешний буфер
+	
+	inlineBody [512]byte  // Буфер для небольших tx_body (хватает для большинства логов/транзакций)
+	isExternal bool       // Флаг: если true, значит TxBody взят из largeBufferPool
+}
+
+var (
+	// Пул для самих структур
+	txPool = sync.Pool{
+		New: func() interface{} { return &FastIncomingTx{} },
+	}
+	// Пул для редких больших транзакций (до 256 КБ)
+	largeBufferPool = sync.Pool{
+		New: func() interface{} {
+			b := make([]byte, 256*1024)
+			return &b
+		},
+	}
+)
+
+//ручной декодер 
+func UnmarshalIncomingTxFast(data []byte) (*FastIncomingTx, error) {
+	msg := txPool.Get().(*FastIncomingTx)
+	msg.isExternal = false
+	
+	pos := 0
+	for pos < len(data) {
+		tagNum, wireType, n := protowire.ConsumeTag(data[pos:])
+		if n < 0 { return nil, errors.New("invalid tag") }
+		pos += n
+
+		switch tagNum {
+		case 1: // signer_uid (fixed64)
+			val, n := protowire.ConsumeFixed64(data[pos:])
+			if n < 0 { return nil, errors.New("invalid fixed64") }
+			msg.SignerUID = val
+			pos += n
+
+		case 2: // signature (bytes)
+			valLen, n := protowire.ConsumeVarint(data[pos:])
+			if n < 0 { return nil, errors.New("invalid sig len") }
+			pos += n
+			if valLen == 64 {
+				copy(msg.Signature[:], data[pos:pos+64])
+			}
+			pos += int(valLen)
+
+		case 3: // tx_body (bytes)
+			valLen, n := protowire.ConsumeVarint(data[pos:])
+			if n < 0 { return nil, errors.New("invalid body len") }
+			pos += n
+			
+			vLenInt := int(valLen)
+			if vLenInt <= len(msg.inlineBody) {
+				// Сценарий "Small": копируем во внутренний буфер
+				msg.TxBody = msg.inlineBody[:vLenInt]
+			} else {
+				// Сценарий "Large": берем буфер из пула
+				bufPtr := largeBufferPool.Get().(*[]byte)
+				msg.TxBody = (*bufPtr)[:vLenInt]
+				msg.isExternal = true
+			}
+			copy(msg.TxBody, data[pos:pos+vLenInt])
+			pos += vLenInt
+
+		default: // Пропускаем неизвестные поля
+			_, n := protowire.ConsumeValue(data[pos:], wireType)
+			pos += n
+		}
+	}
+	return msg, nil
+}
+
+func ReleaseIncomingTx(msg *FastIncomingTx) {
+	if msg.isExternal {
+		// Возвращаем большой массив в его пул
+		buf := msg.TxBody[:cap(msg.TxBody)]
+		largeBufferPool.Put(&buf)
+	}
+	msg.TxBody = nil // Обнуляем ссылку для безопасности
+	txPool.Put(msg)
+}
