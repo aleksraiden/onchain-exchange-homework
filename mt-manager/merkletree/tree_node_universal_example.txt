@@ -1,0 +1,38 @@
+type YourStruct struct {
+	UniqueID uint64  // ОБЯЗАТЕЛЬНО: уникальный идентификатор
+	// ... ваши поля ...
+	key [8]byte      // Кеш ключа
+}
+
+func NewYourStruct(id uint64, /* другие параметры */) *YourStruct {
+	s := &YourStruct{
+		UniqueID: id,
+		// ... инициализация полей ...
+	}
+	binary.BigEndian.PutUint64(s.key[:], id)
+	return s
+}
+
+// Hash - хешируйте все важные поля
+func (s *YourStruct) Hash() [32]byte {
+	hasher := blake3.New()
+	hasher.Write(s.key[:])
+	// Добавьте все поля, которые влияют на состояние
+	// binary.Write(hasher, binary.BigEndian, s.SomeField)
+	// hasher.Write([]byte(s.StringField))
+	
+	var result [32]byte
+	copy(result[:], hasher.Sum(nil))
+	return result
+}
+
+func (s *YourStruct) Key() [8]byte {
+	return s.key
+}
+
+func (s *YourStruct) ID() uint64 {
+	return s.UniqueID
+}
+
+// Используйте
+tree := merkletree.New[*YourStruct](merkletree.DefaultConfig())

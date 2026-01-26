@@ -22,7 +22,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/zeebo/blake3"
 	"google.golang.org/protobuf/proto"
-//	"google.golang.org/protobuf/encoding/protowire"
 	
 	tx "tx-generator/tx"
 )
@@ -36,7 +35,7 @@ type User struct {
 	expKey *voied25519.ExpandedPublicKey // Для супер-быстрой проверки (1.5 КБ)
 	
 	initNonce 	uint64
-	nonce 		uint64
+	nonce 		atomic.Uint64
 	
 	txGen		uint64
 	
@@ -288,6 +287,10 @@ func main() {
 	txCounts := map[tx.OpCode]int{
 		tx.OpCode_META_NOOP:           100,
 		tx.OpCode_META_RESERVE:        50,
+		
+		
+		
+		
 		tx.OpCode_ORD_CREATE:          15_000,
 		tx.OpCode_ORD_CANCEL:          10_000,
 		tx.OpCode_ORD_CANCEL_ALL:      1000,
@@ -313,19 +316,26 @@ func main() {
 			if err != nil { panic(err) }
 		}
 		
-		initNonce := uint64( mrand.Intn(1000000) - 1)
+		initNonce := uint64( time.Now().UnixMicro() ) //Переходим на nonce от времени 
+		//uint64( mrand.Intn(1000000) - 1)
 		
-		users = append(users, &User{
-			uid:   uint64(i),
-			priv:  priv,
-			pub:   pub,
-			expKey:  expKey, //nil,
+		
+		u := &User{
+			uid:       uint64(i),
+			priv:      priv,
+			pub:       pub,
+			expKey:    expKey,
 			initNonce: initNonce,
-			nonce: initNonce,	//чтобы начальный nonce был 
-			
-			txGen: 0, //сколько всего сгенерировано (для облегчения дебага)
-		})
+			txGen:     0,	//сколько всего сгенерировано (для облегчения дебага)
+		}
+
+		// Инициализируем атомик отдельно
+		u.nonce.Store(initNonce)
+
+		users = append(users, u)
+		
 	}
+	
 	fmt.Println("Пользователи готовы.")
 	
 	// Массив для хранения исходных структур транзакций (нужен для теста сжатия)
@@ -362,7 +372,7 @@ func main() {
 				MarketCode:    tx.Markets_PERPETUAL,
 				MarketSymbol:  uint32(mrand.Intn(128)),
 				SignerUid:     u.uid,
-				Nonce:         u.nonce,
+				Nonce:         u.nonce.Load(), // initNonce ,
 				MinHeight:     now - 5,
 				MaxHeight:     now + 5,
 				Signature:	   nil,
@@ -549,9 +559,18 @@ func main() {
                 currentBatch = make([]*tx.Transaction, 0, MetaBatchSize)
             }
 ***/		
+
+if u.uid == 6221 {
+	fmt.Printf("OK, tx are created. txNonce %d, uid %d\n", u.nonce.Load(), u.uid)
+}
+
 			
 			//Обновим nonce
-			u.nonce++
+			//u.nonce++
+			//u.nonce = uint64( time.Now().UnixMicro() )
+			u.nonce.Store( uint64( time.Now().UnixMicro() ) )
+			
+
 			
 			//счетчик транзакий
 			u.txGen++
@@ -570,7 +589,7 @@ func main() {
 	
 	//Восстановим nonce из initNonce 
 	for _, u := range users {
-		u.nonce = u.initNonce - 1
+		u.nonce.Store( u.initNonce - 1 )
 	}
 	
 //DEBUG 
@@ -627,6 +646,7 @@ func main() {
 
 	//Инит пайплайна пропосера 
 	proposerPipeline := NewProposerPipeline()
+
 	
 	//var totalIncomingTx 	atomic.Uint64 
 	//var totalInvalidTx   	atomic.Uint64 	//сколько невалидны
@@ -653,8 +673,6 @@ func main() {
     }()
 	
 	
-	
-	
 		
 	start := time.Now()
 
@@ -664,36 +682,11 @@ func main() {
         
 		if err != nil {
             // Ошибка быстрой валидации (дубль или мусор)
-            // Игнорируем или баним IP
             
-			pretty.Println(incomingTx)
-			
+			pretty.Println(incomingTx)			
 			
 			continue 
         }
-		
-/***		
-		
-		
-		//fmt.Printf("% x\n", incomingTx[:32])
-		
-		_, hash, valTime, err := proposerPipeline.Process( incomingTx )
-		
-		if err != nil {
-			fmt.Printf("Ошибка валидации сообщения: %v\n", err)
-			
-			totalInvalidTx++
-			
-			continue
-		}
-		
-		if len(hash) != 0 {
-		
-			totalValidationDuration += uint64( valTime )
-		
-			//fmt.Printf( "Tx chech and decoded OK, hash: % x\n", hash[:32] )
-		}
-***/
 	}
 	
 	// 2. Ждем завершения всех воркеров
@@ -829,6 +822,7 @@ type PipelineMetrics struct {
 	TotalKeyExpTime     int64 // Время на распаковку ключей
 	TotalVerifyTime     int64 // Время на проверку подписи
 	TotalPrepareTime    int64 // Время подготовки транзакций
+	TotalExecTime       int64 // Уровень исполнения транзакций 
 	ItemsProcessed      int64 // Количество
 }
 
@@ -837,10 +831,13 @@ type ProposerPipeline struct {
 	verifierJobs 	chan VerifierJob
 	prepareChans 	[]chan PrepareJob
 	
+	execChans    	[]chan ExecutionJob 
+	
 	Output      	chan PipelineResult // Публичный канал выхода готовых данных
 	
 	//Роутер для распределению  обработчиков 
-	Router  TxRouter
+	Router  	TxRouter
+	ExecRouter 	ExecutionRouter
 	
 	// Для корректного завершения
 	wg sync.WaitGroup
@@ -910,6 +907,47 @@ type PrepareJob struct {
 	SignerUID uint64
 }
 
+// ExecutionJob - задача для исполнения транзакций 
+type ExecutionJob struct {
+	Tx        *tx.Transaction
+	TxHash    [32]byte
+	SignerUID uint64
+	MarketID  uint32 // Извлекаем заранее
+}
+
+// ExecutionRouter - логика маршрутизации
+type ExecutionRouter struct {
+	SystemMaxUID   uint64
+	DedicatedCount uint32 // = 64
+	GeneralWorkers uint32 // = NumCPU
+}
+
+// Вычисляем ID воркера
+func (r *ExecutionRouter) Route(uid uint64, marketID uint32) int {
+	// 1. Системные пользователи -> Worker 0
+	if uid <= r.SystemMaxUID {
+		return 0
+	}
+
+	// 2. Выделенные рынки (1..64) -> Workers 1..64
+	if marketID > 0 && marketID <= r.DedicatedCount {
+		return int(marketID)
+	}
+
+	// 3. Остальные рынки -> Шардинг по остальным воркерам
+	// Смещение индекса: 1 (sys) + 64 (dedicated) = 65
+	offset := 1 + int(r.DedicatedCount)
+	
+	// Если воркеров мало, защищаемся
+	if r.GeneralWorkers == 0 {
+		return 0 // Fallback
+	}
+
+	// Хешируем остальные рынки на доступные ядра
+	shard := int(marketID) % int(r.GeneralWorkers)
+	return offset + shard
+}
+
 
 // Конструктор пайплайна
 func NewProposerPipeline() *ProposerPipeline {
@@ -918,28 +956,60 @@ func NewProposerPipeline() *ProposerPipeline {
 	
 	if numWorkers < 3 { numWorkers = 4 } //Минимальное количество 
 	
-	fmt.Printf("\n\nStarting ProposerPipeline with %d decoder workers...\n", numWorkers)
+	//сколько декодеров 
+	numDecoders 	:= numWorkers 
+	numVerifiers 	:= numWorkers 	//Проверка подписей 
+	numPreparers 	:= numWorkers 
 	
-	// Буферы важны! Они сглаживают пики нагрузки.
-	//jobs := make(chan DecoderJob, 20000)
-	//out := make(chan PipelineResult, 20000)
+	// Конфигурация Execution
+	const HotMarkets 	= 64	//Я чуток с запасом взял, можно сделать сколько у нас рынков важных
+	totalExecWorkers 	:= 1 + HotMarkets + numWorkers
+	
+	var systemMaxUID	uint64	= 100 //Сколько у нас диапазон системных юзеров 
+	
 
+	fmt.Printf("\n\nStarting ProposerPipeline with:\n")
+
+	fmt.Printf("- %d CPU availables\n", runtime.NumCPU())
+	fmt.Printf("- %d decoders\n", numDecoders)
+	fmt.Printf("- %d verifiers\n", numVerifiers)
+	fmt.Printf("- %d preparers\n\n", numPreparers)
+	
+	
 	p := &ProposerPipeline{
 		decoderJobs:  make(chan DecoderJob, 20000),
 		verifierJobs: make(chan VerifierJob, 20000),
-		prepareChans: make([]chan PrepareJob, numWorkers),
+		prepareChans: make([]chan PrepareJob, numPreparers),
+		execChans:    make([]chan ExecutionJob, totalExecWorkers),
 	
 		Output:       make(chan PipelineResult, 20000),
 		
 		Router: TxRouter{
-			SystemMaxUID: 100,
+			SystemMaxUID: systemMaxUID,
 			ManualRoutes: make(map[uint64]int), // Можно заполнить из конфига
-			NumWorkers:   numWorkers,
+			NumWorkers:   numPreparers,
+		},
+		ExecRouter: ExecutionRouter{
+			SystemMaxUID:   systemMaxUID,
+			DedicatedCount: HotMarkets,
+			GeneralWorkers: uint32(numWorkers),
 		},
 	}
 	
-	// 1. Создаем каналы и запускаем PrepareWorkers (они должны быть готовы принимать)
-	for i := 0; i < numWorkers; i++ {
+	/**
+		Архитектура уровня исполнения (Execution Layer)
+			Worker 0: Системный (Admin, Oracle, Config).
+			Workers 1..64: Выделенные (Dedicated) воркеры для топ-рынков (BTC/USDT, ETH/USDT и т.д.). У каждого маркета свой личный поток.
+			Workers 65..N: Общий пул (Sharded Pool) для всех остальных тысяч мелких рынков.
+	**/
+	// 1. Запускаем Execution Workers (Последняя стадия)
+	for i := 0; i < totalExecWorkers; i++ {
+		p.execChans[i] = make(chan ExecutionJob, 5000)
+		go p.executionWorker(i, p.execChans[i], p.Output)
+	}
+	
+	// 2. Создаем каналы и запускаем PrepareWorkers (они должны быть готовы принимать)
+	for i := 0; i < numPreparers; i++ {
 		p.prepareChans[i] = make(chan PrepareJob, 5000) // Буфер для каждого шарда
 		
 		// Запускаем воркер с привязкой к ID
@@ -947,11 +1017,21 @@ func NewProposerPipeline() *ProposerPipeline {
 	}
 	
 
-	// Запускаем воркеры
-	for i := 0; i < numWorkers; i++ {
+	// 3. Запускаем воркеры
+	for i := 0; i < numDecoders; i++ {
 		go p.decoderWorker(p.decoderJobs, p.verifierJobs) // Теперь пишет в verifierJobs
+		//go p.verifierWorker(p.verifierJobs, p.Output)     // Читает verifierJobs, пишет в Output
+	}
+	
+	// 4
+	for i := 0; i < numVerifiers; i++ {
 		go p.verifierWorker(p.verifierJobs, p.Output)     // Читает verifierJobs, пишет в Output
 	}
+	
+	
+	
+	
+	
 
 	return p
 }
@@ -978,18 +1058,37 @@ func (p *ProposerPipeline) decoderWorker(jobs <-chan DecoderJob, nextStage chan<
 			continue
 		}
 		
-		atomic.AddInt64(&p.metrics.TotalDecodingTime, time.Since(start).Nanoseconds())
-
 		// 3. Извлечение UID и подготовка к верификации
 		h := txx.GetHeader()
 		if h == nil {
 			p.wg.Done()
 			continue
 		}
+		
+		// 2. Предварительная проверка UID
+        uid := h.SignerUid
+        if uid == 0 || uid > uint64(len(users)) {
+            continue // Невалидный юзер, нет смысла проверять подпись
+        }
+		
+		user := users[uid-1]
+
+        // 3. ОПТИМИСТИЧНАЯ ПРОВЕРКА NONCE (До проверки подписи!)
+        // Читаем атомарно текущий nonce пользователя (последний успешно подготовленный)
+        lastNonce := user.nonce.Load()
+		
+		// Если пришедший Nonce (время) меньше или равен уже исполненному — 
+        // это дубль, реплей или старый пакет. Сразу в мусорку.
+        if h.Nonce <= lastNonce {
+            p.wg.Done() // Считаем задачу выполненной с ошибкой
+            continue 
+        }
 
 		// Клонируем структуру для передачи следующей стадии
 		// (обязательно, т.к. txx тут локальная и будет перезаписана)
 		resTx := proto.Clone(&txx).(*tx.Transaction)
+		
+		atomic.AddInt64(&p.metrics.TotalDecodingTime, time.Since(start).Nanoseconds())
 
 		// Отправляем Верификатору
 		nextStage <- VerifierJob{
@@ -1093,6 +1192,7 @@ func (p *ProposerPipeline) verifierWorker(jobs <-chan VerifierJob, out chan<- Pi
 type PendingTx struct {
 	Nonce 	uint64
 	Tx     *tx.Transaction
+	TxHash [32]byte
 	//Job   PrepareJob
 }
 
@@ -1171,8 +1271,8 @@ func (p *ProposerPipeline) prepareExecutionWorker(workerID int, jobs <-chan Prep
 		//Получим Tx nonce 
 		txNonce := header.Nonce
 		
-		// Текущий ожидаемый Nonce
-		expectedNonce := user.nonce + 1
+		// Текущий ожидаемый Nonce - минимально такой 
+		expectedNonce := user.nonce.Load() + 1
 		
 		// 3. Получаем (или создаем) буфер
 		buf, exists := pendingBuffers[job.SignerUID]
@@ -1205,6 +1305,7 @@ func (p *ProposerPipeline) prepareExecutionWorker(workerID int, jobs <-chan Prep
 			buf.Add(PendingTx{
 				Nonce:  txNonce,
 				Tx:     job.Tx,     // Сохраняем только указатель
+				TxHash: job.TxHash,
 			})
 		} else {
 			// Буфер переполнен - дропаем новую (или самую дальнюю)
@@ -1222,27 +1323,52 @@ func (p *ProposerPipeline) prepareExecutionWorker(workerID int, jobs <-chan Prep
 		// Используем индекс смещения, чтобы не ресайзить слайс на каждой итерации
 		processedCount := 0
 		
-//initialQueueLen := len(buf.Queue)
+initialQueueLen := len(buf.Queue)
 		
 		for _, pending := range buf.Queue {
-			if pending.Nonce == expectedNonce {
+			if pending.Nonce >= expectedNonce {
 				
-//if pending.Job.SignerUID == 6221 {
-//fmt.Printf("OK, tx are processed. expectedNonce %d, txNonce %d, uid %d, buffer: %d\n", expectedNonce, pending.Nonce, pending.Job.SignerUID, initialQueueLen)
-//}
+				// 1. Извлекаем MarketID для роутинга
+				// Он есть в хедере. Если это BatchHeader, там тоже должен быть market_symbol
+				var marketID 	uint32
+				var signerUID 	uint64
 				
-				// А. Идеальное совпадение -> Исполняем
-				out <- PipelineResult{
-					Tx:     pending.Tx,
-					//TxHash: pending.TxHash,
+				h := pending.Tx.GetHeader();
+				
+				if  h != nil {
+					marketID = h.MarketSymbol
+					signerUID = h.SignerUid
+					
+					
+if signerUID == 6221 {
+	fmt.Printf("OK, tx are processed. expectedNonce %d, txNonce %d, uid %d, buffer: %d\n", expectedNonce, pending.Nonce, signerUID, initialQueueLen)
+}					
+				}
+				// Если маркета нет, по дефолту 0 (General или Error, зависит от логики)
+
+				// 2. Определяем целевого воркера исполнения
+				targetWorker := p.ExecRouter.Route(signerUID, marketID)
+
+				// 3. Отправляем на исполнение
+				p.execChans[targetWorker] <- ExecutionJob{
+					Tx:        pending.Tx,
+					TxHash:    pending.TxHash,
+					SignerUID: signerUID, //job.SignerUID,
+					MarketID:  marketID,
 				}
 				
+				/**
+					// А. Идеальное совпадение -> Исполняем
+					out <- PipelineResult{
+						Tx:     pending.Tx,
+						//TxHash: pending.TxHash,
+					}
+					// Закрываем WG для этой транзакции
+					p.wg.Done()
+				**/
 				// Обновляем стейт
-				user.nonce++
-				expectedNonce++
-				
-				// Закрываем WG для этой транзакции
-				p.wg.Done()
+				user.nonce.Store( pending.Nonce ) //++
+				expectedNonce = pending.Nonce //++
 				
 				processedCount++
 				
@@ -1309,8 +1435,6 @@ func (p *ProposerPipeline) prepareExecutionWorker(workerID int, jobs <-chan Prep
 	}
 }
 
-
-
 // Push - принимает данные, валидирует легкую часть и отдает в работу.
 // Возвращает error только если валидация не прошла сразу (spam filter).
 func (p *ProposerPipeline) Push(rawTx []byte) error {
@@ -1353,6 +1477,76 @@ func (p *ProposerPipeline) Push(rawTx []byte) error {
 	return nil
 }
 
+/**
+Резюме:
+
+Внутри одного рынка: Строгий порядок (1, 2, 3...).
+Внутри одного юзера на одном рынке: Строгий порядок по Nonce.
+Внутри одного юзера на РАЗНЫХ рынках: Порядок отправки гарантирован, порядок завершения — нет (кто быстрее, тот и успел).
+**/
+func (p *ProposerPipeline) executionWorker(workerID int, jobs <-chan ExecutionJob, out chan<- PipelineResult) {
+	// Здесь будет State конкретного маркета (OrderBook)
+	// orderBook := NewOrderBook()
+	
+	SimulatedExecutionTimeNS := 0 //1_000_000	//1 мс. симуляция транзакции 
+
+	for job := range jobs {
+		start := time.Now()
+
+		// --- БИЗНЕС ЛОГИКА ИСПОЛНЕНИЯ ---
+		// Здесь мы знаем, что:
+		// 1. Подпись верна.
+		// 2. Nonce строго по порядку (благодаря PrepareWorker).
+		// 3. Мы одни работаем с этим маркетом (благодаря ExecRouter).
+		// Никаких мьютексов для OrderBook не нужно!
+		
+		
+		// --- СИМУЛЯЦИЯ РАБОТЫ ---
+		if SimulatedExecutionTimeNS > 0 {
+		
+			// 1. Имитация "чтения" стейта (кеш промахи и т.д.)
+			// Можно добавить rand, чтобы время плавало (jitter)
+			
+			targetTime := int64(SimulatedExecutionTimeNS)
+			
+			// Опционально: системные транзакции (worker 0) быстрее/медленнее
+			if workerID == 0 {
+				targetTime = 250_000 // 250 мкс для админки
+			}
+
+			// Сжигаем циклы
+			endSpin := start.Add(time.Duration(targetTime))
+			for time.Now().Before(endSpin) {
+				// busy wait
+				
+				// Пустая операция, чтобы компилятор не выкинул цикл
+				// (хотя time.Since обычно достаточно, но для надежности)
+				runtime.Gosched() // Или просто пустой блок
+			}
+			
+		}
+		// ------------------------
+		
+		
+		
+		
+
+		// Эмуляция работы
+		// if job.MarketID > 0 { matchOrder(job.Tx) }
+
+		// Замер времени
+		atomic.AddInt64(&p.metrics.TotalExecTime, time.Since(start).Nanoseconds())
+
+		// Финальный выход (Commit)
+		out <- PipelineResult{
+			Tx:     job.Tx,
+			TxHash: job.TxHash,
+		}
+
+		// Работа по транзакции полностью завершена
+		p.wg.Done()
+	}
+}
 
 func (p *ProposerPipeline) PrintStats(totalWallTime time.Duration) {
 	count := atomic.LoadInt64(&p.metrics.ItemsProcessed)
@@ -1366,6 +1560,7 @@ func (p *ProposerPipeline) PrintStats(totalWallTime time.Duration) {
 	tExp := time.Duration(atomic.LoadInt64(&p.metrics.TotalKeyExpTime))
 	tVer := time.Duration(atomic.LoadInt64(&p.metrics.TotalVerifyTime))
 	tPrep := time.Duration(atomic.LoadInt64(&p.metrics.TotalPrepareTime))
+	tExec := time.Duration(atomic.LoadInt64(&p.metrics.TotalExecTime))
 
 	fmt.Printf("\n====== PIPELINE REPORT (%d tx) ======\n", count)
 	fmt.Printf("Total Wall Time:  %v\n", totalWallTime)
@@ -1380,11 +1575,15 @@ func (p *ProposerPipeline) PrintStats(totalWallTime time.Duration) {
 	
 	fmt.Printf("4. Verification:  %10s | %s/op\n", tVer, tVer/time.Duration(count))
 	
-	// Вывод новой стадии
+	// Реордеринг транзакций 
 	fmt.Printf("5. Prepare Exec:  %10s | %s/op\n", tPrep, tPrep/time.Duration(count))
+	
+	//Исполнение 
+	fmt.Printf("6. Execution:     %10s | %s/op\n", tExec, tExec/time.Duration(count))
+	
 
 	// Сумма времени работы процессоров
-	totalCPU := tVal + tDec + tExp + tVer + tPrep
+	totalCPU := tVal + tDec + tExp + tVer + tPrep + tExec
 	parallelism := float64(totalCPU) / float64(totalWallTime)
 	
 	fmt.Printf("\nEfficiency: %.2fx parallelism (CPUs busy)\n", parallelism)
