@@ -10,55 +10,54 @@ import (
 )
 
 const (
-	// NodeBlockSize - размер блока для arena allocator
 	NodeBlockSize = 1024 * 1024
 
-	// SmallBatchThreshold - порог для маленьких батчей (используем простую блокировку)
-	SmallBatchThreshold = 100
-
-	// ParallelBatchThreshold - порог для параллельных батчей
-	ParallelBatchThreshold = 500
+	// Агрессивные пороги для больших систем
+	SmallBatchThreshold    = 30  // Было 50
+	ParallelBatchThreshold = 150 // Было 200
 )
 
-// Tree представляет полностью оптимизированное Merkle-дерево
-// Включает: lazy hashing, lock-free reads, adaptive locking, parallel batch
+// Tree - убираем избыточный padding, оставляем только критичный
 type Tree[T Hashable] struct {
 	root       *Node[T]
-	items      sync.Map      // Lock-free concurrent map для быстрых reads
-	itemCount  atomic.Uint64 // Атомарный счетчик элементов
+	items      sync.Map
+	itemCount  atomic.Uint64
 	arena      *Arena[T]
 	cache      *ShardedCache[T]
 	maxDepth   int
-	mu         sync.RWMutex // Для структурных операций (Clear, small batches)
+	mu         sync.RWMutex
 
-	// Lazy hashing - не пересчитываем хеши при каждой вставке
-	dirtyNodes     atomic.Uint64 // Счетчик "грязных" узлов
-	cachedRoot     [32]byte      // Кешированный корень
-	rootCacheValid atomic.Bool   // Валиден ли кеш корня
+	// Lazy hashing (компактно)
+	dirtyNodes     atomic.Uint64
+	cachedRoot     [32]byte
+	rootCacheValid atomic.Bool
 
-	// Метрики производительности
+	// Метрики
 	insertCount        atomic.Uint64
+	deleteCount        atomic.Uint64
 	getCount           atomic.Uint64
 	cacheHits          atomic.Uint64
 	cacheMisses        atomic.Uint64
 	computeCount       atomic.Uint64
 	batchCount         atomic.Uint64
-	simpleBatchCount   atomic.Uint64 // Простые батчи (глобальная блокировка)
-	parallelBatchCount atomic.Uint64 // Параллельные батчи (per-node locks)
+	simpleBatchCount   atomic.Uint64
+	parallelBatchCount atomic.Uint64
 }
 
-// Node узел с fine-grained locking и lazy hashing
+// Node - минимальный padding только для mutex
 type Node[T Hashable] struct {
 	Hash     [32]byte
 	Children []*Node[T]
 	Keys     []byte
 	Value    T
 	IsLeaf   bool
-	mu       sync.RWMutex // Per-node lock для concurrent доступа
-	dirty    atomic.Bool  // Требуется пересчет хеша
+	dirty    atomic.Bool
+
+	_padding [7]byte // Выравнивание до 8 байт для mutex
+
+	mu sync.RWMutex // В отдельной cache line от данных
 }
 
-// New создает новое полностью оптимизированное Merkle-дерево
 func New[T Hashable](cfg *Config) *Tree[T] {
 	if cfg == nil {
 		cfg = DefaultConfig()
@@ -75,61 +74,71 @@ func New[T Hashable](cfg *Config) *Tree[T] {
 	}
 }
 
-// Insert вставляет элемент (одиночные вставки используют per-node locking)
 func (t *Tree[T]) Insert(item T) {
-	// Добавляем в sync.Map (lock-free операция)
 	t.items.Store(item.ID(), item)
 	t.itemCount.Add(1)
-
-	// Добавляем в кеш
 	t.cache.put(item.ID(), item)
-
-	// Одиночные вставки обычно происходят параллельно из разных горутин
-	// Используем per-node locking для максимального параллелизма
 	t.insertNodeConcurrent(t.root, item, 0)
-
-	// Помечаем корень грязным, но НЕ пересчитываем хеши (lazy)
 	t.rootCacheValid.Store(false)
 	t.insertCount.Add(1)
 }
 
-// InsertBatch оптимизированная пакетная вставка с адаптивной стратегией
+// InsertBatch - ультра-агрессивная стратегия для больших систем
 func (t *Tree[T]) InsertBatch(items []T) {
 	if len(items) == 0 {
 		return
 	}
 
 	batchSize := len(items)
+	numCPU := runtime.NumCPU()
 
-	// Адаптивная стратегия блокировок:
-	// 1. Маленькие батчи (<100): глобальная блокировка (меньше overhead)
-	// 2. Средние батчи (100-500): последовательно с per-node locks
-	// 3. Большие батчи (>500): параллельно с per-node locks
-
-	if batchSize < SmallBatchThreshold {
-		t.insertBatchSimple(items)
-		t.simpleBatchCount.Add(1)
-	} else if batchSize >= ParallelBatchThreshold && runtime.NumCPU() > 1 {
-		t.insertBatchParallel(items)
-		t.parallelBatchCount.Add(1)
+	// Стратегия зависит от количества ядер
+	if numCPU >= 40 {
+		// Для ОЧЕНЬ больших систем (40+ ядер)
+		if batchSize < SmallBatchThreshold {
+			t.insertBatchSimple(items)
+			t.simpleBatchCount.Add(1)
+		} else {
+			// Всегда используем mega parallel на больших системах
+			t.insertBatchMegaParallel(items)
+			t.parallelBatchCount.Add(1)
+		}
+	} else if numCPU >= 16 {
+		// Средние системы (16-40 ядер)
+		if batchSize < SmallBatchThreshold {
+			t.insertBatchSimple(items)
+			t.simpleBatchCount.Add(1)
+		} else if batchSize >= ParallelBatchThreshold {
+			t.insertBatchMegaParallel(items)
+			t.parallelBatchCount.Add(1)
+		} else {
+			t.insertBatchParallel(items)
+			t.parallelBatchCount.Add(1)
+		}
 	} else {
-		t.insertBatchSequential(items)
+		// Малые системы (<16 ядер)
+		if batchSize < SmallBatchThreshold {
+			t.insertBatchSimple(items)
+			t.simpleBatchCount.Add(1)
+		} else if batchSize >= ParallelBatchThreshold*2 {
+			t.insertBatchParallel(items)
+			t.parallelBatchCount.Add(1)
+		} else {
+			t.insertBatchSequential(items)
+		}
 	}
 
 	t.batchCount.Add(1)
 	t.insertCount.Add(uint64(len(items)))
 }
 
-// insertBatchSimple для маленьких батчей - одна глобальная блокировка
 func (t *Tree[T]) insertBatchSimple(items []T) {
-	// Фаза 1: Добавляем в maps (без блокировок)
 	for _, item := range items {
 		t.items.Store(item.ID(), item)
 		t.cache.put(item.ID(), item)
 	}
 	t.itemCount.Add(uint64(len(items)))
 
-	// Фаза 2: Одна глобальная блокировка для всего батча
 	t.mu.Lock()
 	for _, item := range items {
 		t.insertNodeSimple(t.root, item, 0)
@@ -139,16 +148,13 @@ func (t *Tree[T]) insertBatchSimple(items []T) {
 	t.rootCacheValid.Store(false)
 }
 
-// insertBatchSequential последовательная батчевая вставка с per-node locks
 func (t *Tree[T]) insertBatchSequential(items []T) {
-	// Фаза 1: Быстрое добавление в maps (без блокировок)
 	for _, item := range items {
 		t.items.Store(item.ID(), item)
 		t.cache.put(item.ID(), item)
 	}
 	t.itemCount.Add(uint64(len(items)))
 
-	// Фаза 2: Вставка в структуру дерева (per-node locking)
 	for _, item := range items {
 		t.insertNodeConcurrent(t.root, item, 0)
 	}
@@ -156,16 +162,36 @@ func (t *Tree[T]) insertBatchSequential(items []T) {
 	t.rootCacheValid.Store(false)
 }
 
-// insertBatchParallel параллельная батчевая вставка для больших батчей
 func (t *Tree[T]) insertBatchParallel(items []T) {
-	numWorkers := runtime.NumCPU()
-	chunkSize := (len(items) + numWorkers - 1) / numWorkers
+	if len(items) == 0 {
+		return
+	}
 
+	numWorkers := runtime.NumCPU()
+	
+	// Для больших систем используем больше воркеров
+	if numWorkers >= 32 {
+		numWorkers = numWorkers * 3 / 2 // x1.5
+	}
+	
+	if numWorkers > 64 {
+		numWorkers = 64
+	}
+	
+	// ВАЖНО: не больше воркеров, чем элементов!
+	if numWorkers > len(items) {
+		numWorkers = len(items)
+	}
+
+	chunkSize := (len(items) + numWorkers - 1) / numWorkers
 	var wg sync.WaitGroup
 
-	// Фаза 1: Параллельно добавляем в maps
 	for i := 0; i < numWorkers; i++ {
 		start := i * chunkSize
+		if start >= len(items) {
+			break // Не запускаем лишние горутины
+		}
+		
 		end := start + chunkSize
 		if end > len(items) {
 			end = len(items)
@@ -184,9 +210,12 @@ func (t *Tree[T]) insertBatchParallel(items []T) {
 	wg.Wait()
 	t.itemCount.Add(uint64(len(items)))
 
-	// Фаза 2: Параллельно вставляем в структуру (безопасно с per-node locks)
 	for i := 0; i < numWorkers; i++ {
 		start := i * chunkSize
+		if start >= len(items) {
+			break // Не запускаем лишние горутины
+		}
+		
 		end := start + chunkSize
 		if end > len(items) {
 			end = len(items)
@@ -205,16 +234,108 @@ func (t *Tree[T]) insertBatchParallel(items []T) {
 	t.rootCacheValid.Store(false)
 }
 
-// insertNodeSimple простая вставка БЕЗ per-node locks
-// Вызывается только под глобальной блокировкой t.mu
+// insertBatchMegaParallel для больших батчей на NUMA системах
+func (t *Tree[T]) insertBatchMegaParallel(items []T) {
+	if len(items) == 0 {
+		return
+	}
+
+	numCPU := runtime.NumCPU()
+	
+	// Агрессивная стратегия воркеров для NUMA
+	numWorkers := numCPU * 3 // x3 от ядер!
+	if numWorkers > 144 {
+		numWorkers = 144
+	}
+	
+	// ВАЖНО: не больше воркеров, чем элементов!
+	if numWorkers > len(items) {
+		numWorkers = len(items)
+	}
+
+	chunkSize := (len(items) + numWorkers - 1) / numWorkers
+	var wg sync.WaitGroup
+
+	// Фаза 1: Максимальный параллелизм для maps
+	for i := 0; i < numWorkers; i++ {
+		start := i * chunkSize
+		if start >= len(items) {
+			break // Не запускаем лишние горутины
+		}
+		
+		end := start + chunkSize
+		if end > len(items) {
+			end = len(items)
+		}
+
+		wg.Add(1)
+		go func(chunk []T) {
+			defer wg.Done()
+			for _, item := range chunk {
+				t.items.Store(item.ID(), item)
+				t.cache.put(item.ID(), item)
+			}
+		}(items[start:end])
+	}
+
+	wg.Wait()
+	t.itemCount.Add(uint64(len(items)))
+
+	// Фаза 2: Группируем по первым 2 байтам для еще лучшей локальности
+	groupSize := 256
+	if len(items) > 10000 {
+		groupSize = 4096 // 2 байта = 16 бит
+	}
+	
+	groups := make([][]T, groupSize)
+	for _, item := range items {
+		key := item.Key()
+		var groupKey int
+		if groupSize == 256 {
+			groupKey = int(key[0])
+		} else {
+			groupKey = (int(key[0]) << 8) | int(key[1])
+		}
+		groups[groupKey] = append(groups[groupKey], item)
+	}
+
+	// Канал для групп
+	groupChan := make(chan []T, groupSize)
+	for _, group := range groups {
+		if len(group) > 0 {
+			groupChan <- group
+		}
+	}
+	close(groupChan)
+
+	// Много воркеров для обработки
+	numGroupWorkers := numCPU * 2
+	if numGroupWorkers > 96 {
+		numGroupWorkers = 96
+	}
+	
+	for i := 0; i < numGroupWorkers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for group := range groupChan {
+				for _, item := range group {
+					t.insertNodeConcurrent(t.root, item, 0)
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+	t.rootCacheValid.Store(false)
+}
+
 func (t *Tree[T]) insertNodeSimple(node *Node[T], item T, depth int) {
 	key := item.Key()
 
 	if depth >= t.maxDepth-1 {
-		// Уровень листьев
 		idx := key[depth]
 
-		// Ищем существующий ключ
 		for i, k := range node.Keys {
 			if k == idx {
 				child := node.Children[i]
@@ -227,7 +348,6 @@ func (t *Tree[T]) insertNodeSimple(node *Node[T], item T, depth int) {
 			}
 		}
 
-		// Создаем новый лист
 		child := t.arena.alloc()
 		child.IsLeaf = true
 		child.Value = item
@@ -239,7 +359,6 @@ func (t *Tree[T]) insertNodeSimple(node *Node[T], item T, depth int) {
 		return
 	}
 
-	// Промежуточный узел
 	idx := key[depth]
 	for i, k := range node.Keys {
 		if k == idx {
@@ -250,7 +369,6 @@ func (t *Tree[T]) insertNodeSimple(node *Node[T], item T, depth int) {
 		}
 	}
 
-	// Новая ветка
 	child := t.arena.alloc()
 	node.Keys = append(node.Keys, idx)
 	node.Children = append(node.Children, child)
@@ -260,24 +378,19 @@ func (t *Tree[T]) insertNodeSimple(node *Node[T], item T, depth int) {
 	t.insertNodeSimple(child, item, depth+1)
 }
 
-// insertNodeConcurrent вставка с per-node locking (для параллельного доступа)
 func (t *Tree[T]) insertNodeConcurrent(node *Node[T], item T, depth int) {
 	key := item.Key()
 
-	// Блокируем ТОЛЬКО текущий узел
 	node.mu.Lock()
 
 	if depth >= t.maxDepth-1 {
-		// Уровень листьев
 		idx := key[depth]
 
-		// Ищем существующий ключ
 		for i, k := range node.Keys {
 			if k == idx {
 				child := node.Children[i]
-				node.mu.Unlock() // Освобождаем родителя
+				node.mu.Unlock()
 
-				// Обновляем лист
 				child.mu.Lock()
 				child.Value = item
 				child.Hash = item.Hash()
@@ -290,7 +403,6 @@ func (t *Tree[T]) insertNodeConcurrent(node *Node[T], item T, depth int) {
 			}
 		}
 
-		// Создаем новый лист
 		child := t.arena.alloc()
 		child.IsLeaf = true
 		child.Value = item
@@ -303,12 +415,11 @@ func (t *Tree[T]) insertNodeConcurrent(node *Node[T], item T, depth int) {
 		return
 	}
 
-	// Промежуточный узел
 	idx := key[depth]
 	for i, k := range node.Keys {
 		if k == idx {
 			child := node.Children[i]
-			node.mu.Unlock() // Освобождаем родителя ПЕРЕД рекурсией
+			node.mu.Unlock()
 			t.insertNodeConcurrent(child, item, depth+1)
 			node.dirty.Store(true)
 			t.dirtyNodes.Add(1)
@@ -316,28 +427,24 @@ func (t *Tree[T]) insertNodeConcurrent(node *Node[T], item T, depth int) {
 		}
 	}
 
-	// Новая ветка
 	child := t.arena.alloc()
 	node.Keys = append(node.Keys, idx)
 	node.Children = append(node.Children, child)
 	node.dirty.Store(true)
 	t.dirtyNodes.Add(1)
 
-	node.mu.Unlock() // Освобождаем перед рекурсией
+	node.mu.Unlock()
 	t.insertNodeConcurrent(child, item, depth+1)
 }
 
-// Get возвращает элемент по ID (полностью lock-free для cache hits)
 func (t *Tree[T]) Get(id uint64) (T, bool) {
 	t.getCount.Add(1)
 
-	// Проверка кеша (lock-free)
 	if item, ok := t.cache.get(id); ok {
 		t.cacheHits.Add(1)
 		return item, true
 	}
 
-	// Поиск в sync.Map (lock-free)
 	if val, ok := t.items.Load(id); ok {
 		item := val.(T)
 		t.cache.put(id, item)
@@ -350,16 +457,13 @@ func (t *Tree[T]) Get(id uint64) (T, bool) {
 	return zero, false
 }
 
-// ComputeRoot вычисляет корневой хеш (с использованием кеша)
 func (t *Tree[T]) ComputeRoot() [32]byte {
-	// Проверяем кеш корня
 	if t.rootCacheValid.Load() {
 		return t.cachedRoot
 	}
 
 	root := t.computeNodeHash(t.root, 0)
 
-	// Сохраняем в кеш
 	t.cachedRoot = root
 	t.rootCacheValid.Store(true)
 	t.dirtyNodes.Store(0)
@@ -368,9 +472,7 @@ func (t *Tree[T]) ComputeRoot() [32]byte {
 	return root
 }
 
-// ComputeRootParallel параллельное вычисление корня для больших деревьев
 func (t *Tree[T]) ComputeRootParallel() [32]byte {
-	// Проверяем кеш
 	if t.rootCacheValid.Load() {
 		return t.cachedRoot
 	}
@@ -385,23 +487,19 @@ func (t *Tree[T]) ComputeRootParallel() [32]byte {
 	return root
 }
 
-// computeNodeHash рекурсивное вычисление с per-node locking
 func (t *Tree[T]) computeNodeHash(node *Node[T], depth int) [32]byte {
 	if node == nil {
 		return [32]byte{}
 	}
 
-	// Read lock только для этого узла
 	node.mu.RLock()
 
-	// Если узел не грязный - возвращаем кеш
 	if !node.dirty.Load() && node.Hash != [32]byte{} {
 		hash := node.Hash
 		node.mu.RUnlock()
 		return hash
 	}
 
-	// Для листьев
 	if node.IsLeaf {
 		var hash [32]byte
 		if any(node.Value) != nil {
@@ -409,7 +507,6 @@ func (t *Tree[T]) computeNodeHash(node *Node[T], depth int) [32]byte {
 		}
 		node.mu.RUnlock()
 
-		// Обновляем узел
 		node.mu.Lock()
 		node.Hash = hash
 		node.dirty.Store(false)
@@ -424,7 +521,6 @@ func (t *Tree[T]) computeNodeHash(node *Node[T], depth int) [32]byte {
 		return [32]byte{}
 	}
 
-	// Копируем данные под read lock
 	indices := make([]int, count)
 	for i := range indices {
 		indices[i] = i
@@ -435,9 +531,8 @@ func (t *Tree[T]) computeNodeHash(node *Node[T], depth int) [32]byte {
 	children := make([]*Node[T], count)
 	copy(children, node.Children)
 
-	node.mu.RUnlock() // Освобождаем рано, чтобы разрешить параллельный доступ
+	node.mu.RUnlock()
 
-	// Сортировка индексов
 	for i := 0; i < count-1; i++ {
 		for j := i + 1; j < count; j++ {
 			if keys[indices[i]] > keys[indices[j]] {
@@ -446,7 +541,6 @@ func (t *Tree[T]) computeNodeHash(node *Node[T], depth int) [32]byte {
 		}
 	}
 
-	// Вычисляем хеши детей БЕЗ блокировки родителя
 	hasher := blake3.New()
 	for _, idx := range indices {
 		childHash := t.computeNodeHash(children[idx], depth+1)
@@ -457,7 +551,6 @@ func (t *Tree[T]) computeNodeHash(node *Node[T], depth int) [32]byte {
 	var result [32]byte
 	copy(result[:], hasher.Sum(nil))
 
-	// Обновляем узел
 	node.mu.Lock()
 	node.Hash = result
 	node.dirty.Store(false)
@@ -466,7 +559,6 @@ func (t *Tree[T]) computeNodeHash(node *Node[T], depth int) [32]byte {
 	return result
 }
 
-// computeNodeHashParallel параллельное вычисление для верхних уровней
 func (t *Tree[T]) computeNodeHashParallel(node *Node[T], depth int) [32]byte {
 	if node == nil {
 		return [32]byte{}
@@ -501,7 +593,6 @@ func (t *Tree[T]) computeNodeHashParallel(node *Node[T], depth int) [32]byte {
 		return [32]byte{}
 	}
 
-	// Параллелизм только на верхних уровнях с достаточным количеством детей
 	useParallel := depth < 2 && count >= 4 && runtime.NumCPU() > 1
 
 	indices := make([]int, count)
@@ -516,7 +607,6 @@ func (t *Tree[T]) computeNodeHashParallel(node *Node[T], depth int) [32]byte {
 
 	node.mu.RUnlock()
 
-	// Сортировка
 	for i := 0; i < count-1; i++ {
 		for j := i + 1; j < count; j++ {
 			if keys[indices[i]] > keys[indices[j]] {
@@ -525,11 +615,9 @@ func (t *Tree[T]) computeNodeHashParallel(node *Node[T], depth int) [32]byte {
 		}
 	}
 
-	// Вычисляем хеши детей
 	childHashes := make([][32]byte, count)
 
 	if useParallel {
-		// Параллельно
 		var wg sync.WaitGroup
 		for i, idx := range indices {
 			wg.Add(1)
@@ -540,13 +628,11 @@ func (t *Tree[T]) computeNodeHashParallel(node *Node[T], depth int) [32]byte {
 		}
 		wg.Wait()
 	} else {
-		// Последовательно
 		for i, idx := range indices {
 			childHashes[i] = t.computeNodeHash(children[idx], depth+1)
 		}
 	}
 
-	// Хешируем результат
 	hasher := blake3.New()
 	for i, idx := range indices {
 		hasher.Write([]byte{keys[idx]})
@@ -564,12 +650,10 @@ func (t *Tree[T]) computeNodeHashParallel(node *Node[T], depth int) [32]byte {
 	return result
 }
 
-// Size возвращает количество элементов (атомарное чтение)
 func (t *Tree[T]) Size() int {
 	return int(t.itemCount.Load())
 }
 
-// GetAllItems возвращает все элементы дерева
 func (t *Tree[T]) GetAllItems() []T {
 	items := make([]T, 0, t.itemCount.Load())
 
@@ -581,12 +665,10 @@ func (t *Tree[T]) GetAllItems() []T {
 	return items
 }
 
-// GetDirtyNodeCount возвращает количество грязных узлов
 func (t *Tree[T]) GetDirtyNodeCount() uint64 {
 	return t.dirtyNodes.Load()
 }
 
-// Clear очищает дерево для переиспользования
 func (t *Tree[T]) Clear() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -600,22 +682,23 @@ func (t *Tree[T]) Clear() {
 	t.dirtyNodes.Store(0)
 }
 
-// Stats статистика дерева
 type Stats struct {
-	TotalItems       int
-	AllocatedNodes   int
-	CacheSize        int
-	DirtyNodes       uint64
-	InsertCount      uint64
-	GetCount         uint64
-	CacheHits        uint64
-	CacheMisses      uint64
-	CacheHitRate     float64
-	ComputeCount     uint64
-	BatchCount       uint64
-	SimpleBatches    uint64 // Батчи с глобальной блокировкой
-	ParallelBatches  uint64 // Батчи с параллелизмом
-	SequentialBatches uint64 // Батчи последовательные с per-node locks
+	TotalItems        int
+	DeletedNodes      int    
+	AllocatedNodes    int
+	CacheSize         int
+	DirtyNodes        uint64
+	InsertCount       uint64
+	DeleteCount       uint64 
+	GetCount          uint64
+	CacheHits         uint64
+	CacheMisses       uint64
+	CacheHitRate      float64
+	ComputeCount      uint64
+	BatchCount        uint64
+	SimpleBatches     uint64
+	ParallelBatches   uint64
+	SequentialBatches uint64
 }
 
 // GetStats возвращает полную статистику дерева
@@ -634,10 +717,12 @@ func (t *Tree[T]) GetStats() Stats {
 
 	return Stats{
 		TotalItems:        int(t.itemCount.Load()),
+		DeletedNodes:      t.GetDeletedCount(), // Добавь эту строку
 		AllocatedNodes:    t.arena.allocated(),
 		CacheSize:         t.cache.size(),
 		DirtyNodes:        t.dirtyNodes.Load(),
 		InsertCount:       t.insertCount.Load(),
+		DeleteCount:       t.deleteCount.Load(), // И эту строку
 		GetCount:          t.getCount.Load(),
 		CacheHits:         hits,
 		CacheMisses:       misses,
@@ -650,14 +735,12 @@ func (t *Tree[T]) GetStats() Stats {
 	}
 }
 
-// CacheStats статистика кеша
 type CacheStats struct {
 	Size     int
 	Capacity int
 	Usage    float64
 }
 
-// CacheStats возвращает статистику кеша
 func (t *Tree[T]) CacheStats() CacheStats {
 	capacity := t.getCacheCapacity()
 	size := t.cache.size()
@@ -673,7 +756,6 @@ func (t *Tree[T]) CacheStats() CacheStats {
 	}
 }
 
-// getCacheCapacity возвращает емкость кеша
 func (t *Tree[T]) getCacheCapacity() int {
 	capacity := 0
 	for _, shard := range t.cache.shards {
@@ -684,19 +766,254 @@ func (t *Tree[T]) getCacheCapacity() int {
 	return capacity
 }
 
-// GetSnapshotter возвращает snapshotter для дерева
 func (t *Tree[T]) GetSnapshotter(storage SnapshotStorage) Snapshotter {
 	return NewTreeSnapshot(t, storage)
 }
 
-// SaveToSnapshot создает и сохраняет снапшот
 func (t *Tree[T]) SaveToSnapshot(w io.Writer, config *SnapshotConfig) error {
 	snapshotter := NewTreeSnapshot(t, nil)
 	return snapshotter.SaveSnapshot(w, config)
 }
 
-// LoadFromSnapshot загружает дерево из снапшота
 func (t *Tree[T]) LoadFromSnapshot(r io.Reader) error {
 	snapshotter := NewTreeSnapshot(t, nil)
 	return snapshotter.LoadSnapshot(r)
+}
+
+// Delete удаляет элемент по ID
+func (t *Tree[T]) Delete(id uint64) bool {
+	// Проверяем существование
+	val, exists := t.items.Load(id)
+	if !exists {
+		return false
+	}
+	
+	item := val.(T)
+	
+	// Удаляем из sync.Map
+	t.items.Delete(id)
+	t.itemCount.Add(^uint64(0)) // Декремент (атомарно вычитаем 1)
+	
+	// Удаляем из cache
+	t.cache.delete(id)
+	
+	// Помечаем элемент в дереве как удаленный
+	t.deleteNodeConcurrent(t.root, item, 0)
+	
+	// Инвалидируем корневой хеш
+	t.rootCacheValid.Store(false)
+	
+	return true
+}
+
+// DeleteBatch удаляет несколько элементов
+func (t *Tree[T]) DeleteBatch(ids []uint64) int {
+	if len(ids) == 0 {
+		return 0
+	}
+	
+	deleted := 0
+	items := make([]T, 0, len(ids))
+	
+	// Собираем элементы для удаления
+	for _, id := range ids {
+		val, exists := t.items.Load(id)
+		if !exists {
+			continue
+		}
+		
+		item := val.(T)
+		items = append(items, item)
+		
+		// Удаляем из maps
+		t.items.Delete(id)
+		t.cache.delete(id)
+		deleted++
+	}
+	
+	if deleted == 0 {
+		return 0
+	}
+	
+	t.itemCount.Add(^uint64(deleted-1)) // Атомарно вычитаем deleted
+	
+	// Удаляем из структуры дерева
+	if len(items) < SmallBatchThreshold {
+		// Простая блокировка для малых батчей
+		t.mu.Lock()
+		for _, item := range items {
+			t.deleteNodeSimple(t.root, item, 0)
+		}
+		t.mu.Unlock()
+	} else {
+		// Параллельное удаление для больших батчей
+		numWorkers := runtime.NumCPU()
+		if numWorkers > 16 {
+			numWorkers = 16
+		}
+		
+		// ВАЖНО: не больше воркеров, чем элементов!
+		if numWorkers > len(items) {
+			numWorkers = len(items)
+		}
+		
+		chunkSize := (len(items) + numWorkers - 1) / numWorkers
+		var wg sync.WaitGroup
+		
+		for i := 0; i < numWorkers; i++ {
+			start := i * chunkSize
+			if start >= len(items) {
+				break // Не запускаем лишние горутины
+			}
+			
+			end := start + chunkSize
+			if end > len(items) {
+				end = len(items)
+			}
+			
+			wg.Add(1)
+			go func(chunk []T) {
+				defer wg.Done()
+				for _, item := range chunk {
+					t.deleteNodeConcurrent(t.root, item, 0)
+				}
+			}(items[start:end])
+		}
+		
+		wg.Wait()
+	}
+	
+	t.rootCacheValid.Store(false)
+	t.deleteCount.Add(uint64(deleted))
+	return deleted
+}
+
+// deleteNodeSimple простое удаление под глобальной блокировкой
+func (t *Tree[T]) deleteNodeSimple(node *Node[T], item T, depth int) {
+	key := item.Key()
+	
+	if depth >= t.maxDepth-1 {
+		// Листовой уровень
+		idx := key[depth]
+		
+		for i, k := range node.Keys {
+			if k == idx {
+				child := node.Children[i]
+				if child.IsLeaf && any(child.Value) != nil {
+					// Проверяем, что это нужный элемент
+					if child.Value.ID() == item.ID() {
+						// Помечаем как удаленный (обнуляем значение)
+						var zero T
+						child.Value = zero
+						child.Hash = [32]byte{}
+						child.dirty.Store(true)
+						node.dirty.Store(true)
+						t.dirtyNodes.Add(1)
+						return
+					}
+				}
+			}
+		}
+		return
+	}
+	
+	// Промежуточный узел
+	idx := key[depth]
+	for i, k := range node.Keys {
+		if k == idx {
+			t.deleteNodeSimple(node.Children[i], item, depth+1)
+			node.dirty.Store(true)
+			t.dirtyNodes.Add(1)
+			return
+		}
+	}
+}
+
+// deleteNodeConcurrent удаление с per-node locking
+func (t *Tree[T]) deleteNodeConcurrent(node *Node[T], item T, depth int) {
+	key := item.Key()
+	
+	node.mu.Lock()
+	
+	if depth >= t.maxDepth-1 {
+		// Листовой уровень
+		idx := key[depth]
+		
+		for i, k := range node.Keys {
+			if k == idx {
+				child := node.Children[i]
+				node.mu.Unlock()
+				
+				child.mu.Lock()
+				if child.IsLeaf && any(child.Value) != nil {
+					if child.Value.ID() == item.ID() {
+						// Помечаем как удаленный
+						var zero T
+						child.Value = zero
+						child.Hash = [32]byte{}
+						child.dirty.Store(true)
+					}
+				}
+				child.mu.Unlock()
+				
+				node.dirty.Store(true)
+				t.dirtyNodes.Add(1)
+				return
+			}
+		}
+		
+		node.mu.Unlock()
+		return
+	}
+	
+	// Промежуточный узел
+	idx := key[depth]
+	for i, k := range node.Keys {
+		if k == idx {
+			child := node.Children[i]
+			node.mu.Unlock()
+			t.deleteNodeConcurrent(child, item, depth+1)
+			node.dirty.Store(true)
+			t.dirtyNodes.Add(1)
+			return
+		}
+	}
+	
+	node.mu.Unlock()
+}
+
+// Exists проверяет существование элемента
+func (t *Tree[T]) Exists(id uint64) bool {
+	_, exists := t.items.Load(id)
+	return exists
+}
+
+// GetDeletedCount возвращает количество удаленных узлов в дереве
+func (t *Tree[T]) GetDeletedCount() int {
+	return t.countDeletedNodes(t.root)
+}
+
+// countDeletedNodes подсчитывает удаленные узлы рекурсивно
+func (t *Tree[T]) countDeletedNodes(node *Node[T]) int {
+	if node == nil {
+		return 0
+	}
+	
+	node.mu.RLock()
+	defer node.mu.RUnlock()
+	
+	if node.IsLeaf {
+		// Проверяем, пустое ли значение
+		if any(node.Value) == nil {
+			return 1
+		}
+		return 0
+	}
+	
+	count := 0
+	for _, child := range node.Children {
+		count += t.countDeletedNodes(child)
+	}
+	
+	return count
 }

@@ -445,3 +445,22 @@ func (m *TreeManager[T]) LoadFromSnapshot(r io.Reader) error {
 	snapshotter := NewManagerSnapshot(m, nil)
 	return snapshotter.LoadSnapshot(r)
 }
+
+// GetStats возвращает общую статистику менеджера
+func (tm *TreeManager[T]) GetStats() ManagerStats {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+
+	stats := ManagerStats{
+		TreeCount: len(tm.trees),
+	}
+
+	for _, tree := range tm.trees {
+		treeStats := tree.GetStats()
+		stats.TotalItems += treeStats.TotalItems
+		stats.TotalNodes += treeStats.AllocatedNodes
+		stats.TotalCacheSize += treeStats.CacheSize
+	}
+
+	return stats
+}

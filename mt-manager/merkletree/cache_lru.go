@@ -108,6 +108,23 @@ func (c *lruCache[T]) removeNode(node *lruNode[T]) {
 	}
 }
 
+// delete удаляет элемент из кеша
+func (c *lruCache[T]) delete(id uint64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	
+	node, exists := c.cache[id]
+	if !exists {
+		return
+	}
+	
+	// Удаляем из map
+	delete(c.cache, id)
+	
+	// Удаляем из списка
+	c.removeNode(node)
+}
+
 // removeTail удаляет последний элемент
 func (c *lruCache[T]) removeTail() {
 	if c.tail == nil {

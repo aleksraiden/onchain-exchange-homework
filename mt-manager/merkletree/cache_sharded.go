@@ -56,9 +56,19 @@ func (s *ShardedCache[T]) Resize(newTotalCapacity int) {
 	}
 }
 
+// delete удаляет элемент из кеша
+func (s *ShardedCache[T]) delete(id uint64) {
+	s.getShard(id).delete(id)
+}
+
 // clear очищает все шарды кеша
 func (s *ShardedCache[T]) clear() {
 	for _, shard := range s.shards {
 		shard.clear()
 	}
+}
+
+// getShard возвращает шард по ключу
+func (s *ShardedCache[T]) getShard(key uint64) *lruCache[T] {
+	return s.shards[key&s.shardMask]
 }
