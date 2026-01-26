@@ -266,7 +266,7 @@ func runStressTest(t *testing.T, numTrees, minItems, maxItems, numUpdates int) {
 		treeStats := tree.GetStats()
 		t.Logf("  %s:", treeID)
 		t.Logf("    Элементов: %d", treeStats.TotalItems)
-		t.Logf("    Удаленных узлов: %d", treeStats.deletedNodeCount.Load())
+		t.Logf("    Удаленных узлов: %d", treeStats.DeletedNodes)
 	}
 }
 
@@ -276,3 +276,538 @@ func min(a, b int) int {
 	}
 	return b
 }
+
+
+// BenchmarkManagerRangeQuery тестирует range-запросы с разными размерами
+func BenchmarkManagerRangeQuery(b *testing.B) {
+	sizes := []int{10, 25, 50, 100, 1000}
+	
+	for _, size := range sizes {
+		b.Run(fmt.Sprintf("Size_%d", size), func(b *testing.B) {
+			benchmarkManagerRangeQuerySize(b, size)
+		})
+	}
+}
+
+func benchmarkManagerRangeQuerySize(b *testing.B, rangeSize int) {
+	mgr := NewManager[*Account](LargeConfig())
+	
+	// Создаем 10 деревьев по 100K элементов в каждом
+	numTrees := 10
+	itemsPerTree := 100000
+	
+	for treeIdx := 0; treeIdx < numTrees; treeIdx++ {
+		treeName := fmt.Sprintf("tree_%d", treeIdx)
+		tree, err := mgr.CreateTree(treeName)
+		if err != nil {
+			b.Fatalf("Failed to create tree: %v", err)
+		}
+		
+		// Вставляем элементы
+		accounts := make([]*Account, itemsPerTree)
+		for i := 0; i < itemsPerTree; i++ {
+			// Уникальный ID = treeIdx * 1M + i
+			id := uint64(treeIdx*1000000 + i)
+			accounts[i] = NewAccount(id, StatusUser)
+		}
+		tree.InsertBatch(accounts)
+	}
+	
+	b.ResetTimer()
+	b.ReportAllocs()
+	
+	// Выполняем range-запросы из случайных деревьев
+	for i := 0; i < b.N; i++ {
+		treeIdx := i % numTrees
+		treeName := fmt.Sprintf("tree_%d", treeIdx)
+		tree, _ := mgr.GetTree(treeName)
+		
+		// Случайная начальная позиция
+		startID := uint64(treeIdx*1000000 + (i*13)%itemsPerTree)
+		endID := startID + uint64(rangeSize)
+		
+		result := tree.RangeQueryByID(startID, endID, true, false)
+		if len(result) == 0 {
+			b.Logf("Empty result for tree %s, range [%d, %d)", treeName, startID, endID)
+		}
+	}
+}
+
+// BenchmarkManagerRangeQueryParallel параллельные range-запросы
+func BenchmarkManagerRangeQueryParallel(b *testing.B) {
+	sizes := []int{10, 25, 50, 100, 1000}
+	
+	for _, size := range sizes {
+		b.Run(fmt.Sprintf("Size_%d", size), func(b *testing.B) {
+			benchmarkManagerRangeQueryParallelSize(b, size)
+		})
+	}
+}
+
+func benchmarkManagerRangeQueryParallelSize(b *testing.B, rangeSize int) {
+	mgr := NewManager[*Account](LargeConfig())
+	
+	numTrees := 10
+	itemsPerTree := 100000
+	
+	for treeIdx := 0; treeIdx < numTrees; treeIdx++ {
+		treeName := fmt.Sprintf("tree_%d", treeIdx)
+		tree, err := mgr.CreateTree(treeName)
+		if err != nil {
+			b.Fatalf("Failed to create tree: %v", err)
+		}
+		
+		accounts := make([]*Account, itemsPerTree)
+		for i := 0; i < itemsPerTree; i++ {
+			id := uint64(treeIdx*1000000 + i)
+			accounts[i] = NewAccount(id, StatusUser)
+		}
+		tree.InsertBatch(accounts)
+	}
+	
+	b.ResetTimer()
+	b.ReportAllocs()
+	
+	// Параллельные запросы из разных деревьев
+	b.RunParallel(func(pb *testing.PB) {
+		counter := 0
+		for pb.Next() {
+			treeIdx := counter % numTrees
+			treeName := fmt.Sprintf("tree_%d", treeIdx)
+			tree, _ := mgr.GetTree(treeName)
+			
+			startID := uint64(treeIdx*1000000 + (counter*13)%itemsPerTree)
+			endID := startID + uint64(rangeSize)
+			
+			result := tree.RangeQueryByID(startID, endID, true, false)
+			_ = result
+			counter++
+		}
+	})
+}
+
+// BenchmarkManagerRangeQueryCrossTree range-запросы из разных деревьев последовательно
+func BenchmarkManagerRangeQueryCrossTree(b *testing.B) {
+	mgr := NewManager[*Account](LargeConfig())
+	
+	numTrees := 10
+	itemsPerTree := 100000
+	
+	for treeIdx := 0; treeIdx < numTrees; treeIdx++ {
+		treeName := fmt.Sprintf("tree_%d", treeIdx)
+		tree, err := mgr.CreateTree(treeName)
+		if err != nil {
+			b.Fatalf("Failed to create tree: %v", err)
+		}
+		
+		accounts := make([]*Account, itemsPerTree)
+		for i := 0; i < itemsPerTree; i++ {
+			id := uint64(treeIdx*1000000 + i)
+			accounts[i] = NewAccount(id, StatusUser)
+		}
+		tree.InsertBatch(accounts)
+	}
+	
+	rangeSize := 100
+	b.ResetTimer()
+	b.ReportAllocs()
+	
+	// Каждая итерация читает из ВСЕХ деревьев
+	for i := 0; i < b.N; i++ {
+		for treeIdx := 0; treeIdx < numTrees; treeIdx++ {
+			treeName := fmt.Sprintf("tree_%d", treeIdx)
+			tree, _ := mgr.GetTree(treeName)
+			
+			startID := uint64(treeIdx*1000000 + (i*13)%itemsPerTree)
+			endID := startID + uint64(rangeSize)
+			
+			result := tree.RangeQueryByID(startID, endID, true, false)
+			_ = result
+		}
+	}
+}
+
+// BenchmarkManagerMixedOps смешанные операции: вставки + range-запросы
+func BenchmarkManagerMixedOps(b *testing.B) {
+	mgr := NewManager[*Account](LargeConfig())
+	
+	numTrees := 10
+	itemsPerTree := 50000 // Меньше, т.к. будем добавлять
+	
+	for treeIdx := 0; treeIdx < numTrees; treeIdx++ {
+		treeName := fmt.Sprintf("tree_%d", treeIdx)
+		tree, err := mgr.CreateTree(treeName)
+		if err != nil {
+			b.Fatalf("Failed to create tree: %v", err)
+		}
+		
+		accounts := make([]*Account, itemsPerTree)
+		for i := 0; i < itemsPerTree; i++ {
+			id := uint64(treeIdx*1000000 + i)
+			accounts[i] = NewAccount(id, StatusUser)
+		}
+		tree.InsertBatch(accounts)
+	}
+	
+	b.ResetTimer()
+	b.ReportAllocs()
+	
+	// 80% range-запросов, 20% вставок
+	for i := 0; i < b.N; i++ {
+		treeIdx := i % numTrees
+		treeName := fmt.Sprintf("tree_%d", treeIdx)
+		tree, _ := mgr.GetTree(treeName)
+		
+		if i%5 == 0 {
+			// 20% - вставка нового элемента
+			newID := uint64(treeIdx*1000000 + itemsPerTree + i)
+			acc := NewAccount(newID, StatusUser)
+			tree.Insert(acc)
+		} else {
+			// 80% - range-запрос
+			startID := uint64(treeIdx*1000000 + (i*13)%itemsPerTree)
+			endID := startID + 50
+			
+			result := tree.RangeQueryByID(startID, endID, true, false)
+			_ = result
+		}
+	}
+}
+
+// BenchmarkManagerRangeQueryDifferentDepths range-запросы на разных глубинах дерева
+func BenchmarkManagerRangeQueryDifferentDepths(b *testing.B) {
+	configs := []struct {
+		name   string
+		config *Config
+	}{
+		{"Depth3_Small", SmallConfig()},
+		{"Depth3_Medium", MediumConfig()},
+		{"Depth4_Large", LargeConfig()},
+		{"Depth5_Huge", HugeConfig()},
+	}
+	
+	for _, cfg := range configs {
+		b.Run(cfg.name, func(b *testing.B) {
+			mgr := NewManager[*Account](cfg.config)
+			
+			tree, err := mgr.CreateTree("test")
+			if err != nil {
+				b.Fatalf("Failed to create tree: %v", err)
+			}
+			
+			// Вставляем 100K элементов
+			accounts := make([]*Account, 100000)
+			for i := 0; i < 100000; i++ {
+				accounts[i] = NewAccount(uint64(i), StatusUser)
+			}
+			tree.InsertBatch(accounts)
+			
+			rangeSize := 100
+			b.ResetTimer()
+			b.ReportAllocs()
+			
+			for i := 0; i < b.N; i++ {
+				startID := uint64((i * 13) % 90000)
+				endID := startID + uint64(rangeSize)
+				
+				result := tree.RangeQueryByID(startID, endID, true, false)
+				if len(result) == 0 {
+					b.Logf("Empty result for range [%d, %d)", startID, endID)
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkManagerRangeQuerySequentialVsRandom последовательные vs случайные диапазоны
+func BenchmarkManagerRangeQuerySequentialVsRandom(b *testing.B) {
+	b.Run("Sequential", func(b *testing.B) {
+		mgr := NewManager[*Account](LargeConfig())
+		
+		tree, _ := mgr.CreateTree("test")
+		
+		accounts := make([]*Account, 100000)
+		for i := 0; i < 100000; i++ {
+			accounts[i] = NewAccount(uint64(i), StatusUser)
+		}
+		tree.InsertBatch(accounts)
+		
+		rangeSize := 100
+		b.ResetTimer()
+		
+		for i := 0; i < b.N; i++ {
+			startID := uint64((i * rangeSize) % 90000)
+			endID := startID + uint64(rangeSize)
+			result := tree.RangeQueryByID(startID, endID, true, false)
+			_ = result
+		}
+	})
+	
+	b.Run("Random", func(b *testing.B) {
+		mgr := NewManager[*Account](LargeConfig())
+		
+		tree, _ := mgr.CreateTree("test")
+		
+		accounts := make([]*Account, 100000)
+		for i := 0; i < 100000; i++ {
+			accounts[i] = NewAccount(uint64(i), StatusUser)
+		}
+		tree.InsertBatch(accounts)
+		
+		rangeSize := 100
+		b.ResetTimer()
+		
+		for i := 0; i < b.N; i++ {
+			// Случайная позиция с помощью простого PRNG
+			startID := uint64((i*13 + i*i*7) % 90000)
+			endID := startID + uint64(rangeSize)
+			result := tree.RangeQueryByID(startID, endID, true, false)
+			_ = result
+		}
+	})
+}
+
+
+// ========== БЫСТРЫЕ БЕНЧМАРКИ ==========
+
+// BenchmarkManagerRangeQueryQuick быстрые range-запросы (малые деревья)
+func BenchmarkManagerRangeQueryQuick(b *testing.B) {
+	sizes := []int{10, 25, 50, 100}
+	
+	for _, size := range sizes {
+		b.Run(fmt.Sprintf("Size_%d", size), func(b *testing.B) {
+			benchmarkManagerRangeQueryQuickSize(b, size)
+		})
+	}
+}
+
+func benchmarkManagerRangeQueryQuickSize(b *testing.B, rangeSize int) {
+	mgr := NewManager[*Account](SmallConfig())
+	
+	// Только 3 дерева по 10K элементов
+	numTrees := 3
+	itemsPerTree := 10000
+	
+	for treeIdx := 0; treeIdx < numTrees; treeIdx++ {
+		treeName := fmt.Sprintf("tree_%d", treeIdx)
+		tree, err := mgr.CreateTree(treeName)
+		if err != nil {
+			b.Fatalf("Failed to create tree: %v", err)
+		}
+		
+		accounts := make([]*Account, itemsPerTree)
+		for i := 0; i < itemsPerTree; i++ {
+			id := uint64(treeIdx*100000 + i)
+			accounts[i] = NewAccount(id, StatusUser)
+		}
+		tree.InsertBatch(accounts)
+	}
+	
+	b.ResetTimer()
+	b.ReportAllocs()
+	
+	for i := 0; i < b.N; i++ {
+		treeIdx := i % numTrees
+		treeName := fmt.Sprintf("tree_%d", treeIdx)
+		tree, _ := mgr.GetTree(treeName)
+		
+		startID := uint64(treeIdx*100000 + (i*13)%itemsPerTree)
+		endID := startID + uint64(rangeSize)
+		
+		result := tree.RangeQueryByID(startID, endID, true, false)
+		_ = result
+	}
+}
+
+// BenchmarkManagerRangeQueryParallelQuick быстрый параллельный бенчмарк
+func BenchmarkManagerRangeQueryParallelQuick(b *testing.B) {
+	mgr := NewManager[*Account](SmallConfig())
+	
+	numTrees := 3
+	itemsPerTree := 10000
+	
+	for treeIdx := 0; treeIdx < numTrees; treeIdx++ {
+		treeName := fmt.Sprintf("tree_%d", treeIdx)
+		tree, _ := mgr.CreateTree(treeName)
+		
+		accounts := make([]*Account, itemsPerTree)
+		for i := 0; i < itemsPerTree; i++ {
+			id := uint64(treeIdx*100000 + i)
+			accounts[i] = NewAccount(id, StatusUser)
+		}
+		tree.InsertBatch(accounts)
+	}
+	
+	rangeSize := 50
+	b.ResetTimer()
+	b.ReportAllocs()
+	
+	b.RunParallel(func(pb *testing.PB) {
+		counter := 0
+		for pb.Next() {
+			treeIdx := counter % numTrees
+			treeName := fmt.Sprintf("tree_%d", treeIdx)
+			tree, _ := mgr.GetTree(treeName)
+			
+			startID := uint64(treeIdx*100000 + (counter*13)%itemsPerTree)
+			endID := startID + uint64(rangeSize)
+			
+			result := tree.RangeQueryByID(startID, endID, true, false)
+			_ = result
+			counter++
+		}
+	})
+}
+
+// BenchmarkManagerRangeQuerySingleTree быстрый бенчмарк для одного дерева
+func BenchmarkManagerRangeQuerySingleTree(b *testing.B) {
+	sizes := []int{10, 50, 100, 500}
+	
+	for _, size := range sizes {
+		b.Run(fmt.Sprintf("Size_%d", size), func(b *testing.B) {
+			mgr := NewManager[*Account](SmallConfig())
+			tree, _ := mgr.CreateTree("test")
+			
+			// Только 10K элементов
+			accounts := make([]*Account, 10000)
+			for i := 0; i < 10000; i++ {
+				accounts[i] = NewAccount(uint64(i), StatusUser)
+			}
+			tree.InsertBatch(accounts)
+			
+			b.ResetTimer()
+			b.ReportAllocs()
+			
+			for i := 0; i < b.N; i++ {
+				startID := uint64((i * 13) % 9000)
+				endID := startID + uint64(size)
+				result := tree.RangeQueryByID(startID, endID, true, false)
+				_ = result
+			}
+		})
+	}
+}
+
+// BenchmarkManagerRangeQueryTiny совсем маленький бенчмарк для быстрой проверки
+func BenchmarkManagerRangeQueryTiny(b *testing.B) {
+	mgr := NewManager[*Account](SmallConfig())
+	tree, _ := mgr.CreateTree("tiny")
+	
+	// Только 1000 элементов!
+	accounts := make([]*Account, 1000)
+	for i := 0; i < 1000; i++ {
+		accounts[i] = NewAccount(uint64(i), StatusUser)
+	}
+	tree.InsertBatch(accounts)
+	
+	b.ResetTimer()
+	b.ReportAllocs()
+	
+	for i := 0; i < b.N; i++ {
+		startID := uint64((i * 13) % 900)
+		endID := startID + 50
+		result := tree.RangeQueryByID(startID, endID, true, false)
+		_ = result
+	}
+}
+
+// BenchmarkManagerRangeQueryCompare сравнение последовательного и параллельного
+func BenchmarkManagerRangeQueryCompare(b *testing.B) {
+	mgr := NewManager[*Account](MediumConfig())
+	tree, _ := mgr.CreateTree("compare")
+	
+	// 50K элементов - средний размер
+	accounts := make([]*Account, 50000)
+	for i := 0; i < 50000; i++ {
+		accounts[i] = NewAccount(uint64(i), StatusUser)
+	}
+	tree.InsertBatch(accounts)
+	
+	b.Run("Sequential_Small", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			startID := uint64((i * 13) % 40000)
+			result := tree.RangeQueryByID(startID, startID+50, true, false)
+			_ = result
+		}
+	})
+	
+	b.Run("Sequential_Large", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			startID := uint64((i * 13) % 30000)
+			result := tree.RangeQueryByID(startID, startID+1000, true, false)
+			_ = result
+		}
+	})
+	
+	b.Run("Parallel_Small", func(b *testing.B) {
+		b.ResetTimer()
+		b.RunParallel(func(pb *testing.PB) {
+			counter := 0
+			for pb.Next() {
+				startID := uint64((counter * 13) % 40000)
+				result := tree.RangeQueryByID(startID, startID+50, true, false)
+				_ = result
+				counter++
+			}
+		})
+	})
+	
+	b.Run("Parallel_Large", func(b *testing.B) {
+		b.ResetTimer()
+		b.RunParallel(func(pb *testing.PB) {
+			counter := 0
+			for pb.Next() {
+				startID := uint64((counter * 13) % 30000)
+				result := tree.RangeQueryByID(startID, startID+1000, true, false)
+				_ = result
+				counter++
+			}
+		})
+	})
+}
+
+// BenchmarkManagerRangeQueryCacheBehavior проверка поведения кеша
+func BenchmarkManagerRangeQueryCacheBehavior(b *testing.B) {
+	b.Run("HotRange", func(b *testing.B) {
+		// Один и тот же диапазон - должен быть в кеше
+		mgr := NewManager[*Account](MediumConfig())
+		tree, _ := mgr.CreateTree("hot")
+		
+		accounts := make([]*Account, 10000)
+		for i := 0; i < 10000; i++ {
+			accounts[i] = NewAccount(uint64(i), StatusUser)
+		}
+		tree.InsertBatch(accounts)
+		
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			// Всегда один и тот же диапазон
+			result := tree.RangeQueryByID(1000, 1100, true, false)
+			_ = result
+		}
+	})
+	
+	b.Run("ColdRange", func(b *testing.B) {
+		// Каждый раз новый диапазон - кеш не помогает
+		mgr := NewManager[*Account](MediumConfig())
+		tree, _ := mgr.CreateTree("cold")
+		
+		accounts := make([]*Account, 10000)
+		for i := 0; i < 10000; i++ {
+			accounts[i] = NewAccount(uint64(i), StatusUser)
+		}
+		tree.InsertBatch(accounts)
+		
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			// Каждый раз новый диапазон
+			startID := uint64((i * 100) % 9000)
+			result := tree.RangeQueryByID(startID, startID+100, true, false)
+			_ = result
+		}
+	})
+}
+
+
