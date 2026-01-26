@@ -266,7 +266,7 @@ func runStressTest(t *testing.T, numTrees, minItems, maxItems, numUpdates int) {
 		treeStats := tree.GetStats()
 		t.Logf("  %s:", treeID)
 		t.Logf("    Элементов: %d", treeStats.TotalItems)
-		t.Logf("    Удаленных узлов: %d", treeStats.DeletedNodes)
+		t.Logf("    Удаленных узлов: %d", treeStats.deletedNodeCount.Load())
 	}
 }
 

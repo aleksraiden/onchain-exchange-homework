@@ -17,6 +17,11 @@ const (
 	ParallelBatchThreshold = 150 // Было 200
 )
 
+var (
+	// Константный хеш для удаленных узлов
+	DeletedNodeHash = blake3.Sum256([]byte("__DELETED_NODE__"))
+)
+
 // Tree - убираем избыточный padding, оставляем только критичный
 type Tree[T Hashable] struct {
 	root       *Node[T]
@@ -494,21 +499,20 @@ func (t *Tree[T]) computeNodeHash(node *Node[T], depth int) [32]byte {
 
 	node.mu.RLock()
 
+	// Если узел не грязный - возвращаем кеш
 	if !node.dirty.Load() && node.Hash != [32]byte{} {
 		hash := node.Hash
 		node.mu.RUnlock()
 		return hash
 	}
 
+	// Для листьев - просто возвращаем текущий хеш
+	// (если был удален - будет DeletedNodeHash)
 	if node.IsLeaf {
-		var hash [32]byte
-		if any(node.Value) != nil {
-			hash = node.Value.Hash()
-		}
+		hash := node.Hash
 		node.mu.RUnlock()
 
 		node.mu.Lock()
-		node.Hash = hash
 		node.dirty.Store(false)
 		node.mu.Unlock()
 
@@ -533,6 +537,7 @@ func (t *Tree[T]) computeNodeHash(node *Node[T], depth int) [32]byte {
 
 	node.mu.RUnlock()
 
+	// Сортировка
 	for i := 0; i < count-1; i++ {
 		for j := i + 1; j < count; j++ {
 			if keys[indices[i]] > keys[indices[j]] {
@@ -541,6 +546,7 @@ func (t *Tree[T]) computeNodeHash(node *Node[T], depth int) [32]byte {
 		}
 	}
 
+	// Вычисляем хеши детей
 	hasher := blake3.New()
 	for _, idx := range indices {
 		childHash := t.computeNodeHash(children[idx], depth+1)
@@ -573,14 +579,10 @@ func (t *Tree[T]) computeNodeHashParallel(node *Node[T], depth int) [32]byte {
 	}
 
 	if node.IsLeaf {
-		var hash [32]byte
-		if any(node.Value) != nil {
-			hash = node.Value.Hash()
-		}
+		hash := node.Hash
 		node.mu.RUnlock()
 
 		node.mu.Lock()
-		node.Hash = hash
 		node.dirty.Store(false)
 		node.mu.Unlock()
 
@@ -607,6 +609,7 @@ func (t *Tree[T]) computeNodeHashParallel(node *Node[T], depth int) [32]byte {
 
 	node.mu.RUnlock()
 
+	// Сортировка
 	for i := 0; i < count-1; i++ {
 		for j := i + 1; j < count; j++ {
 			if keys[indices[i]] > keys[indices[j]] {
@@ -899,18 +902,19 @@ func (t *Tree[T]) deleteNodeSimple(node *Node[T], item T, depth int) {
 		for i, k := range node.Keys {
 			if k == idx {
 				child := node.Children[i]
-				if child.IsLeaf && any(child.Value) != nil {
-					// Проверяем, что это нужный элемент
-					if child.Value.ID() == item.ID() {
-						// Помечаем как удаленный (обнуляем значение)
-						var zero T
-						child.Value = zero
-						child.Hash = [32]byte{}
-						child.dirty.Store(true)
-						node.dirty.Store(true)
-						t.dirtyNodes.Add(1)
-						return
-					}
+				if child.IsLeaf {
+					// Просто обнуляем значение
+					var zero T
+					child.Value = zero
+					
+					// Устанавливаем константный "deleted hash"
+					child.Hash = DeletedNodeHash
+					child.dirty.Store(false) // НЕ пересчитываем больше!
+					
+					node.dirty.Store(true)
+					t.dirtyNodes.Add(1)
+					t.deletedNodeCount.Add(1)
+					return
 				}
 			}
 		}
@@ -945,14 +949,16 @@ func (t *Tree[T]) deleteNodeConcurrent(node *Node[T], item T, depth int) {
 				node.mu.Unlock()
 				
 				child.mu.Lock()
-				if child.IsLeaf && any(child.Value) != nil {
-					if child.Value.ID() == item.ID() {
-						// Помечаем как удаленный
-						var zero T
-						child.Value = zero
-						child.Hash = [32]byte{}
-						child.dirty.Store(true)
-					}
+				if child.IsLeaf {
+					// Просто обнуляем значение
+					var zero T
+					child.Value = zero
+					
+					// Устанавливаем константный "deleted hash"
+					child.Hash = DeletedNodeHash
+					child.dirty.Store(false) // НЕ пересчитываем больше!
+					
+					t.deletedNodeCount.Add(1)
 				}
 				child.mu.Unlock()
 				
