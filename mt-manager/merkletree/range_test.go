@@ -2,7 +2,6 @@ package merkletree
 
 import (
 	"testing"
-	"fmt"
 )
 
 func TestRangeQuery(t *testing.T) {
@@ -254,38 +253,5 @@ func BenchmarkRangeQueryWithDeletes(b *testing.B) {
 		if len(result) == 0 {
 			b.Fatal("Empty result")
 		}
-	}
-}
-
-func TestRangeQueryDebug(t *testing.T) {
-	mgr := NewManager[*Account](SmallConfig())
-	tree, err := mgr.CreateTree("test")
-	if err != nil {
-		t.Fatalf("Failed to create tree: %v", err)
-	}
-	
-	// Вставляем только 3 элемента для простоты
-	accounts := []*Account{
-		NewAccount(10, StatusUser),
-		NewAccount(20, StatusUser),
-		NewAccount(30, StatusUser),
-	}
-	
-	fmt.Println("=== Inserting accounts ===")
-	for _, acc := range accounts {
-		fmt.Printf("Inserting: ID=%d, Key=%v\n", acc.UID, acc.Key())
-		tree.Insert(acc)
-	}
-	
-	fmt.Println("\n=== Testing range query ===")
-	result := tree.RangeQueryByIDDebug(10, 30, true, true)
-	
-	fmt.Printf("\nResult: %d items\n", len(result))
-	for _, r := range result {
-		fmt.Printf("  - ID: %d\n", r.UID)
-	}
-	
-	if len(result) != 3 {
-		t.Errorf("Expected 3 items, got %d", len(result))
 	}
 }

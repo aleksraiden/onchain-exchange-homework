@@ -419,28 +419,32 @@ func (t *Tree[T]) insertNode(node *Node[T], item T, depth int) {
 	t.insertNode(child, item, depth+1)
 }
 
-
-
-
-
 func (t *Tree[T]) Get(id uint64) (T, bool) {
-	t.getCount.Add(1)
+    t.getCount.Add(1)
+    
+    // Быстрая проверка без обновления LRU
+    if item, ok := t.cache.tryGet(id); ok {
+        t.cacheHits.Add(1)
+        
+        // Опционально: периодически обновляем LRU (каждый N-й доступ)
+        if t.getCount.Load() % 100 == 0 {
+            t.cache.put(id, item)  // Обновляем позицию
+        }
+        
+        return item, true
+    }
 
-	if item, ok := t.cache.get(id); ok {
-		t.cacheHits.Add(1)
-		return item, true
-	}
+    // Обычная логика для cache miss
+    if val, ok := t.items.Load(id); ok {
+        item := val.(T)
+        t.cache.put(id, item)
+        t.cacheMisses.Add(1)
+        return item, true
+    }
 
-	if val, ok := t.items.Load(id); ok {
-		item := val.(T)
-		t.cache.put(id, item)
-		t.cacheMisses.Add(1)
-		return item, true
-	}
-
-	var zero T
-	t.cacheMisses.Add(1)
-	return zero, false
+    var zero T
+    t.cacheMisses.Add(1)
+    return zero, false
 }
 
 // ComputeRoot вычисляет корневой хеш (с автоматическим выбором стратегии)
@@ -646,14 +650,6 @@ func (t *Tree[T]) collectLeaves(node *Node[T], leaves *[]*Node[T]) {
 				t.collectLeaves(child, leaves)
 			}
 		}
-	}
-}
-
-// RecomputeDirtyHashes пересчитывает только грязные узлы (без возврата корня)
-func (t *Tree[T]) RecomputeDirtyHashes() {
-	if t.dirtyNodes.Load() > 0 {
-		t.computeNodeHash(t.root, 0, true)
-		t.dirtyNodes.Store(0)
 	}
 }
 

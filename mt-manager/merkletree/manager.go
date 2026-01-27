@@ -10,7 +10,6 @@ import (
 // TreeManager управляет несколькими Merkle-деревьями
 // и вычисляет общий корневой хеш из всех деревьев
 type TreeManager[T Hashable] struct {
-	//trees  map[string]*Tree[T]
 	trees map[string]*Tree[T]
 	config *Config
 	mu     sync.RWMutex

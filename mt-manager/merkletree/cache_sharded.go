@@ -30,6 +30,11 @@ func (s *ShardedCache[T]) get(key uint64) (T, bool) {
 	return s.shards[key&s.shardMask].get(key)
 }
 
+func (sc *ShardedCache[T]) tryGet(id uint64) (T, bool) {
+    shard := sc.shards[id%uint64(len(sc.shards))]
+    return shard.tryGet(id)
+}
+
 // put добавляет значение в соответствующий шард
 func (s *ShardedCache[T]) put(key uint64, value T) {
 	s.shards[key&s.shardMask].put(key, value)
