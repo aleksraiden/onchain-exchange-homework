@@ -357,118 +357,6 @@ func (t *Tree[T]) insertNodeUnderGlobalLock(node *Node[T], item T, depth int) {
 	t.dirtyNodes.Add(1)
 	t.insertNodeUnderGlobalLock(child, item, depth+1)
 }
-/**
-func (t *Tree[T]) insertNodeUnderGlobalLock(node *Node[T], item T, depth int) {
-	key := item.Key()
-
-	if depth >= t.maxDepth-1 {
-		idx := key[len(key)-1] // берем последний байт
-
-		for i, k := range node.Keys {
-			if k == idx {
-				child := node.Children[i]
-				child.Value = item
-				child.Hash = item.Hash()
-				child.dirty.Store(false)
-				node.dirty.Store(true)
-				t.dirtyNodes.Add(1)
-				return
-			}
-		}
-
-		child := t.arena.alloc()
-		child.IsLeaf = true
-		child.Value = item
-		child.Hash = item.Hash()
-		node.Keys = append(node.Keys, idx)
-		node.Children = append(node.Children, child)
-		node.dirty.Store(true)
-		t.dirtyNodes.Add(1)
-		return
-	}
-
-	idx := key[depth]
-	for i, k := range node.Keys {
-		if k == idx {
-			t.insertNodeUnderGlobalLock(node.Children[i], item, depth+1)
-			node.dirty.Store(true)
-			t.dirtyNodes.Add(1)
-			return
-		}
-	}
-
-	child := t.arena.alloc()
-	node.Keys = append(node.Keys, idx)
-	node.Children = append(node.Children, child)
-	node.dirty.Store(true)
-	t.dirtyNodes.Add(1)
-
-	t.insertNodeUnderGlobalLock(child, item, depth+1)
-}
-
-
-// insertNode - ЕДИНЫЙ метод с per-node блокировками
-func (t *Tree[T]) insertNode(node *Node[T], item T, depth int) {
-	key := item.Key()
-
-	node.mu.Lock()
-
-	if depth >= t.maxDepth-1 {
-		// Листовой уровень - используем ПОСЛЕДНИЙ байт ключа!
-		idx := key[len(key)-1]
-
-		for i, k := range node.Keys {
-			if k == idx {
-				child := node.Children[i]
-				node.mu.Unlock()
-
-				child.mu.Lock()
-				child.Value = item
-				child.Hash = item.Hash()
-				child.dirty.Store(false)
-				child.mu.Unlock()
-
-				node.dirty.Store(true)
-				t.dirtyNodes.Add(1)
-				return
-			}
-		}
-
-		child := t.arena.alloc()
-		child.IsLeaf = true
-		child.Value = item
-		child.Hash = item.Hash()
-		node.Keys = append(node.Keys, idx)
-		node.Children = append(node.Children, child)
-		node.dirty.Store(true)
-		t.dirtyNodes.Add(1)
-		node.mu.Unlock()
-		return
-	}
-
-	// Промежуточный узел
-	idx := key[depth]
-	for i, k := range node.Keys {
-		if k == idx {
-			child := node.Children[i]
-			node.mu.Unlock()
-			t.insertNode(child, item, depth+1)
-			node.dirty.Store(true)
-			t.dirtyNodes.Add(1)
-			return
-		}
-	}
-
-	child := t.arena.alloc()
-	node.Keys = append(node.Keys, idx)
-	node.Children = append(node.Children, child)
-	node.dirty.Store(true)
-	t.dirtyNodes.Add(1)
-
-	node.mu.Unlock()
-	t.insertNode(child, item, depth+1)
-}
-***/
 
 // insertNode - ЕДИНЫЙ метод с per-node блокировками
 func (t *Tree[T]) insertNode(node *Node[T], item T, depth int) {
@@ -574,107 +462,6 @@ func (t *Tree[T]) ComputeRoot() [32]byte {
 }
 
 // computeNodeHash - ЕДИНЫЙ метод с автоматическим параллелизмом
-
-/***
-func (t *Tree[T]) computeNodeHash(node *Node[T], depth int, allowParallel bool) [32]byte {
-	if node == nil {
-		return [32]byte{}
-	}
-
-	node.mu.RLock()
-
-	// Если узел не грязный - возвращаем кеш
-	if !node.dirty.Load() && node.Hash != [32]byte{} {
-		hash := node.Hash
-		node.mu.RUnlock()
-		return hash
-	}
-
-	// Для листьев - просто возвращаем текущий хеш
-	if node.IsLeaf {
-		hash := node.Hash
-		node.mu.RUnlock()
-
-		node.mu.Lock()
-		node.dirty.Store(false)
-		node.mu.Unlock()
-
-		return hash
-	}
-
-	count := len(node.Keys)
-	if count == 0 {
-		node.mu.RUnlock()
-		return [32]byte{}
-	}
-
-	// Решаем, использовать ли параллелизм
-	// Только на верхних уровнях (depth < 2), если много детей (>= 4), и разрешено
-	useParallel := allowParallel && depth < 2 && count >= 4 && runtime.NumCPU() > 1
-
-	indices := make([]int, count)
-	for i := range indices {
-		indices[i] = i
-	}
-
-	keys := make([]byte, count)
-	copy(keys, node.Keys)
-	children := make([]*Node[T], count)
-	copy(children, node.Children)
-
-	node.mu.RUnlock()
-
-	// Сортировка индексов
-	for i := 0; i < count-1; i++ {
-		for j := i + 1; j < count; j++ {
-			if keys[indices[i]] > keys[indices[j]] {
-				indices[i], indices[j] = indices[j], indices[i]
-			}
-		}
-	}
-
-	// Вычисляем хеши детей
-	childHashes := make([][32]byte, count)
-
-	if useParallel {
-		// Параллельное вычисление
-		var wg sync.WaitGroup
-		for i, idx := range indices {
-			wg.Add(1)
-			go func(i, idx int) {
-				defer wg.Done()
-				// Рекурсивно вызываем с разрешением параллелизма
-				childHashes[i] = t.computeNodeHash(children[idx], depth+1, true)
-			}(i, idx)
-		}
-		wg.Wait()
-	} else {
-		// Последовательное вычисление
-		for i, idx := range indices {
-			// После глубины 2 отключаем параллелизм для избежания overhead
-			childHashes[i] = t.computeNodeHash(children[idx], depth+1, false)
-		}
-	}
-
-	// Хешируем результат
-	hasher := blake3.New()
-	for i, idx := range indices {
-		hasher.Write([]byte{keys[idx]})
-		hasher.Write(childHashes[i][:])
-	}
-
-	var result [32]byte
-	copy(result[:], hasher.Sum(nil))
-
-	node.mu.Lock()
-	node.Hash = result
-	node.dirty.Store(false)
-	node.mu.Unlock()
-
-	return result
-}
-***/
-
 func (t *Tree[T]) computeNodeHash(node *Node[T], depth int, allowParallel bool) [32]byte {
 	if node == nil {
 		return [32]byte{}
@@ -689,12 +476,12 @@ func (t *Tree[T]) computeNodeHash(node *Node[T], depth int, allowParallel bool) 
 		return hash
 	}
 	
-	// Для листьев - ВЫЧИСЛЯЕМ хеш, если грязный
+	// Для листьев - вычисляем хеш
 	if node.IsLeaf {
 		value := node.Value
 		node.mu.RUnlock()
 		
-		// Вычисляем хеш элемента (теперь только здесь!)
+		// Вычисляем хеш элемента
 		hash := value.Hash()
 		
 		// Обновляем узел
@@ -712,8 +499,15 @@ func (t *Tree[T]) computeNodeHash(node *Node[T], depth int, allowParallel bool) 
 		return [32]byte{}
 	}
 	
-	// Решаем, использовать ли параллелизм
-	useParallel := allowParallel && depth < 2 && count >= 4 && runtime.NumCPU() > 1
+	// Проверяем, стоит ли использовать batch-хеширование листьев
+	// Условия:
+	// 1. Разрешен параллелизм
+	// 2. Глубина близка к листьям (depth >= maxDepth - 3)
+	// 3. Достаточно детей для эффективности (>= 8)
+	useBatchLeafHashing := allowParallel && 
+		depth >= t.maxDepth-4 && // Было -3, делаем -4 (глубже в дерево)
+		count >= 6 &&             // Было 8, уменьшаем порог
+		runtime.NumCPU() > 8      // Было > 1, теперь только для серверов
 	
 	indices := make([]int, count)
 	for i := range indices {
@@ -735,22 +529,56 @@ func (t *Tree[T]) computeNodeHash(node *Node[T], depth int, allowParallel bool) 
 		}
 	}
 	
+	// ✅ НОВАЯ ЛОГИКА: Batch-хеширование листьев
+	var leafHashes map[*Node[T]][32]byte
+	if useBatchLeafHashing {
+		// Собираем все листья на следующем уровне
+		leaves := make([]*Node[T], 0, count*4) // Оценка: ~4 листа на ребенка
+		
+		for _, idx := range indices {
+			child := children[idx]
+			if child != nil {
+				// Если ребенок сам лист - добавляем его
+				child.mu.RLock()
+				isLeaf := child.IsLeaf
+				child.mu.RUnlock()
+				
+				if isLeaf {
+					leaves = append(leaves, child)
+				} else {
+					// Если промежуточный узел - собираем его листья
+					t.collectLeaves(child, &leaves)
+				}
+			}
+		}
+		
+		// Хешируем все листья параллельно, если их достаточно
+		if len(leaves) >= 16 {
+			leafHashes = t.computeLeafHashesBatch(leaves)
+		}
+	}
+	
+	// Решаем, использовать ли параллелизм для промежуточных узлов
+	useParallel := allowParallel && depth < 2 && count >= 4 && runtime.NumCPU() > 1
+	
 	// Вычисляем хеши детей
 	childHashes := make([][32]byte, count)
 	
 	if useParallel {
+		// Параллельное вычисление промежуточных узлов
 		var wg sync.WaitGroup
 		for i, idx := range indices {
 			wg.Add(1)
 			go func(i, idx int) {
 				defer wg.Done()
-				childHashes[i] = t.computeNodeHash(children[idx], depth+1, true)
+				childHashes[i] = t.computeNodeHashWithCache(children[idx], depth+1, true, leafHashes)
 			}(i, idx)
 		}
 		wg.Wait()
 	} else {
+		// Последовательное вычисление
 		for i, idx := range indices {
-			childHashes[i] = t.computeNodeHash(children[idx], depth+1, false)
+			childHashes[i] = t.computeNodeHashWithCache(children[idx], depth+1, false, leafHashes)
 		}
 	}
 	
@@ -772,12 +600,144 @@ func (t *Tree[T]) computeNodeHash(node *Node[T], depth int, allowParallel bool) 
 	return result
 }
 
+// computeNodeHashWithCache - вспомогательный метод, который использует кеш листьев
+func (t *Tree[T]) computeNodeHashWithCache(node *Node[T], depth int, allowParallel bool, leafCache map[*Node[T]][32]byte) [32]byte {
+	if node == nil {
+		return [32]byte{}
+	}
+	
+	// Проверяем кеш листьев
+	if leafCache != nil {
+		if hash, exists := leafCache[node]; exists {
+			return hash
+		}
+	}
+	
+	// Иначе используем обычную логику
+	return t.computeNodeHash(node, depth, allowParallel)
+}
+
+// collectLeaves рекурсивно собирает все листья из поддерева
+func (t *Tree[T]) collectLeaves(node *Node[T], leaves *[]*Node[T]) {
+	if node == nil {
+		return
+	}
+	
+	node.mu.RLock()
+	isLeaf := node.IsLeaf
+	children := node.Children
+	node.mu.RUnlock()
+	
+	if isLeaf {
+		*leaves = append(*leaves, node)
+		return
+	}
+	
+	// Рекурсивно собираем листья из детей
+	for _, child := range children {
+		if child != nil {
+			child.mu.RLock()
+			childIsLeaf := child.IsLeaf
+			child.mu.RUnlock()
+			
+			if childIsLeaf {
+				*leaves = append(*leaves, child)
+			} else {
+				t.collectLeaves(child, leaves)
+			}
+		}
+	}
+}
+
 // RecomputeDirtyHashes пересчитывает только грязные узлы (без возврата корня)
 func (t *Tree[T]) RecomputeDirtyHashes() {
 	if t.dirtyNodes.Load() > 0 {
 		t.computeNodeHash(t.root, 0, true)
 		t.dirtyNodes.Store(0)
 	}
+}
+
+// computeLeafHashesBatch вычисляет хеши нескольких листьев параллельно
+// Возвращает map[*Node]hash для быстрого lookup
+func (t *Tree[T]) computeLeafHashesBatch(leaves []*Node[T]) map[*Node[T]][32]byte {
+	if len(leaves) == 0 {
+		return nil
+	}
+	
+	results := make(map[*Node[T]][32]byte, len(leaves))
+	var resultMu sync.Mutex
+	
+	// Определяем количество воркеров
+	numWorkers := runtime.NumCPU()
+	if numWorkers > 32 {
+		numWorkers = 32  // Ограничение для очень больших CPU
+	}
+	
+	// Минимум 2 листа на воркер (было 4)
+	if len(leaves) < numWorkers*2 {
+		numWorkers = (len(leaves) + 1) / 2
+	}
+	
+	chunkSize := (len(leaves) + numWorkers - 1) / numWorkers
+	var wg sync.WaitGroup
+	
+	for i := 0; i < numWorkers; i++ {
+		start := i * chunkSize
+		if start >= len(leaves) {
+			break
+		}
+		
+		end := start + chunkSize
+		if end > len(leaves) {
+			end = len(leaves)
+		}
+		
+		wg.Add(1)
+		go func(chunk []*Node[T]) {
+			defer wg.Done()
+			
+			localResults := make(map[*Node[T]][32]byte, len(chunk))
+			
+			for _, leaf := range chunk {
+				if leaf == nil {
+					continue
+				}
+				
+				leaf.mu.RLock()
+				isDirty := leaf.dirty.Load()
+				value := leaf.Value
+				currentHash := leaf.Hash
+				leaf.mu.RUnlock()
+				
+				var hash [32]byte
+				
+				// Если грязный - вычисляем, иначе используем кеш
+				if isDirty || currentHash == [32]byte{} {
+					hash = value.Hash()
+					
+					// Обновляем узел
+					leaf.mu.Lock()
+					leaf.Hash = hash
+					leaf.dirty.Store(false)
+					leaf.mu.Unlock()
+				} else {
+					hash = currentHash
+				}
+				
+				localResults[leaf] = hash
+			}
+			
+			// Мержим результаты
+			resultMu.Lock()
+			for node, hash := range localResults {
+				results[node] = hash
+			}
+			resultMu.Unlock()
+		}(leaves[start:end])
+	}
+	
+	wg.Wait()
+	return results
 }
 
 func (t *Tree[T]) Size() int {

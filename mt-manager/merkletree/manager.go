@@ -112,61 +112,6 @@ func (m *TreeManager[T]) ListTrees() []string {
 	return names
 }
 
-/**
-// ComputeGlobalRoot вычисляет глобальный root hash всех деревьев
-// Использует кеширование для оптимизации
-func (m *TreeManager[T]) ComputeGlobalRoot() [32]byte {
-	m.mu.RLock()
-
-	// Проверяем, нужен ли пересчет
-	if !m.globalRootDirty {
-		defer m.mu.RUnlock()
-		return m.globalRootCache
-	}
-	m.mu.RUnlock()
-
-	// Нужен пересчет - берем write lock
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// Double-check после получения write lock
-	if !m.globalRootDirty {
-		return m.globalRootCache
-	}
-
-	if len(m.trees) == 0 {
-		m.globalRootCache = [32]byte{}
-		m.globalRootDirty = false
-		return m.globalRootCache
-	}
-
-	// Получаем отсортированные имена деревьев для детерминизма
-	names := make([]string, 0, len(m.trees))
-	for name := range m.trees {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
-	// Собираем корни всех деревьев
-	roots := make([][32]byte, len(names))
-	for i, name := range names {
-		// Проверяем кеш корня дерева
-		if cachedRoot, exists := m.treeRootCache[name]; exists {
-			roots[i] = cachedRoot
-		} else {
-			roots[i] = m.trees[name].ComputeRoot()
-			m.treeRootCache[name] = roots[i]
-		}
-	}
-
-	// Вычисляем глобальный корень через итеративное хеширование
-	m.globalRootCache = m.computeMerkleRoot(roots)
-	m.globalRootDirty = false
-
-	return m.globalRootCache
-}
-**/
-
 func (m *TreeManager[T]) ComputeGlobalRoot() [32]byte {
 	m.mu.RLock()
 
