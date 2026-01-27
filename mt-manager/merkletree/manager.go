@@ -2,9 +2,7 @@ package merkletree
 
 import (
 	"fmt"
-	"io"
 	"sync"
-
 	"github.com/zeebo/blake3"
 )
 
@@ -427,23 +425,6 @@ func (m *TreeManager[T]) SetDefaultConfig(cfg *Config) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.config = cfg
-}
-
-// GetSnapshotter возвращает snapshotter для менеджера
-func (m *TreeManager[T]) GetSnapshotter(storage SnapshotStorage) *ManagerSnapshot[T] {
-	return NewManagerSnapshot(m, storage)
-}
-
-// SaveToSnapshot создает и сохраняет снапшот всех деревьев
-func (m *TreeManager[T]) SaveToSnapshot(w io.Writer, config *SnapshotConfig) error {
-	snapshotter := NewManagerSnapshot(m, nil)
-	return snapshotter.SaveSnapshot(w, config)
-}
-
-// LoadFromSnapshot загружает менеджер из снапшота
-func (m *TreeManager[T]) LoadFromSnapshot(r io.Reader) error {
-	snapshotter := NewManagerSnapshot(m, nil)
-	return snapshotter.LoadSnapshot(r)
 }
 
 // GetStats возвращает общую статистику менеджера

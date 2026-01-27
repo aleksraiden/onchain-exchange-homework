@@ -1,7 +1,6 @@
 package merkletree
 
 import (
-	"io"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -678,20 +677,6 @@ func (t *Tree[T]) getCacheCapacity() int {
 		shard.mu.Unlock()
 	}
 	return capacity
-}
-
-func (t *Tree[T]) GetSnapshotter(storage SnapshotStorage) Snapshotter {
-	return NewTreeSnapshot(t, storage)
-}
-
-func (t *Tree[T]) SaveToSnapshot(w io.Writer, config *SnapshotConfig) error {
-	snapshotter := NewTreeSnapshot(t, nil)
-	return snapshotter.SaveSnapshot(w, config)
-}
-
-func (t *Tree[T]) LoadFromSnapshot(r io.Reader) error {
-	snapshotter := NewTreeSnapshot(t, nil)
-	return snapshotter.LoadSnapshot(r)
 }
 
 // Delete удаляет элемент по ID
