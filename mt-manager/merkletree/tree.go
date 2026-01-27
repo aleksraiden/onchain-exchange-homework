@@ -310,6 +310,56 @@ func (t *Tree[T]) insertBatchMegaParallel(items []T) {
 // insertNodeUnderGlobalLock - вставка БЕЗ per-node блокировок (вызывается под t.mu.Lock)
 func (t *Tree[T]) insertNodeUnderGlobalLock(node *Node[T], item T, depth int) {
 	key := item.Key()
+	
+	if depth >= t.maxDepth-1 {
+		idx := key[len(key)-1]
+		
+		for i, k := range node.Keys {
+			if k == idx {
+				child := node.Children[i]
+				child.Value = item
+				// ✅ НЕ вычисляем хеш! Только помечаем как грязный
+				child.dirty.Store(true)
+				node.dirty.Store(true)
+				t.dirtyNodes.Add(1)
+				return
+			}
+		}
+		
+		// Новый лист
+		child := t.arena.alloc()
+		child.IsLeaf = true
+		child.Value = item
+		// ✅ НЕ вычисляем хеш! Только помечаем как грязный
+		child.dirty.Store(true)
+		node.Keys = append(node.Keys, idx)
+		node.Children = append(node.Children, child)
+		node.dirty.Store(true)
+		t.dirtyNodes.Add(1)
+		return
+	}
+	
+	// Промежуточный узел - без изменений
+	idx := key[depth]
+	for i, k := range node.Keys {
+		if k == idx {
+			t.insertNodeUnderGlobalLock(node.Children[i], item, depth+1)
+			node.dirty.Store(true)
+			t.dirtyNodes.Add(1)
+			return
+		}
+	}
+	
+	child := t.arena.alloc()
+	node.Keys = append(node.Keys, idx)
+	node.Children = append(node.Children, child)
+	node.dirty.Store(true)
+	t.dirtyNodes.Add(1)
+	t.insertNodeUnderGlobalLock(child, item, depth+1)
+}
+/**
+func (t *Tree[T]) insertNodeUnderGlobalLock(node *Node[T], item T, depth int) {
+	key := item.Key()
 
 	if depth >= t.maxDepth-1 {
 		idx := key[len(key)-1] // берем последний байт
@@ -355,6 +405,7 @@ func (t *Tree[T]) insertNodeUnderGlobalLock(node *Node[T], item T, depth int) {
 
 	t.insertNodeUnderGlobalLock(child, item, depth+1)
 }
+
 
 // insertNode - ЕДИНЫЙ метод с per-node блокировками
 func (t *Tree[T]) insertNode(node *Node[T], item T, depth int) {
@@ -417,7 +468,68 @@ func (t *Tree[T]) insertNode(node *Node[T], item T, depth int) {
 	node.mu.Unlock()
 	t.insertNode(child, item, depth+1)
 }
+***/
 
+// insertNode - ЕДИНЫЙ метод с per-node блокировками
+func (t *Tree[T]) insertNode(node *Node[T], item T, depth int) {
+	key := item.Key()
+	node.mu.Lock()
+	
+	if depth >= t.maxDepth-1 {
+		idx := key[len(key)-1]
+		
+		for i, k := range node.Keys {
+			if k == idx {
+				child := node.Children[i]
+				node.mu.Unlock()
+				
+				child.mu.Lock()
+				child.Value = item
+				// НЕ вычисляем хеш! Только помечаем как грязный
+				child.dirty.Store(true)
+				child.mu.Unlock()
+				
+				node.dirty.Store(true)
+				t.dirtyNodes.Add(1)
+				return
+			}
+		}
+		
+		// Новый лист
+		child := t.arena.alloc()
+		child.IsLeaf = true
+		child.Value = item
+		// НЕ вычисляем хеш! Только помечаем как грязный
+		child.dirty.Store(true)
+		node.Keys = append(node.Keys, idx)
+		node.Children = append(node.Children, child)
+		node.dirty.Store(true)
+		t.dirtyNodes.Add(1)
+		node.mu.Unlock()
+		return
+	}
+	
+	// Промежуточный узел - без изменений
+	idx := key[depth]
+	for i, k := range node.Keys {
+		if k == idx {
+			child := node.Children[i]
+			node.mu.Unlock()
+			t.insertNode(child, item, depth+1)
+			node.dirty.Store(true)
+			t.dirtyNodes.Add(1)
+			return
+		}
+	}
+	
+	child := t.arena.alloc()
+	node.Keys = append(node.Keys, idx)
+	node.Children = append(node.Children, child)
+	node.dirty.Store(true)
+	t.dirtyNodes.Add(1)
+	node.mu.Unlock()
+	t.insertNode(child, item, depth+1)
+}
 
 
 
@@ -462,6 +574,8 @@ func (t *Tree[T]) ComputeRoot() [32]byte {
 }
 
 // computeNodeHash - ЕДИНЫЙ метод с автоматическим параллелизмом
+
+/***
 func (t *Tree[T]) computeNodeHash(node *Node[T], depth int, allowParallel bool) [32]byte {
 	if node == nil {
 		return [32]byte{}
@@ -558,6 +672,112 @@ func (t *Tree[T]) computeNodeHash(node *Node[T], depth int, allowParallel bool) 
 	node.mu.Unlock()
 
 	return result
+}
+***/
+
+func (t *Tree[T]) computeNodeHash(node *Node[T], depth int, allowParallel bool) [32]byte {
+	if node == nil {
+		return [32]byte{}
+	}
+	
+	node.mu.RLock()
+	
+	// Если узел не грязный - возвращаем кеш
+	if !node.dirty.Load() && node.Hash != [32]byte{} {
+		hash := node.Hash
+		node.mu.RUnlock()
+		return hash
+	}
+	
+	// Для листьев - ВЫЧИСЛЯЕМ хеш, если грязный
+	if node.IsLeaf {
+		value := node.Value
+		node.mu.RUnlock()
+		
+		// Вычисляем хеш элемента (теперь только здесь!)
+		hash := value.Hash()
+		
+		// Обновляем узел
+		node.mu.Lock()
+		node.Hash = hash
+		node.dirty.Store(false)
+		node.mu.Unlock()
+		
+		return hash
+	}
+	
+	count := len(node.Keys)
+	if count == 0 {
+		node.mu.RUnlock()
+		return [32]byte{}
+	}
+	
+	// Решаем, использовать ли параллелизм
+	useParallel := allowParallel && depth < 2 && count >= 4 && runtime.NumCPU() > 1
+	
+	indices := make([]int, count)
+	for i := range indices {
+		indices[i] = i
+	}
+	
+	keys := make([]byte, count)
+	copy(keys, node.Keys)
+	children := make([]*Node[T], count)
+	copy(children, node.Children)
+	node.mu.RUnlock()
+	
+	// Сортировка индексов
+	for i := 0; i < count-1; i++ {
+		for j := i + 1; j < count; j++ {
+			if keys[indices[i]] > keys[indices[j]] {
+				indices[i], indices[j] = indices[j], indices[i]
+			}
+		}
+	}
+	
+	// Вычисляем хеши детей
+	childHashes := make([][32]byte, count)
+	
+	if useParallel {
+		var wg sync.WaitGroup
+		for i, idx := range indices {
+			wg.Add(1)
+			go func(i, idx int) {
+				defer wg.Done()
+				childHashes[i] = t.computeNodeHash(children[idx], depth+1, true)
+			}(i, idx)
+		}
+		wg.Wait()
+	} else {
+		for i, idx := range indices {
+			childHashes[i] = t.computeNodeHash(children[idx], depth+1, false)
+		}
+	}
+	
+	// Хешируем результат
+	hasher := blake3.New()
+	for i, idx := range indices {
+		hasher.Write([]byte{keys[idx]})
+		hasher.Write(childHashes[i][:])
+	}
+	
+	var result [32]byte
+	copy(result[:], hasher.Sum(nil))
+	
+	node.mu.Lock()
+	node.Hash = result
+	node.dirty.Store(false)
+	node.mu.Unlock()
+	
+	return result
+}
+
+// RecomputeDirtyHashes пересчитывает только грязные узлы (без возврата корня)
+func (t *Tree[T]) RecomputeDirtyHashes() {
+	if t.dirtyNodes.Load() > 0 {
+		t.computeNodeHash(t.root, 0, true)
+		t.dirtyNodes.Store(0)
+	}
 }
 
 func (t *Tree[T]) Size() int {
