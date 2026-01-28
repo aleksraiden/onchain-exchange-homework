@@ -33,6 +33,8 @@ type Tree[T Hashable] struct {
 	
 	topMinCache   *TopNCache[T]  // Минимальные элементы (ascending)
 	topMaxCache   *TopNCache[T]  // Максимальные элементы (descending)
+	
+	name            string  // Имя дерева (для снапшотов)
 
 	// Lazy hashing (компактно)
 	dirtyNodes     atomic.Uint64
