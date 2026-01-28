@@ -2,6 +2,7 @@ package models
 
 import (
 	"encoding/binary"
+	"fmt"
 	"github.com/zeebo/blake3"
 )
 
@@ -12,7 +13,6 @@ type Balance struct {
 	Available uint64 // Доступный баланс (в микро-единицах)
 	Locked    uint64 // Заблокированный баланс (в ордерах)
 	key       [8]byte
-	_         [4]byte // Padding
 }
 
 // ID реализует интерфейс Hashable
@@ -61,4 +61,47 @@ func (b *Balance) TotalBalance() uint64 {
 // CanWithdraw проверяет, можно ли вывести указанную сумму
 func (b *Balance) CanWithdraw(amount uint64) bool {
 	return b.Available >= amount
+}
+
+// Serialize реализует интерфейс Serializable
+func (b *Balance) Serialize() []byte {
+	buf := make([]byte, 8+4+8+8+8) // UserID + AssetID + Available + Locked + key
+	offset := 0
+	
+	binary.BigEndian.PutUint64(buf[offset:], b.UserID)
+	offset += 8
+	binary.BigEndian.PutUint32(buf[offset:], b.AssetID)
+	offset += 4
+	binary.BigEndian.PutUint64(buf[offset:], b.Available)
+	offset += 8
+	binary.BigEndian.PutUint64(buf[offset:], b.Locked)
+	offset += 8
+	copy(buf[offset:], b.key[:])
+	
+	return buf
+}
+
+// Deserialize реализует интерфейс Serializable
+func (b *Balance) Deserialize(data []byte) error {
+	if len(data) < 36 {
+		return fmt.Errorf("invalid balance data: expected at least 36 bytes, got %d", len(data))
+	}
+	
+	offset := 0
+	b.UserID = binary.BigEndian.Uint64(data[offset : offset+8])
+	offset += 8
+	b.AssetID = binary.BigEndian.Uint32(data[offset : offset+4])
+	offset += 4
+	b.Available = binary.BigEndian.Uint64(data[offset : offset+8])
+	offset += 8
+	b.Locked = binary.BigEndian.Uint64(data[offset : offset+8])
+	offset += 8
+	copy(b.key[:], data[offset:offset+8])
+	
+	return nil
+}
+
+// NewBalanceFactory фабрика для создания пустых балансов
+func NewBalanceFactory() *Balance {
+	return &Balance{}
 }

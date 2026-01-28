@@ -2,6 +2,7 @@ package models
 
 import (
 	"encoding/binary"
+	"fmt"
 	"github.com/zeebo/blake3"
 )
 
@@ -35,7 +36,6 @@ type Order struct {
 	Type      OrderType // Limit/Market/...
 	Timestamp int64     // Unix timestamp
 	key       [8]byte   // Кешированный ключ
-	_         [3]byte   // Padding
 }
 
 // ID реализует интерфейс Hashable
@@ -92,4 +92,67 @@ func (o *Order) RemainingQuantity() uint64 {
 		return 0
 	}
 	return o.Quantity - o.Filled
+}
+
+// Serialize реализует интерфейс Serializable
+func (o *Order) Serialize() []byte {
+	buf := make([]byte, 8+8+4+8+8+8+1+1+8+8) // все поля
+	offset := 0
+	
+	binary.BigEndian.PutUint64(buf[offset:], o.OrderID)
+	offset += 8
+	binary.BigEndian.PutUint64(buf[offset:], o.UserID)
+	offset += 8
+	binary.BigEndian.PutUint32(buf[offset:], o.Symbol)
+	offset += 4
+	binary.BigEndian.PutUint64(buf[offset:], o.Price)
+	offset += 8
+	binary.BigEndian.PutUint64(buf[offset:], o.Quantity)
+	offset += 8
+	binary.BigEndian.PutUint64(buf[offset:], o.Filled)
+	offset += 8
+	buf[offset] = byte(o.Side)
+	offset++
+	buf[offset] = byte(o.Type)
+	offset++
+	binary.BigEndian.PutUint64(buf[offset:], uint64(o.Timestamp))
+	offset += 8
+	copy(buf[offset:], o.key[:])
+	
+	return buf
+}
+
+// Deserialize реализует интерфейс Serializable
+func (o *Order) Deserialize(data []byte) error {
+	if len(data) < 62 {
+		return fmt.Errorf("invalid order data: expected at least 62 bytes, got %d", len(data))
+	}
+	
+	offset := 0
+	o.OrderID = binary.BigEndian.Uint64(data[offset : offset+8])
+	offset += 8
+	o.UserID = binary.BigEndian.Uint64(data[offset : offset+8])
+	offset += 8
+	o.Symbol = binary.BigEndian.Uint32(data[offset : offset+4])
+	offset += 4
+	o.Price = binary.BigEndian.Uint64(data[offset : offset+8])
+	offset += 8
+	o.Quantity = binary.BigEndian.Uint64(data[offset : offset+8])
+	offset += 8
+	o.Filled = binary.BigEndian.Uint64(data[offset : offset+8])
+	offset += 8
+	o.Side = OrderSide(data[offset])
+	offset++
+	o.Type = OrderType(data[offset])
+	offset++
+	o.Timestamp = int64(binary.BigEndian.Uint64(data[offset : offset+8]))
+	offset += 8
+	copy(o.key[:], data[offset:offset+8])
+	
+	return nil
+}
+
+// NewOrderFactory фабрика для создания пустых ордеров
+func NewOrderFactory() *Order {
+	return &Order{}
 }

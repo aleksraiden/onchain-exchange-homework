@@ -4,6 +4,8 @@ import (
 	"runtime"
 	"testing"
 	"time"
+	"sync"
+	"math/rand"
 )
 
 func TestTreeBasicOperations(t *testing.T) {
@@ -255,4 +257,64 @@ func TestLargeScalePerformance(t *testing.T) {
 
 	stats := tree.GetStats()
 	t.Logf("Статистика дерева: %+v", stats)
+}
+
+func TestTreeConcurrentGetAndRoot(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skip in short mode")
+	}
+
+	tree := New[*Account](DefaultConfig())
+
+	// Заполняем
+	for i := uint64(0); i < 100_000; i++ {
+		tree.Insert(NewAccount(i, StatusUser))
+	}
+
+	// Параллельные геты + периодические ComputeRoot
+	const workers = 32
+	const rounds = 1000
+
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			rng := rand.New(rand.NewSource(time.Now().UnixNano() + int64(id)))
+			for j := 0; j < rounds; j++ {
+				uid := uint64(rng.Intn(100_000))
+				_, _ = tree.Get(uid)
+
+				if j%50 == 0 {
+					_ = tree.ComputeRoot()
+				}
+			}
+		}(i)
+	}
+
+	wg.Wait()
+}
+
+func BenchmarkConcurrentGetAndRootHighContention(b *testing.B) {
+    tree := New[*Account](DefaultConfig())
+    // Заполняем большим количеством элементов
+    for i := uint64(0); i < 500_000; i++ {
+        tree.Insert(NewAccount(i, StatusUser))
+    }
+
+    b.ResetTimer()
+    b.ReportAllocs()
+
+    b.RunParallel(func(pb *testing.PB) {
+        rng := rand.New(rand.NewSource(time.Now().UnixNano() + int64(b.N)))
+        for pb.Next() {
+            uid := uint64(rng.Intn(500_000))
+            _, _ = tree.Get(uid)
+
+            // 1% шанс вызвать ComputeRoot (симулируем CometBFT finality)
+            if rng.Intn(100) == 0 {
+                _ = tree.ComputeRoot()
+            }
+        }
+    })
 }

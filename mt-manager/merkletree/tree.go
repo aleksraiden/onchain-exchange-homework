@@ -38,7 +38,7 @@ type Tree[T Hashable] struct {
 
 	// Lazy hashing (компактно)
 	dirtyNodes     atomic.Uint64
-	cachedRoot     [32]byte
+	cachedRoot     atomic.Value		//[32]byte
 	rootCacheValid atomic.Bool
 
 	// Метрики
@@ -77,7 +77,7 @@ func New[T Hashable](cfg *Config) *Tree[T] {
 	arena := newConcurrentArena[T]()
 	root := arena.alloc()
 
-	return &Tree[T]{
+	t := &Tree[T]{
 		root:     root,
 		arena:    arena,
 		cache:    newShardedCache[T](cfg.CacheSize, cfg.CacheShards),
@@ -87,6 +87,10 @@ func New[T Hashable](cfg *Config) *Tree[T] {
 		topMinCache: NewTopNCache[T](cfg.TopN, true),   // ascending = min-heap
 		topMaxCache: NewTopNCache[T](cfg.TopN, false),  // descending = max-heap
 	}
+	
+	t.cachedRoot.Store([32]byte{}) // zero value
+	
+	return t
 }
 
 func (t *Tree[T]) Insert(item T) {
@@ -477,6 +481,7 @@ func (t *Tree[T]) Get(id uint64) (T, bool) {
 }
 
 // ComputeRoot вычисляет корневой хеш (с автоматическим выбором стратегии)
+/**
 func (t *Tree[T]) ComputeRoot() [32]byte {
 	// Проверяем кеш корня
 	if t.rootCacheValid.Load() {
@@ -492,6 +497,45 @@ func (t *Tree[T]) ComputeRoot() [32]byte {
 	t.computeCount.Add(1)
 
 	return root
+}**/
+
+func (t *Tree[T]) ComputeRoot() [32]byte {
+    // Быстрое чтение (lock-free)
+    if t.rootCacheValid.Load() {
+        if val := t.cachedRoot.Load(); val != nil {
+            return val.([32]byte)
+        }
+    }
+
+    // Вычисляем новый root (дорого, делаем редко)
+    newRoot := t.computeNodeHash(t.root, 0, true)
+
+    // CAS-loop: пытаемся установить, если dirty не изменился
+    for attempts := 0; attempts < 16; attempts++ { // лимит попыток, чтобы не loop forever
+        currentDirty := t.dirtyNodes.Load()
+
+        // Устанавливаем новый root
+        t.cachedRoot.Store(newRoot)
+        t.rootCacheValid.Store(true)
+
+        // Если dirty не изменился — успех (другие потоки не модифицировали дерево)
+        if t.dirtyNodes.CompareAndSwap(currentDirty, 0) {
+            return newRoot
+        }
+
+        // Dirty изменился → кто-то вставил/удалил → пересчитываем
+        newRoot = t.computeNodeHash(t.root, 0, true)
+    }
+
+    // Редкий fallback: если CAS не удался много раз (очень высокая contention)
+    // — просто берём lock и делаем финальную запись
+    t.mu.Lock()
+    defer t.mu.Unlock()
+    newRoot = t.computeNodeHash(t.root, 0, true)
+    t.cachedRoot.Store(newRoot)
+    t.rootCacheValid.Store(true)
+    t.dirtyNodes.Store(0)
+    return newRoot
 }
 
 // computeNodeHash - ЕДИНЫЙ метод с автоматическим параллелизмом

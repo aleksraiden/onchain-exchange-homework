@@ -25,7 +25,6 @@ type Transaction struct {
 	Type      TxType // Тип транзакции
 	Timestamp int64  // Unix timestamp
 	key       [8]byte
-	_         [3]byte // Padding
 }
 
 // ID реализует интерфейс Hashable
