@@ -7,6 +7,7 @@
 **Benchmark Intel Xeon Gold:**
 
 **CGO_ENABLED=0 GOAMD64=v3 go test ./merkletree -ldflags="-s -w" -v -run "TestManagerStressTest/Trees_10" -timeout=10m -count=1**
+
 === RUN   TestManagerStressTest
 === RUN   TestManagerStressTest/Trees_10
     manager_benchmark_test.go:42: === Тест с 10 деревьями ===
