@@ -318,3 +318,20 @@ func BenchmarkConcurrentGetAndRootHighContention(b *testing.B) {
         }
     })
 }
+
+func TestRootChangesAfterMutation(t *testing.T) {
+    tree := New[*Account](DefaultConfig())
+    acc1 := NewAccount(1, StatusUser)
+    tree.Insert(acc1)
+
+    root1 := tree.ComputeRoot()
+
+    acc2 := NewAccount(2, StatusUser)
+    tree.Insert(acc2)
+
+    root2 := tree.ComputeRoot()
+
+    if root1 == root2 {
+        t.Error("Root hash должен измениться после вставки")
+    }
+}
