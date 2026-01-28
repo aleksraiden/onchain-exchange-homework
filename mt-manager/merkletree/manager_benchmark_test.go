@@ -9,11 +9,11 @@ import (
 
 func TestManagerStressTest(t *testing.T) {
 	tests := []struct {
-		name      string
-		numTrees  int
-		minItems  int
-		maxItems  int
-		updates   int
+		name     string
+		numTrees int
+		minItems int
+		maxItems int
+		updates  int
 	}{
 		{
 			name:     "Trees_10",
@@ -40,39 +40,41 @@ func TestManagerStressTest(t *testing.T) {
 
 func runStressTest(t *testing.T, numTrees, minItems, maxItems, numUpdates int) {
 	t.Logf("=== Тест с %d деревьями ===", numTrees)
-
-	mgr := NewManager[*Account](DefaultConfig())
+	
+	// ✅ ИЗМЕНЕНИЕ: Используем конфигурацию с TopN=10
+	cfg := DefaultConfig()
+	cfg.TopN = 10  // Включаем TopN кеш
+	mgr := NewManager[*Account](cfg)
+	
 	rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	// Фаза 1: Создание и заполнение деревьев
 	t.Log("Фаза 1: Создание и заполнение деревьев...")
 	phase1Start := time.Now()
-
 	totalItems := 0
 	treeItemCounts := make(map[string]int)
-
+	
 	for i := 0; i < numTrees; i++ {
 		treeID := fmt.Sprintf("tree_%d", i)
 		tree := mgr.GetOrCreateTree(treeID)
-
 		numItems := minItems + rnd.Intn(maxItems-minItems)
 		treeItemCounts[treeID] = numItems
-
 		items := make([]*Account, numItems)
+		
 		for j := 0; j < numItems; j++ {
 			id := uint64(i*maxItems + j)
 			status := AccountStatus(rnd.Intn(3))
 			items[j] = NewAccount(id, status)
 		}
-
+		
 		tree.InsertBatch(items)
 		totalItems += numItems
-
+		
 		if (i+1)%10 == 0 || i == numTrees-1 {
 			t.Logf("  Создано %d/%d деревьев, всего элементов: %d", i+1, numTrees, totalItems)
 		}
 	}
-
+	
 	phase1Duration := time.Since(phase1Start)
 	t.Logf("Фаза 1 завершена за %v", phase1Duration)
 	t.Logf("  Всего элементов: %d", totalItems)
@@ -81,9 +83,9 @@ func runStressTest(t *testing.T, numTrees, minItems, maxItems, numUpdates int) {
 	// Фаза 2: Вычисление хешей всех деревьев
 	t.Log("\nФаза 2: Вычисление хешей деревьев...")
 	phase2Start := time.Now()
-
 	initialHashes := make(map[string][32]byte)
 	treeIDs := mgr.ListTrees()
+	
 	for _, treeID := range treeIDs {
 		tree, exists := mgr.GetTree(treeID)
 		if !exists {
@@ -92,11 +94,11 @@ func runStressTest(t *testing.T, numTrees, minItems, maxItems, numUpdates int) {
 		hash := tree.ComputeRoot()
 		initialHashes[treeID] = hash
 	}
-
+	
 	phase2Duration := time.Since(phase2Start)
 	t.Logf("Фаза 2 завершена за %v", phase2Duration)
 	t.Logf("  Среднее время на дерево: %v", phase2Duration/time.Duration(numTrees))
-
+	
 	// Печать случайных хешей
 	count := 0
 	for treeID, hash := range initialHashes {
@@ -109,46 +111,84 @@ func runStressTest(t *testing.T, numTrees, minItems, maxItems, numUpdates int) {
 	// Фаза 3: Вычисление глобального корня
 	t.Log("\nФаза 3: Вычисление глобального корня...")
 	phase3Start := time.Now()
-
 	globalRoot := mgr.ComputeGlobalRoot()
-
 	phase3Duration := time.Since(phase3Start)
 	t.Logf("Фаза 3 завершена за %v", phase3Duration)
 	t.Logf("  Глобальный корень: %x", globalRoot[:16])
 
+	// ✅ НОВАЯ ФАЗА 3.5: Проверка TopN кеша
+	t.Log("\nФаза 3.5: Проверка TopN кеша...")
+	phase35Start := time.Now()
+	topNChecks := 0
+	topNFound := 0
+	
+	for _, treeID := range treeIDs {
+		tree, _ := mgr.GetTree(treeID)
+		
+		// Проверяем, что TopN включен
+		if !tree.IsTopNEnabled() {
+			t.Errorf("TopN должен быть включен для дерева %s", treeID)
+			continue
+		}
+		
+		topNChecks++
+		
+		// Получаем min/max
+		if minItem, ok := tree.GetMin(); ok {
+			topNFound++
+			t.Logf("  %s: Min ID=%d", treeID, minItem.UID)
+		}
+		
+		if maxItem, ok := tree.GetMax(); ok {
+			t.Logf("  %s: Max ID=%d", treeID, maxItem.UID)
+		}
+		
+		// Проверяем Top-5
+		topMin := tree.GetTopMin(5)
+		topMax := tree.GetTopMax(5)
+		
+		if topNChecks <= 2 {
+			t.Logf("  %s: TopMin count=%d, TopMax count=%d", 
+				treeID, len(topMin), len(topMax))
+		}
+	}
+	
+	phase35Duration := time.Since(phase35Start)
+	t.Logf("Фаза 3.5 завершена за %v", phase35Duration)
+	t.Logf("  Проверено деревьев: %d, с TopN данными: %d", topNChecks, topNFound)
+
 	// Фаза 4: Случайные обновления
 	t.Log("\nФаза 4: Выполнение случайных обновлений...")
 	phase4Start := time.Now()
-
 	updateBatches := 0
 	updatesPerformed := 0
-
+	
 	for updatesPerformed < numUpdates {
 		batchSize := rnd.Intn(500) + 1
 		if updatesPerformed+batchSize > numUpdates {
 			batchSize = numUpdates - updatesPerformed
 		}
-
+		
 		treeIdx := rnd.Intn(numTrees)
 		treeID := fmt.Sprintf("tree_%d", treeIdx)
 		tree, _ := mgr.GetTree(treeID)
-
 		items := make([]*Account, batchSize)
+		
 		for i := 0; i < batchSize; i++ {
 			id := uint64(treeIdx*maxItems + rnd.Intn(treeItemCounts[treeID]))
 			status := AccountStatus(rnd.Intn(3))
 			items[i] = NewAccount(id, status)
 		}
-
+		
 		tree.InsertBatch(items)
 		updateBatches++
 		updatesPerformed += batchSize
-
+		
 		if updatesPerformed%(numUpdates/10) == 0 || updatesPerformed >= numUpdates {
 			t.Logf("  Выполнено %d/%d обновлений (%d батчей)", updatesPerformed, numUpdates, updateBatches)
 		}
 	}
-
+	
 	phase4Duration := time.Since(phase4Start)
 	t.Logf("Фаза 4 завершена за %v", phase4Duration)
 	t.Logf("  Батчей обновлений: %d", updateBatches)
@@ -158,20 +198,19 @@ func runStressTest(t *testing.T, numTrees, minItems, maxItems, numUpdates int) {
 	// Фаза 5: Случайные удаления
 	t.Log("\nФаза 5: Выполнение случайных удалений...")
 	phase5Start := time.Now()
-
 	totalDeleted := 0
 	deleteBatches := 0
-
+	
 	for i := 0; i < numTrees; i++ {
 		treeID := fmt.Sprintf("tree_%d", i)
 		tree, _ := mgr.GetTree(treeID)
-
+		
 		// Случайное количество удалений от 100 до 10K
 		numDeletes := 100 + rnd.Intn(9900)
 		if numDeletes > treeItemCounts[treeID] {
-			numDeletes = treeItemCounts[treeID] / 2 // Не более половины элементов
+			numDeletes = treeItemCounts[treeID] / 2
 		}
-
+		
 		// Удаляем батчами
 		deleted := 0
 		for deleted < numDeletes {
@@ -179,24 +218,24 @@ func runStressTest(t *testing.T, numTrees, minItems, maxItems, numUpdates int) {
 			if deleted+batchSize > numDeletes {
 				batchSize = numDeletes - deleted
 			}
-
+			
 			idsToDelete := make([]uint64, batchSize)
 			for j := 0; j < batchSize; j++ {
 				id := uint64(i*maxItems + rnd.Intn(treeItemCounts[treeID]))
 				idsToDelete[j] = id
 			}
-
+			
 			count := tree.DeleteBatch(idsToDelete)
 			deleted += count
 			totalDeleted += count
 			deleteBatches++
 		}
-
+		
 		if (i+1)%10 == 0 || i == numTrees-1 {
 			t.Logf("  Обработано %d/%d деревьев, удалено элементов: %d", i+1, numTrees, totalDeleted)
 		}
 	}
-
+	
 	phase5Duration := time.Since(phase5Start)
 	t.Logf("Фаза 5 завершена за %v", phase5Duration)
 	t.Logf("  Всего удалено: %d элементов", totalDeleted)
@@ -208,17 +247,16 @@ func runStressTest(t *testing.T, numTrees, minItems, maxItems, numUpdates int) {
 	// Фаза 6: Пересчет хешей после удалений
 	t.Log("\nФаза 6: Пересчет хешей после удалений...")
 	phase6Start := time.Now()
-
 	changedTrees := 0
+	
 	for _, treeID := range treeIDs {
 		tree, _ := mgr.GetTree(treeID)
 		newHash := tree.ComputeRoot()
-
 		if newHash != initialHashes[treeID] {
 			changedTrees++
 		}
 	}
-
+	
 	phase6Duration := time.Since(phase6Start)
 	t.Logf("Фаза 6 завершена за %v", phase6Duration)
 	t.Logf("  Деревьев с измененным хешем: %d/%d", changedTrees, numTrees)
@@ -226,38 +264,120 @@ func runStressTest(t *testing.T, numTrees, minItems, maxItems, numUpdates int) {
 	// Фаза 7: Новый глобальный корень
 	t.Log("\nФаза 7: Новый глобальный корень...")
 	phase7Start := time.Now()
-
 	newGlobalRoot := mgr.ComputeGlobalRoot()
-
 	phase7Duration := time.Since(phase7Start)
 	t.Logf("Фаза 7 завершена за %v", phase7Duration)
 	t.Logf("  Новый глобальный корень: %x", newGlobalRoot[:16])
-
+	
 	if newGlobalRoot == globalRoot {
 		t.Error("Глобальный корень не должен совпадать после удалений!")
 	}
 
+	t.Log("\nФаза 8: Проверка TopN после удалений...")
+	phase8Start := time.Now()
+	topNStillValid := 0
+
+	for i := 0; i < min(3, numTrees); i++ {
+		treeID := fmt.Sprintf("tree_%d", i)
+		tree, _ := mgr.GetTree(treeID)
+		
+		// Проверяем, что TopN все еще работает
+		minItem, minOk := tree.GetMin()
+		maxItem, maxOk := tree.GetMax()
+		
+		if minOk && maxOk {
+			topNStillValid++
+			minKey := keyToUint64(minItem.Key())
+			maxKey := keyToUint64(maxItem.Key())
+			
+			t.Logf("  %s: Min ID=%d (key=%d), Max ID=%d (key=%d)", 
+				treeID, minItem.UID, minKey, maxItem.UID, maxKey)
+			
+			// Проверяем, что min < max
+			if minKey >= maxKey {
+				t.Errorf("  %s: Min key (%d) должен быть < Max key (%d)!", 
+					treeID, minKey, maxKey)
+			}
+		}
+		
+		// Top-3 для проверки
+		topMin := tree.GetTopMin(3)
+		topMax := tree.GetTopMax(3)
+		
+		t.Logf("  %s: TopMin=%d элементов, TopMax=%d элементов", 
+			treeID, len(topMin), len(topMax))
+		
+		// Выводим ключи для отладки
+		if len(topMin) > 0 {
+			minKeys := make([]uint64, len(topMin))
+			for j, item := range topMin {
+				minKeys[j] = keyToUint64(item.Key())
+			}
+			t.Logf("    TopMin keys: %v", minKeys)
+		}
+		
+		if len(topMax) > 0 {
+			maxKeys := make([]uint64, len(topMax))
+			for j, item := range topMax {
+				maxKeys[j] = keyToUint64(item.Key())
+			}
+			t.Logf("    TopMax keys: %v", maxKeys)
+		}
+		
+		// ✅ ИСПРАВЛЕНИЕ: Проверяем сортировку TopMin (ascending)
+		for j := 0; j < len(topMin)-1; j++ {
+			keyJ := keyToUint64(topMin[j].Key())
+			keyJNext := keyToUint64(topMin[j+1].Key())
+			
+			// Для ascending: каждый следующий должен быть >= текущего
+			if keyJ > keyJNext {
+				t.Errorf("  %s: TopMin не отсортирован! [%d]=%d > [%d]=%d", 
+					treeID, j, keyJ, j+1, keyJNext)
+			}
+		}
+		
+		// ✅ ИСПРАВЛЕНИЕ: Проверяем сортировку TopMax (descending)
+		for j := 0; j < len(topMax)-1; j++ {
+			keyJ := keyToUint64(topMax[j].Key())
+			keyJNext := keyToUint64(topMax[j+1].Key())
+			
+			// Для descending: каждый следующий должен быть <= текущего
+			// Ошибка если следующий БОЛЬШЕ текущего
+			if keyJ < keyJNext {
+				t.Errorf("  %s: TopMax не отсортирован! [%d]=%d < [%d]=%d", 
+					treeID, j, keyJ, j+1, keyJNext)
+			}
+		}
+	}
+
+	phase8Duration := time.Since(phase8Start)
+	t.Logf("Фаза 8 завершена за %v", phase8Duration)
+	t.Logf("  Деревьев с валидным TopN: %d", topNStillValid)
+
 	// Итоговая статистика
 	totalDuration := phase1Duration + phase2Duration + phase3Duration +
-		phase4Duration + phase5Duration + phase6Duration + phase7Duration
-
+		phase35Duration + phase4Duration + phase5Duration + 
+		phase6Duration + phase7Duration + phase8Duration
+	
 	t.Log("\n=== Итоговая статистика ===")
 	t.Logf("Общее время: %v", totalDuration)
 	t.Logf("  Фаза 1 (заполнение): %v", phase1Duration)
 	t.Logf("  Фаза 2 (хеши): %v", phase2Duration)
 	t.Logf("  Фаза 3 (глобальный рут): %v", phase3Duration)
+	t.Logf("  Фаза 3.5 (проверка TopN): %v", phase35Duration)
 	t.Logf("  Фаза 4 (обновления): %v", phase4Duration)
 	t.Logf("  Фаза 5 (удаления): %v", phase5Duration)
 	t.Logf("  Фаза 6 (пересчет): %v", phase6Duration)
 	t.Logf("  Фаза 7 (новый рут): %v", phase7Duration)
-
+	t.Logf("  Фаза 8 (TopN после удалений): %v", phase8Duration)
+	
 	stats := mgr.GetStats()
 	t.Log("\nСтатистика менеджера:")
 	t.Logf("  Деревьев: %d", stats.TreeCount)
 	t.Logf("  Элементов: %d", stats.TotalItems)
 	t.Logf("  Узлов: %d", stats.TotalNodes)
 	t.Logf("  Размер кеша: %d", stats.TotalCacheSize)
-
+	
 	// Детальная статистика по удалениям
 	t.Log("\nСтатистика удалений по деревьям:")
 	for i := 0; i < min(3, numTrees); i++ {
@@ -270,13 +390,345 @@ func runStressTest(t *testing.T, numTrees, minItems, maxItems, numUpdates int) {
 	}
 }
 
+// ✅ НОВЫЙ ТЕСТ: Функциональность TopN
+func TestTopNCache(t *testing.T) {
+	t.Run("Basic", func(t *testing.T) {
+		cfg := DefaultConfig()
+		cfg.TopN = 5
+		mgr := NewManager[*Account](cfg)
+		tree, _ := mgr.CreateTree("test")
+		
+		// Вставляем элементы с известными ID
+		ids := []uint64{50, 10, 90, 30, 70, 20, 80, 40, 60, 100}
+		for _, id := range ids {
+			tree.Insert(NewAccount(id, StatusUser))
+		}
+		
+		// Проверяем Min/Max
+		minItem, ok := tree.GetMin()
+		if !ok {
+			t.Fatal("GetMin должен вернуть элемент")
+		}
+		if minItem.UID != 10 {
+			t.Errorf("Min ID должен быть 10, получили %d", minItem.UID)
+		}
+		
+		maxItem, ok := tree.GetMax()
+		if !ok {
+			t.Fatal("GetMax должен вернуть элемент")
+		}
+		if maxItem.UID != 100 {
+			t.Errorf("Max ID должен быть 100, получили %d", maxItem.UID)
+		}
+		
+		// Проверяем Top-5 Min
+		topMin := tree.GetTopMin(5)
+		if len(topMin) != 5 {
+			t.Errorf("TopMin должен вернуть 5 элементов, получили %d", len(topMin))
+		}
+		
+		expectedMin := []uint64{10, 20, 30, 40, 50}
+		for i, item := range topMin {
+			if item.UID != expectedMin[i] {
+				t.Errorf("TopMin[%d] должен быть %d, получили %d", 
+					i, expectedMin[i], item.UID)
+			}
+		}
+		
+		// Проверяем Top-5 Max
+		topMax := tree.GetTopMax(5)
+		if len(topMax) != 5 {
+			t.Errorf("TopMax должен вернуть 5 элементов, получили %d", len(topMax))
+		}
+		
+		expectedMax := []uint64{100, 90, 80, 70, 60}
+		for i, item := range topMax {
+			if item.UID != expectedMax[i] {
+				t.Errorf("TopMax[%d] должен быть %d, получили %d", 
+					i, expectedMax[i], item.UID)
+			}
+		}
+	})
+	
+	t.Run("WithDeletes", func(t *testing.T) {
+		cfg := DefaultConfig()
+		cfg.TopN = 3
+		mgr := NewManager[*Account](cfg)
+		tree, _ := mgr.CreateTree("test")
+		
+		// Вставляем элементы
+		for i := uint64(10); i <= 100; i += 10 {
+			tree.Insert(NewAccount(i, StatusUser))
+		}
+		
+		// Удаляем минимум
+		tree.Delete(10)
+		
+		// Новый минимум должен быть 20
+		minItem, ok := tree.GetMin()
+		if !ok {
+			t.Fatal("GetMin должен вернуть элемент после удаления")
+		}
+		if minItem.UID != 20 {
+			t.Errorf("Min после удаления должен быть 20, получили %d", minItem.UID)
+		}
+		
+		// Удаляем максимум
+		tree.Delete(100)
+		
+		// Новый максимум должен быть 90
+		maxItem, ok := tree.GetMax()
+		if !ok {
+			t.Fatal("GetMax должен вернуть элемент после удаления")
+		}
+		if maxItem.UID != 90 {
+			t.Errorf("Max после удаления должен быть 90, получили %d", maxItem.UID)
+		}
+	})
+	
+	t.Run("Disabled", func(t *testing.T) {
+		cfg := DefaultConfig()
+		cfg.TopN = 0  // Отключен
+		mgr := NewManager[*Account](cfg)
+		tree, _ := mgr.CreateTree("test")
+		
+		// Вставляем элементы
+		for i := uint64(1); i <= 10; i++ {
+			tree.Insert(NewAccount(i, StatusUser))
+		}
+		
+		// TopN должен быть отключен
+		if tree.IsTopNEnabled() {
+			t.Error("TopN должен быть отключен")
+		}
+		
+		// Методы должны возвращать пустые результаты
+		_, ok := tree.GetMin()
+		if ok {
+			t.Error("GetMin должен вернуть false когда TopN отключен")
+		}
+		
+		topMin := tree.GetTopMin(5)
+		if topMin != nil {
+			t.Error("GetTopMin должен вернуть nil когда TopN отключен")
+		}
+	})
+}
+
+// ✅ НОВЫЕ БЕНЧМАРКИ: TopN операции
+func BenchmarkTopNOperations(b *testing.B) {
+	b.Run("GetMin", func(b *testing.B) {
+		cfg := DefaultConfig()
+		cfg.TopN = 10
+		mgr := NewManager[*Account](cfg)
+		tree, _ := mgr.CreateTree("bench")
+		
+		// Заполняем дерево
+		for i := uint64(0); i < 100000; i++ {
+			tree.Insert(NewAccount(i, StatusUser))
+		}
+		
+		b.ResetTimer()
+		b.ReportAllocs()
+		
+		for i := 0; i < b.N; i++ {
+			_, ok := tree.GetMin()
+			if !ok {
+				b.Fatal("GetMin failed")
+			}
+		}
+	})
+	
+	b.Run("GetMax", func(b *testing.B) {
+		cfg := DefaultConfig()
+		cfg.TopN = 10
+		mgr := NewManager[*Account](cfg)
+		tree, _ := mgr.CreateTree("bench")
+		
+		for i := uint64(0); i < 100000; i++ {
+			tree.Insert(NewAccount(i, StatusUser))
+		}
+		
+		b.ResetTimer()
+		b.ReportAllocs()
+		
+		for i := 0; i < b.N; i++ {
+			_, ok := tree.GetMax()
+			if !ok {
+				b.Fatal("GetMax failed")
+			}
+		}
+	})
+	
+	b.Run("GetTopMin", func(b *testing.B) {
+		cfg := DefaultConfig()
+		cfg.TopN = 20
+		mgr := NewManager[*Account](cfg)
+		tree, _ := mgr.CreateTree("bench")
+		
+		for i := uint64(0); i < 100000; i++ {
+			tree.Insert(NewAccount(i, StatusUser))
+		}
+		
+		b.ResetTimer()
+		b.ReportAllocs()
+		
+		for i := 0; i < b.N; i++ {
+			items := tree.GetTopMin(10)
+			if len(items) == 0 {
+				b.Fatal("GetTopMin returned empty")
+			}
+		}
+	})
+	
+	b.Run("GetTopMax", func(b *testing.B) {
+		cfg := DefaultConfig()
+		cfg.TopN = 20
+		mgr := NewManager[*Account](cfg)
+		tree, _ := mgr.CreateTree("bench")
+		
+		for i := uint64(0); i < 100000; i++ {
+			tree.Insert(NewAccount(i, StatusUser))
+		}
+		
+		b.ResetTimer()
+		b.ReportAllocs()
+		
+		for i := 0; i < b.N; i++ {
+			items := tree.GetTopMax(10)
+			if len(items) == 0 {
+				b.Fatal("GetTopMax returned empty")
+			}
+		}
+	})
+}
+
+// ✅ БЕНЧМАРК: Накладные расходы TopN на Insert/Delete
+func BenchmarkTopNOverhead(b *testing.B) {
+	b.Run("Insert_WithTopN", func(b *testing.B) {
+		cfg := DefaultConfig()
+		cfg.TopN = 10
+		mgr := NewManager[*Account](cfg)
+		tree, _ := mgr.CreateTree("bench")
+		
+		b.ResetTimer()
+		b.ReportAllocs()
+		
+		for i := 0; i < b.N; i++ {
+			tree.Insert(NewAccount(uint64(i), StatusUser))
+		}
+	})
+	
+	b.Run("Insert_WithoutTopN", func(b *testing.B) {
+		cfg := DefaultConfig()
+		cfg.TopN = 0
+		mgr := NewManager[*Account](cfg)
+		tree, _ := mgr.CreateTree("bench")
+		
+		b.ResetTimer()
+		b.ReportAllocs()
+		
+		for i := 0; i < b.N; i++ {
+			tree.Insert(NewAccount(uint64(i), StatusUser))
+		}
+	})
+	
+	b.Run("Delete_WithTopN", func(b *testing.B) {
+		cfg := DefaultConfig()
+		cfg.TopN = 10
+		mgr := NewManager[*Account](cfg)
+		tree, _ := mgr.CreateTree("bench")
+		
+		// Предварительно заполняем
+		for i := 0; i < b.N; i++ {
+			tree.Insert(NewAccount(uint64(i), StatusUser))
+		}
+		
+		b.ResetTimer()
+		b.ReportAllocs()
+		
+		for i := 0; i < b.N; i++ {
+			tree.Delete(uint64(i))
+		}
+	})
+	
+	b.Run("Delete_WithoutTopN", func(b *testing.B) {
+		cfg := DefaultConfig()
+		cfg.TopN = 0
+		mgr := NewManager[*Account](cfg)
+		tree, _ := mgr.CreateTree("bench")
+		
+		// Предварительно заполняем
+		for i := 0; i < b.N; i++ {
+			tree.Insert(NewAccount(uint64(i), StatusUser))
+		}
+		
+		b.ResetTimer()
+		b.ReportAllocs()
+		
+		for i := 0; i < b.N; i++ {
+			tree.Delete(uint64(i))
+		}
+	})
+}
+
+// ✅ БЕНЧМАРК: Сравнение TopN vs полное сканирование
+func BenchmarkTopNVsFullScan(b *testing.B) {
+	b.Run("TopN_GetTop10", func(b *testing.B) {
+		cfg := DefaultConfig()
+		cfg.TopN = 10
+		mgr := NewManager[*Account](cfg)
+		tree, _ := mgr.CreateTree("bench")
+		
+		// Заполняем 100K элементов
+		for i := uint64(0); i < 100000; i++ {
+			tree.Insert(NewAccount(i, StatusUser))
+		}
+		
+		b.ResetTimer()
+		b.ReportAllocs()
+		
+		for i := 0; i < b.N; i++ {
+			items := tree.GetTopMin(10)
+			_ = items
+		}
+	})
+	
+	b.Run("FullScan_GetTop10", func(b *testing.B) {
+		cfg := DefaultConfig()
+		cfg.TopN = 0  // Отключаем TopN
+		mgr := NewManager[*Account](cfg)
+		tree, _ := mgr.CreateTree("bench")
+		
+		// Заполняем 100K элементов
+		for i := uint64(0); i < 100000; i++ {
+			tree.Insert(NewAccount(i, StatusUser))
+		}
+		
+		b.ResetTimer()
+		b.ReportAllocs()
+		
+		for i := 0; i < b.N; i++ {
+			// Эмулируем полное сканирование
+			allItems := tree.GetAllItems()
+			
+			// Сортируем (в реальности потребуется sort)
+			if len(allItems) < 10 {
+				continue
+			}
+			
+			// Просто берем первые 10 для сравнения накладных расходов
+			_ = allItems[:10]
+		}
+	})
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a
 	}
 	return b
 }
-
 
 // BenchmarkManagerRangeQuery тестирует range-запросы с разными размерами
 func BenchmarkManagerRangeQuery(b *testing.B) {
@@ -810,4 +1262,263 @@ func BenchmarkManagerRangeQueryCacheBehavior(b *testing.B) {
 	})
 }
 
+// ✅ НОВЫЙ ТЕСТ: Итераторы TopN
+func TestTopNIterator(t *testing.T) {
+	t.Run("BasicIteration", func(t *testing.T) {
+		cfg := DefaultConfig()
+		cfg.TopN = 5
+		mgr := NewManager[*Account](cfg)
+		tree, _ := mgr.CreateTree("test")
+		
+		// Вставляем элементы
+		ids := []uint64{50, 10, 90, 30, 70, 20, 80, 40, 60, 100}
+		for _, id := range ids {
+			tree.Insert(NewAccount(id, StatusUser))
+		}
+		
+		// Итератор по минимумам
+		iter := tree.IterTopMin()
+		
+		count := 0
+		prev := uint64(0)
+		for iter.HasNext() {
+			account, ok := iter.Next()
+			if !ok {
+				t.Fatal("Next вернул false при HasNext=true")
+			}
+			
+			// Проверяем возрастающий порядок
+			if account.UID < prev {
+				t.Errorf("Порядок нарушен: %d < %d", account.UID, prev)
+			}
+			prev = account.UID
+			count++
+		}
+		
+		if count != 5 {
+			t.Errorf("Ожидали 5 элементов, получили %d", count)
+		}
+		
+		// Проверяем что после исчерпания Next возвращает false
+		_, ok := iter.Next()
+		if ok {
+			t.Error("Next должен вернуть false после исчерпания")
+		}
+	})
+	
+	t.Run("PeekAndNext", func(t *testing.T) {
+		cfg := DefaultConfig()
+		cfg.TopN = 3
+		mgr := NewManager[*Account](cfg)
+		tree, _ := mgr.CreateTree("test")
+		
+		for i := uint64(1); i <= 10; i++ {
+			tree.Insert(NewAccount(i*10, StatusUser))
+		}
+		
+		iter := tree.IterTopMin()
+		
+		// Peek не должен сдвигать позицию
+		first, _ := iter.Peek()
+		same, _ := iter.Peek()
+		
+		if first.UID != same.UID {
+			t.Error("Peek должен возвращать один и тот же элемент")
+		}
+		
+		// Next должен сдвинуть
+		taken, _ := iter.Next()
+		if taken.UID != first.UID {
+			t.Error("Next должен вернуть тот же элемент что и Peek")
+		}
+		
+		// Теперь Peek вернет следующий
+		second, _ := iter.Peek()
+		if second.UID == first.UID {
+			t.Error("После Next, Peek должен вернуть новый элемент")
+		}
+	})
+	
+	t.Run("Reset", func(t *testing.T) {
+		cfg := DefaultConfig()
+		cfg.TopN = 5
+		mgr := NewManager[*Account](cfg)
+		tree, _ := mgr.CreateTree("test")
+		
+		for i := uint64(1); i <= 10; i++ {
+			tree.Insert(NewAccount(i, StatusUser))
+		}
+		
+		iter := tree.IterTopMax()
+		
+		// Берем первые 3
+		firstRun := make([]uint64, 0)
+		for i := 0; i < 3 && iter.HasNext(); i++ {
+			acc, _ := iter.Next()
+			firstRun = append(firstRun, acc.UID)
+		}
+		
+		if len(firstRun) != 3 {
+			t.Fatalf("Ожидали 3 элемента, получили %d", len(firstRun))
+		}
+		
+		// Reset
+		iter.Reset()
+		
+		// Берем снова первые 3
+		secondRun := make([]uint64, 0)
+		for i := 0; i < 3 && iter.HasNext(); i++ {
+			acc, _ := iter.Next()
+			secondRun = append(secondRun, acc.UID)
+		}
+		
+		// Должны совпадать
+		for i := 0; i < 3; i++ {
+			if firstRun[i] != secondRun[i] {
+				t.Errorf("После Reset элемент [%d]: %d != %d", 
+					i, firstRun[i], secondRun[i])
+			}
+		}
+	})
+	
+	t.Run("TakeWhile", func(t *testing.T) {
+		cfg := DefaultConfig()
+		cfg.TopN = 10
+		mgr := NewManager[*Account](cfg)
+		tree, _ := mgr.CreateTree("test")
+		
+		// Вставляем 1, 2, 3, ..., 20
+		for i := uint64(1); i <= 20; i++ {
+			tree.Insert(NewAccount(i, StatusUser))
+		}
+		
+		iter := tree.IterTopMin()
+		
+		// Берем элементы пока ID <= 5
+		taken := iter.TakeWhile(func(acc *Account) bool {
+			return acc.UID <= 5
+		})
+		
+		if len(taken) != 5 {
+			t.Errorf("Ожидали 5 элементов, получили %d", len(taken))
+		}
+		
+		// Проверяем что взяли правильные
+		for i, acc := range taken {
+			expected := uint64(i + 1)
+			if acc.UID != expected {
+				t.Errorf("taken[%d]: ожидали %d, получили %d", 
+					i, expected, acc.UID)
+			}
+		}
+		
+		// Итератор должен остановиться на 6
+		next, ok := iter.Peek()
+		if !ok || next.UID != 6 {
+			t.Errorf("После TakeWhile итератор должен быть на элементе 6")
+		}
+	})
+	
+	t.Run("ForEach", func(t *testing.T) {
+		cfg := DefaultConfig()
+		cfg.TopN = 5
+		mgr := NewManager[*Account](cfg)
+		tree, _ := mgr.CreateTree("test")
+		
+		for i := uint64(1); i <= 10; i++ {
+			tree.Insert(NewAccount(i*10, StatusUser))
+		}
+		
+		iter := tree.IterTopMin()
+		
+		// Собираем все через ForEach
+		collected := make([]uint64, 0)
+		iter.ForEach(func(acc *Account) {
+			collected = append(collected, acc.UID)
+		})
+		
+		if len(collected) != 5 {
+			t.Errorf("Ожидали 5 элементов, получили %d", len(collected))
+		}
+		
+		// После ForEach итератор исчерпан
+		if iter.HasNext() {
+			t.Error("После ForEach итератор должен быть исчерпан")
+		}
+	})
+	
+	t.Run("EmptyIterator", func(t *testing.T) {
+		cfg := DefaultConfig()
+		cfg.TopN = 0  // Отключен
+		mgr := NewManager[*Account](cfg)
+		tree, _ := mgr.CreateTree("test")
+		
+		// Вставляем элементы
+		for i := uint64(1); i <= 10; i++ {
+			tree.Insert(NewAccount(i, StatusUser))
+		}
+		
+		// Итератор должен быть пустым
+		iter := tree.IterTopMin()
+		
+		if iter.HasNext() {
+			t.Error("Итератор должен быть пустым когда TopN отключен")
+		}
+		
+		if iter.Remaining() != 0 {
+			t.Error("Remaining должен быть 0 для пустого итератора")
+		}
+	})
+}
+
+// ✅ БЕНЧМАРК: Итераторы
+func BenchmarkTopNIterator(b *testing.B) {
+	cfg := DefaultConfig()
+	cfg.TopN = 20
+	mgr := NewManager[*Account](cfg)
+	tree, _ := mgr.CreateTree("bench")
+	
+	// Заполняем
+	for i := uint64(0); i < 100000; i++ {
+		tree.Insert(NewAccount(i, StatusUser))
+	}
+	
+	b.Run("Iteration", func(b *testing.B) {
+		b.ResetTimer()
+		b.ReportAllocs()
+		
+		for i := 0; i < b.N; i++ {
+			iter := tree.IterTopMin()
+			count := 0
+			for iter.HasNext() {
+				_, _ = iter.Next()
+				count++
+			}
+		}
+	})
+	
+	b.Run("TakeWhile", func(b *testing.B) {
+		b.ResetTimer()
+		b.ReportAllocs()
+		
+		for i := 0; i < b.N; i++ {
+			iter := tree.IterTopMin()
+			_ = iter.TakeWhile(func(acc *Account) bool {
+				return acc.UID < 10
+			})
+		}
+	})
+	
+	b.Run("ForEach", func(b *testing.B) {
+		b.ResetTimer()
+		b.ReportAllocs()
+		
+		for i := 0; i < b.N; i++ {
+			iter := tree.IterTopMin()
+			iter.ForEach(func(acc *Account) {
+				_ = acc.UID
+			})
+		}
+	})
+}
 

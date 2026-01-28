@@ -22,6 +22,7 @@ type Config struct {
 	MaxDepth    int  // Максимальная глубина дерева
 	CacheSize   int  // Размер кеша
 	CacheShards uint // Количество шардов для кеша (2^n)
+	TopN        int // Для хранения топ-левел кеша 
 }
 
 // DefaultConfig возвращает конфигурацию по умолчанию
@@ -30,6 +31,7 @@ func DefaultConfig() *Config {
 		MaxDepth:    3,
 		CacheSize:   100000,
 		CacheShards: 8,
+		TopN:        0,
 	}
 }
 

@@ -30,6 +30,9 @@ type Tree[T Hashable] struct {
 	cache      *ShardedCache[T]
 	maxDepth   int
 	mu         sync.RWMutex
+	
+	topMinCache   *TopNCache[T]  // Минимальные элементы (ascending)
+	topMaxCache   *TopNCache[T]  // Максимальные элементы (descending)
 
 	// Lazy hashing (компактно)
 	dirtyNodes     atomic.Uint64
@@ -77,6 +80,10 @@ func New[T Hashable](cfg *Config) *Tree[T] {
 		arena:    arena,
 		cache:    newShardedCache[T](cfg.CacheSize, cfg.CacheShards),
 		maxDepth: cfg.MaxDepth,
+		
+		// Инициализация TopN кешей
+		topMinCache: NewTopNCache[T](cfg.TopN, true),   // ascending = min-heap
+		topMaxCache: NewTopNCache[T](cfg.TopN, false),  // descending = max-heap
 	}
 }
 
@@ -86,6 +93,11 @@ func (t *Tree[T]) Insert(item T) {
 	t.cache.put(item.ID(), item)
 	t.insertNode(t.root, item, 0)
 	t.rootCacheValid.Store(false)
+	
+	// Обновляем TopN кеши
+	t.topMinCache.TryInsert(item)
+	t.topMaxCache.TryInsert(item)
+	
 	t.insertCount.Add(1)
 }
 
@@ -118,6 +130,10 @@ func (t *Tree[T]) insertBatchSimple(items []T) {
 	for _, item := range items {
 		t.items.Store(item.ID(), item)
 		t.cache.put(item.ID(), item)
+		
+		// Обновляем TopN
+		t.topMinCache.TryInsert(item)
+		t.topMaxCache.TryInsert(item)
 	}
 	t.itemCount.Add(uint64(len(items)))
 
@@ -136,6 +152,9 @@ func (t *Tree[T]) insertBatchSequential(items []T) {
 	for _, item := range items {
 		t.items.Store(item.ID(), item)
 		t.cache.put(item.ID(), item)
+		
+		t.topMinCache.TryInsert(item)
+		t.topMaxCache.TryInsert(item)
 	}
 	t.itemCount.Add(uint64(len(items)))
 
@@ -186,6 +205,10 @@ func (t *Tree[T]) insertBatchParallel(items []T) {
 			for _, item := range chunk {
 				t.items.Store(item.ID(), item)
 				t.cache.put(item.ID(), item)
+				
+				// TopN обновление (thread-safe)
+				t.topMinCache.TryInsert(item)
+				t.topMaxCache.TryInsert(item)
 			}
 		}(items[start:end])
 	}
@@ -253,6 +276,10 @@ func (t *Tree[T]) insertBatchMegaParallel(items []T) {
 			for _, item := range chunk {
 				t.items.Store(item.ID(), item)
 				t.cache.put(item.ID(), item)
+				
+				// TopN обновление (thread-safe)
+				t.topMinCache.TryInsert(item)
+				t.topMaxCache.TryInsert(item)
 			}
 		}(items[start:end])
 	}
@@ -765,6 +792,11 @@ func (t *Tree[T]) Clear() {
 	t.root = t.arena.alloc()
 	t.cache.clear()
 	t.rootCacheValid.Store(false)
+	
+	// Очищаем TopN кеши
+	t.topMinCache.Clear()
+	t.topMaxCache.Clear()
+	
 	t.dirtyNodes.Store(0)
 	t.deletedNodeCount.Store(0)
 }
@@ -872,6 +904,10 @@ func (t *Tree[T]) Delete(id uint64) bool {
 	// Удаляем из cache
 	t.cache.delete(id)
 	
+	// Удаляем из TopN кешей
+	t.topMinCache.Remove(item)
+	t.topMaxCache.Remove(item)
+	
 	// Помечаем элемент в дереве как удаленный
 	t.deleteNode(t.root, item, 0)
 	
@@ -903,6 +939,11 @@ func (t *Tree[T]) DeleteBatch(ids []uint64) int {
 		// Удаляем из maps
 		t.items.Delete(id)
 		t.cache.delete(id)
+		
+		// Удаляем из TopN
+		t.topMinCache.Remove(item)
+		t.topMaxCache.Remove(item)
+		
 		deleted++
 	}
 	
@@ -1087,4 +1128,79 @@ func (t *Tree[T]) countDeletedNodes(node *Node[T]) int {
 	}
 	
 	return count
+}
+
+// ============================================
+// Ordered Access API (TopN)
+// ============================================
+
+// GetMin возвращает минимальный элемент O(1)
+func (t *Tree[T]) GetMin() (T, bool) {
+	return t.topMinCache.GetFirst()
+}
+
+// GetMax возвращает максимальный элемент O(1)
+func (t *Tree[T]) GetMax() (T, bool) {
+	return t.topMaxCache.GetFirst()
+}
+
+// GetTopMin возвращает top-N минимальных элементов O(1)
+// Элементы отсортированы по возрастанию ключа
+func (t *Tree[T]) GetTopMin(n int) []T {
+	return t.topMinCache.GetTop(n)
+}
+
+// GetTopMax возвращает top-N максимальных элементов O(1)
+// Элементы отсортированы по убыванию ключа
+func (t *Tree[T]) GetTopMax(n int) []T {
+	return t.topMaxCache.GetTop(n)
+}
+
+// GetMinKey возвращает минимальный ключ O(1)
+func (t *Tree[T]) GetMinKey() (uint64, bool) {
+	item, ok := t.GetMin()
+	if !ok {
+		return 0, false
+	}
+	return keyToUint64(item.Key()), true
+}
+
+// GetMaxKey возвращает максимальный ключ O(1)
+func (t *Tree[T]) GetMaxKey() (uint64, bool) {
+	item, ok := t.GetMax()
+	if !ok {
+		return 0, false
+	}
+	return keyToUint64(item.Key()), true
+}
+
+// IsTopNEnabled проверяет, активен ли TopN кеш
+func (t *Tree[T]) IsTopNEnabled() bool {
+	return t.topMinCache.IsEnabled()
+}
+
+// GetTopNCapacity возвращает размер TopN кеша
+func (t *Tree[T]) GetTopNCapacity() int {
+	if !t.topMinCache.IsEnabled() {
+		return 0
+	}
+	return t.topMinCache.capacity
+}
+
+// ClearTopN очищает TopN кеши (полезно при rebuild)
+func (t *Tree[T]) ClearTopN() {
+	t.topMinCache.Clear()
+	t.topMaxCache.Clear()
+}
+
+// IterTopMin возвращает итератор для минимальных элементов
+// Итератор обходит элементы в порядке возрастания ключа
+func (t *Tree[T]) IterTopMin() *TopNIterator[T] {
+	return t.topMinCache.GetIteratorMin()
+}
+
+// IterTopMax возвращает итератор для максимальных элементов
+// Итератор обходит элементы в порядке убывания ключа
+func (t *Tree[T]) IterTopMax() *TopNIterator[T] {
+	return t.topMaxCache.GetIteratorMax()
 }
