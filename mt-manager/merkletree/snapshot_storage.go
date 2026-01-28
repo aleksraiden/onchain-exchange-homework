@@ -2,273 +2,272 @@
 package merkletree
 
 import (
-	"encoding/hex"
+	"encoding/binary"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
-	"github.com/cockroachdb/pebble/v2"
-	"github.com/klauspost/compress/zstd"
-	"github.com/vmihailenco/msgpack/v5"
+	"github.com/cockroachdb/pebble"
+	"github.com/cockroachdb/pebble/bloom"
 )
 
 // ============================================
-// Константы для ключей в PebbleDB
+// Lock-Free Snapshot Storage
+// Оптимизировано для high-frequency updates
 // ============================================
 
 const (
-	// Префиксы для различных типов данных
-	prefixMeta     = "meta:"
-	prefixSnapshot = "snap:"
-	prefixIndex    = "idx:ts:"
-	
-	// Ключи метаданных
-	keyMetaFirst = "meta:first" // Первая версия снапшота
-	keyMetaLast  = "meta:last"  // Последняя версия снапшота
-	keyMetaCount = "meta:count" // Количество снапшотов
+	// Префиксы ключей
+	prefixSnapshotMeta = "snap:meta:"  // snap:meta:{version} → metadata
+	prefixSnapshotTree = "snap:tree:"  // snap:tree:{version}:{tree_name} → tree data
+	prefixGlobalMeta   = "global:"     // global:last, global:first, global:count
 )
 
-// ============================================
-// SnapshotStorage - работа с хранилищем
-// ============================================
-
-// SnapshotStorage управляет хранением снапшотов в PebbleDB
+// SnapshotStorage хранилище снапшотов с оптимизациями для PebbleDB
 type SnapshotStorage struct {
-	db             *pebble.DB
-	encoder        *zstd.Encoder // Переиспользуемый encoder для zstd
-	decoder        *zstd.Decoder // Переиспользуемый decoder для zstd
-	mu             sync.Mutex    // Защита для encoder/decoder
-	compressionEnabled bool
+	db *pebble.DB
+	
+	// Метрики (lock-free)
+	writtenBytes atomic.Uint64
+	readBytes    atomic.Uint64
+	writeCount   atomic.Uint64
+	readCount    atomic.Uint64
 }
 
-// NewSnapshotStorage создает новое хранилище снапшотов
-// dbPath - путь к директории PebbleDB
-func NewSnapshotStorage(dbPath string, enableCompression bool) (*SnapshotStorage, error) {
-	// Настройки PebbleDB для оптимальной производительности
+// NewSnapshotStorage создает оптимизированное хранилище
+func NewSnapshotStorage(dbPath string) (*SnapshotStorage, error) {
 	opts := &pebble.Options{
-		// Размер кеша для горячих данных
-		Cache: pebble.NewCache(64 << 20), // 64MB
+		// Большой cache для горячих снапшотов
+		Cache: pebble.NewCache(256 << 20), // 256MB
 		
-		// Размер write buffer (больше = меньше flush операций)
-		MemTableSize: 32 << 20, // 32MB
+		// Большой write buffer для батчинга
+		MemTableSize: 128 << 20, // 128MB
 		
-		// Количество уровней LSM дерева
-		MaxOpenFiles: 1000,
+		// Агрессивный compaction для меньшей фрагментации
+		L0CompactionThreshold: 2,
+		L0StopWritesThreshold: 12,
+		LBaseMaxBytes:         128 << 20,
+		
+		// Параллельный compaction
+		MaxConcurrentCompactions: func() int { return 4 },
+		
+		// Bloom filters для быстрого поиска
+		Levels: []pebble.LevelOptions{{
+			BlockSize:      64 << 10, // 64KB блоки
+			IndexBlockSize: 128 << 10,
+			FilterPolicy:   bloom.FilterPolicy(10), // 10 bits = ~1% false positive
+			FilterType:     pebble.TableFilter,
+			Compression:    pebble.SnappyCompression, // Встроенное сжатие
+		}},
+		
+		// WAL оптимизации
+		WALBytesPerSync: 1 << 20, // 1MB - реже fsync
+		
+		// Файловые дескрипторы
+		MaxOpenFiles:       2000,
+		FormatMajorVersion: pebble.FormatNewest,
+		
+		// Sync настройки (можно отключить для скорости)
+		DisableWAL: false, // Рекомендуется false для надежности
+		BytesPerSync: 512 << 10, // 512KB
 	}
 	
-	// Открываем или создаем базу данных
 	db, err := pebble.Open(dbPath, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open pebble db: %w", err)
 	}
 	
-	storage := &SnapshotStorage{
-		db:                 db,
-		compressionEnabled: enableCompression,
-	}
-	
-	// Инициализируем zstd encoder/decoder если compression включен
-	if enableCompression {
-		// Encoder с уровнем по умолчанию (хороший баланс скорость/сжатие)
-		encoder, err := zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedDefault))
-		if err != nil {
-			db.Close()
-			return nil, fmt.Errorf("failed to create zstd encoder: %w", err)
-		}
-		storage.encoder = encoder
-		
-		// Decoder с параллельной декомпрессией
-		decoder, err := zstd.NewReader(nil, zstd.WithDecoderConcurrency(4))
-		if err != nil {
-			db.Close()
-			return nil, fmt.Errorf("failed to create zstd decoder: %w", err)
-		}
-		storage.decoder = decoder
-	}
-	
-	return storage, nil
+	return &SnapshotStorage{db: db}, nil
 }
 
-// Close закрывает хранилище и освобождает ресурсы
+// Close закрывает хранилище
 func (s *SnapshotStorage) Close() error {
-	if s.encoder != nil {
-		s.encoder.Close()
-	}
-	if s.decoder != nil {
-		s.decoder.Close()
+	// Принудительный flush перед закрытием
+	if err := s.db.Flush(); err != nil {
+		return fmt.Errorf("failed to flush: %w", err)
 	}
 	return s.db.Close()
 }
 
 // ============================================
-// Методы для работы со снапшотами
+// Batch Write (атомарная запись снапшота)
 // ============================================
 
-// SaveSnapshot сохраняет снапшот в базу данных
-func (s *SnapshotStorage) SaveSnapshot(snapshot *Snapshot) error {
-	// Сериализуем снапшот в MessagePack
-	data, err := msgpack.Marshal(snapshot)
-	if err != nil {
-		return fmt.Errorf("failed to marshal snapshot: %w", err)
-	}
-	
-	// Сжимаем данные если включено
-	if s.compressionEnabled {
-		data, err = s.compress(data)
-		if err != nil {
-			return fmt.Errorf("failed to compress snapshot: %w", err)
-		}
-	}
-	
-	// Создаем batch для атомарной записи всех данных
+// SaveSnapshot сохраняет снапшот одним батчем
+// trees: map[treeName]serializedData
+func (s *SnapshotStorage) SaveSnapshot(version [32]byte, timestamp int64, trees map[string][]byte) error {
 	batch := s.db.NewBatch()
 	defer batch.Close()
 	
-	// Ключ снапшота: "snap:{version_hex}"
-	snapshotKey := s.makeSnapshotKey(snapshot.Version)
-	if err := batch.Set(snapshotKey, data, pebble.Sync); err != nil {
-		return fmt.Errorf("failed to write snapshot: %w", err)
+	// 1. Метаданные снапшота
+	metaKey := makeSnapshotMetaKey(version)
+	metaValue := encodeSnapshotMeta(version, timestamp, len(trees))
+	if err := batch.Set(metaKey, metaValue, pebble.NoSync); err != nil {
+		return fmt.Errorf("failed to set metadata: %w", err)
 	}
 	
-	// Индекс по времени для быстрого поиска: "idx:ts:{timestamp}" -> version
-	indexKey := s.makeIndexKey(snapshot.Timestamp)
-	if err := batch.Set(indexKey, snapshot.Version[:], pebble.NoSync); err != nil {
-		return fmt.Errorf("failed to write index: %w", err)
+	// 2. Данные деревьев
+	totalSize := uint64(0)
+	for treeName, treeData := range trees {
+		treeKey := makeSnapshotTreeKey(version, treeName)
+		if err := batch.Set(treeKey, treeData, pebble.NoSync); err != nil {
+			return fmt.Errorf("failed to set tree %s: %w", treeName, err)
+		}
+		totalSize += uint64(len(treeData))
 	}
 	
-	// Обновляем метаданные
-	if err := s.updateMetadata(batch, snapshot.Version); err != nil {
-		return fmt.Errorf("failed to update metadata: %w", err)
+	// 3. Обновляем глобальные метаданные
+	if err := s.updateGlobalMeta(batch, version); err != nil {
+		return fmt.Errorf("failed to update global meta: %w", err)
 	}
 	
-	// Коммитим все изменения атомарно
-	if err := batch.Commit(pebble.Sync); err != nil {
+	// 4. Коммитим батч (NoSync для скорости, fsync в фоне)
+	// Используйте pebble.Sync если критична надежность
+	if err := batch.Commit(pebble.NoSync); err != nil {
 		return fmt.Errorf("failed to commit batch: %w", err)
 	}
+	
+	// Обновляем метрики
+	s.writtenBytes.Add(totalSize)
+	s.writeCount.Add(1)
 	
 	return nil
 }
 
-// LoadSnapshot загружает снапшот по версии
-// Если version == nil, загружает последний снапшот
+// ============================================
+// Load Snapshot (параллельная загрузка)
+// ============================================
+
+// LoadSnapshot загружает снапшот
+// Если version == nil, загружает последний
 func (s *SnapshotStorage) LoadSnapshot(version *[32]byte) (*Snapshot, error) {
-	// Определяем версию для загрузки
+	// Определяем версию
 	targetVersion := version
 	if targetVersion == nil {
-		// Загружаем последнюю версию
-		lastVersion, err := s.getLastVersion()
+		lastVer, err := s.getLastVersion()
 		if err != nil {
-			return nil, fmt.Errorf("failed to get last version: %w", err)
+			return nil, fmt.Errorf("no snapshots found: %w", err)
 		}
-		targetVersion = lastVersion
+		targetVersion = lastVer
 	}
 	
-	// Читаем данные из базы
-	snapshotKey := s.makeSnapshotKey(*targetVersion)
-	data, closer, err := s.db.Get(snapshotKey)
+	// Читаем метаданные
+	metaKey := makeSnapshotMetaKey(*targetVersion)
+	metaData, closer, err := s.db.Get(metaKey)
 	if err != nil {
 		if err == pebble.ErrNotFound {
 			return nil, fmt.Errorf("snapshot not found: %x", targetVersion)
 		}
-		return nil, fmt.Errorf("failed to read snapshot: %w", err)
-	}
-	defer closer.Close()
-	
-	// Копируем данные т.к. они валидны только до closer.Close()
-	dataCopy := make([]byte, len(data))
-	copy(dataCopy, data)
-	
-	// Распаковываем если было сжатие
-	if s.compressionEnabled {
-		dataCopy, err = s.decompress(dataCopy)
-		if err != nil {
-			return nil, fmt.Errorf("failed to decompress snapshot: %w", err)
-		}
+		return nil, fmt.Errorf("failed to read metadata: %w", err)
 	}
 	
-	// Десериализуем снапшот
-	var snapshot Snapshot
-	if err := msgpack.Unmarshal(dataCopy, &snapshot); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal snapshot: %w", err)
-	}
+	ver, timestamp, treeCount := decodeSnapshotMeta(metaData)
+	closer.Close()
 	
-	return &snapshot, nil
-}
-
-// DeleteSnapshot удаляет снапшот по версии
-func (s *SnapshotStorage) DeleteSnapshot(version [32]byte) error {
-	// Сначала загружаем снапшот для получения timestamp
-	snapshot, err := s.LoadSnapshot(&version)
+	// Получаем список деревьев
+	treeNames, err := s.listSnapshotTrees(*targetVersion)
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("failed to list trees: %w", err)
 	}
 	
-	batch := s.db.NewBatch()
-	defer batch.Close()
+	// Загружаем деревья параллельно
+	trees := make(map[string]*TreeSnapshot, treeCount)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	errChan := make(chan error, len(treeNames))
 	
-	// Удаляем основной снапшот
-	snapshotKey := s.makeSnapshotKey(version)
-	if err := batch.Delete(snapshotKey, pebble.Sync); err != nil {
-		return fmt.Errorf("failed to delete snapshot: %w", err)
+	for _, treeName := range treeNames {
+		wg.Add(1)
+		go func(name string) {
+			defer wg.Done()
+			
+			treeKey := makeSnapshotTreeKey(*targetVersion, name)
+			treeData, closer, err := s.db.Get(treeKey)
+			if err != nil {
+				errChan <- fmt.Errorf("failed to read tree %s: %w", name, err)
+				return
+			}
+			
+			// Копируем данные
+			dataCopy := make([]byte, len(treeData))
+			copy(dataCopy, treeData)
+			closer.Close()
+			
+			// Создаем TreeSnapshot (данные уже сериализованы)
+			treeSnapshot := &TreeSnapshot{
+				TreeID: name,
+				Items:  [][]byte{dataCopy}, // Данные в сыром виде
+			}
+			
+			mu.Lock()
+			trees[name] = treeSnapshot
+			mu.Unlock()
+			
+			s.readBytes.Add(uint64(len(dataCopy)))
+		}(treeName)
 	}
 	
-	// Удаляем индекс по времени
-	indexKey := s.makeIndexKey(snapshot.Timestamp)
-	if err := batch.Delete(indexKey, pebble.NoSync); err != nil {
-		return fmt.Errorf("failed to delete index: %w", err)
+	wg.Wait()
+	close(errChan)
+	
+	// Проверяем ошибки
+	if err := <-errChan; err != nil {
+		return nil, err
 	}
 	
-	// Обновляем метаданные (декремент счетчика)
-	if err := s.decrementCount(batch); err != nil {
-		return fmt.Errorf("failed to update metadata: %w", err)
-	}
+	s.readCount.Add(1)
 	
-	return batch.Commit(pebble.Sync)
+	return &Snapshot{
+		SchemaVersion: CurrentSchemaVersion,
+		Version:       ver,
+		Timestamp:     timestamp,
+		TreeCount:     treeCount,
+		Trees:         trees,
+	}, nil
 }
 
-// GetMetadata возвращает метаданные о снапшотах
+// ============================================
+// Metadata Operations
+// ============================================
+
+// GetMetadata возвращает метаданные снапшотов
 func (s *SnapshotStorage) GetMetadata() (*SnapshotMetadata, error) {
 	metadata := &SnapshotMetadata{}
 	
-	// Читаем первую версию
-	firstData, closer, err := s.db.Get([]byte(keyMetaFirst))
-	if err != nil && err != pebble.ErrNotFound {
-		return nil, fmt.Errorf("failed to read first version: %w", err)
-	}
+	// First version
+	firstData, closer, err := s.db.Get([]byte(prefixGlobalMeta + "first"))
 	if err == nil {
 		copy(metadata.FirstVersion[:], firstData)
 		closer.Close()
+	} else if err != pebble.ErrNotFound {
+		return nil, err
 	}
 	
-	// Читаем последнюю версию
-	lastData, closer, err := s.db.Get([]byte(keyMetaLast))
-	if err != nil && err != pebble.ErrNotFound {
-		return nil, fmt.Errorf("failed to read last version: %w", err)
-	}
+	// Last version
+	lastData, closer, err := s.db.Get([]byte(prefixGlobalMeta + "last"))
 	if err == nil {
 		copy(metadata.LastVersion[:], lastData)
 		closer.Close()
+	} else if err != pebble.ErrNotFound {
+		return nil, err
 	}
 	
-	// Читаем счетчик
-	countData, closer, err := s.db.Get([]byte(keyMetaCount))
-	if err != nil && err != pebble.ErrNotFound {
-		return nil, fmt.Errorf("failed to read count: %w", err)
-	}
+	// Count
+	countData, closer, err := s.db.Get([]byte(prefixGlobalMeta + "count"))
 	if err == nil {
-		if err := msgpack.Unmarshal(countData, &metadata.Count); err != nil {
-			closer.Close()
-			return nil, fmt.Errorf("failed to unmarshal count: %w", err)
-		}
+		metadata.Count = int(binary.BigEndian.Uint32(countData))
 		closer.Close()
+	} else if err != pebble.ErrNotFound {
+		return nil, err
 	}
 	
-	// Подсчитываем общий размер (итерируемся по всем снапшотам)
+	// Total size (итерируем)
 	iter, err := s.db.NewIter(&pebble.IterOptions{
-		LowerBound: []byte(prefixSnapshot),
-		UpperBound: []byte(prefixSnapshot + "\xff"),
+		LowerBound: []byte(prefixSnapshotTree),
+		UpperBound: []byte(prefixSnapshotTree + "\xff"),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create iterator: %w", err)
+		return nil, err
 	}
 	defer iter.Close()
 	
@@ -276,175 +275,238 @@ func (s *SnapshotStorage) GetMetadata() (*SnapshotMetadata, error) {
 		metadata.TotalSize += int64(len(iter.Value()))
 	}
 	
-	return metadata, nil
+	return metadata, iter.Error()
 }
 
-// ListVersions возвращает список всех доступных версий
+// ListVersions возвращает список всех версий
 func (s *SnapshotStorage) ListVersions() ([][32]byte, error) {
 	var versions [][32]byte
 	
-	// Итерируемся по всем снапшотам
 	iter, err := s.db.NewIter(&pebble.IterOptions{
-		LowerBound: []byte(prefixSnapshot),
-		UpperBound: []byte(prefixSnapshot + "\xff"),
+		LowerBound: []byte(prefixSnapshotMeta),
+		UpperBound: []byte(prefixSnapshotMeta + "\xff"),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create iterator: %w", err)
+		return nil, err
 	}
 	defer iter.Close()
 	
 	for iter.First(); iter.Valid(); iter.Next() {
-		// Извлекаем version из ключа "snap:{version_hex}"
-		key := string(iter.Key())
-		versionHex := key[len(prefixSnapshot):]
-		
-		versionBytes, err := hex.DecodeString(versionHex)
-		if err != nil {
-			continue // Пропускаем некорректные ключи
-		}
-		
-		if len(versionBytes) != 32 {
+		key := iter.Key()
+		if len(key) < len(prefixSnapshotMeta)+32 {
 			continue
 		}
 		
 		var version [32]byte
-		copy(version[:], versionBytes)
+		copy(version[:], key[len(prefixSnapshotMeta):])
 		versions = append(versions, version)
 	}
 	
-	return versions, nil
+	return versions, iter.Error()
 }
 
-// ============================================
-// Вспомогательные методы
-// ============================================
-
-// makeSnapshotKey создает ключ для снапшота
-func (s *SnapshotStorage) makeSnapshotKey(version [32]byte) []byte {
-	return []byte(fmt.Sprintf("%s%x", prefixSnapshot, version))
-}
-
-// makeIndexKey создает ключ для индекса по времени
-func (s *SnapshotStorage) makeIndexKey(timestamp int64) []byte {
-	return []byte(fmt.Sprintf("%s%d", prefixIndex, timestamp))
-}
-
-// compress сжимает данные через zstd (thread-safe)
-func (s *SnapshotStorage) compress(data []byte) ([]byte, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	
-	// EncodeAll создает новый слайс и сжимает данные
-	compressed := s.encoder.EncodeAll(data, make([]byte, 0, len(data)/2))
-	return compressed, nil
-}
-
-// decompress распаковывает данные (thread-safe)
-func (s *SnapshotStorage) decompress(data []byte) ([]byte, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	
-	// DecodeAll распаковывает в новый слайс
-	decompressed, err := s.decoder.DecodeAll(data, nil)
+// DeleteSnapshot удаляет снапшот
+func (s *SnapshotStorage) DeleteSnapshot(version [32]byte) error {
+	// Получаем список деревьев
+	treeNames, err := s.listSnapshotTrees(version)
 	if err != nil {
-		return nil, fmt.Errorf("zstd decompression failed: %w", err)
+		return err
 	}
-	return decompressed, nil
+	
+	batch := s.db.NewBatch()
+	defer batch.Close()
+	
+	// Удаляем метаданные
+	metaKey := makeSnapshotMetaKey(version)
+	if err := batch.Delete(metaKey, pebble.NoSync); err != nil {
+		return err
+	}
+	
+	// Удаляем деревья
+	for _, treeName := range treeNames {
+		treeKey := makeSnapshotTreeKey(version, treeName)
+		if err := batch.Delete(treeKey, pebble.NoSync); err != nil {
+			return err
+		}
+	}
+	
+	// Обновляем count
+	if err := s.decrementCount(batch); err != nil {
+		return err
+	}
+	
+	return batch.Commit(pebble.Sync)
 }
 
-// getLastVersion возвращает последнюю версию снапшота
-func (s *SnapshotStorage) getLastVersion() (*[32]byte, error) {
-	data, closer, err := s.db.Get([]byte(keyMetaLast))
+// ============================================
+// Utilities
+// ============================================
+
+// Compact принудительно сжимает базу
+func (s *SnapshotStorage) Compact() error {
+	start := []byte(prefixSnapshotTree)
+	end := []byte(prefixSnapshotTree + "\xff")
+	return s.db.Compact(start, end, true)
+}
+
+// Flush сбрасывает memtable на диск
+func (s *SnapshotStorage) Flush() error {
+	return s.db.Flush()
+}
+
+// GetStats возвращает статистику
+func (s *SnapshotStorage) GetStats() StorageStats {
+	metrics := s.db.Metrics()
+	
+	hits := metrics.BlockCache.Hits
+	misses := metrics.BlockCache.Misses
+	hitRate := 0.0
+	if hits+misses > 0 {
+		hitRate = float64(hits) / float64(hits+misses) * 100
+	}
+	
+	return StorageStats{
+		WrittenBytes:    s.writtenBytes.Load(),
+		ReadBytes:       s.readBytes.Load(),
+		WriteCount:      s.writeCount.Load(),
+		ReadCount:       s.readCount.Load(),
+		CacheHitRate:    hitRate,
+		CompactionCount: metrics.Compact.Count,
+		MemtableSize:    metrics.MemTable.Size,
+		WALSize:         metrics.WAL.Size,
+	}
+}
+
+type StorageStats struct {
+	WrittenBytes    uint64
+	ReadBytes       uint64
+	WriteCount      uint64
+	ReadCount       uint64
+	CacheHitRate    float64
+	CompactionCount int64
+	MemtableSize    uint64
+	WALSize         uint64
+}
+
+// ============================================
+// Internal helpers
+// ============================================
+
+func makeSnapshotMetaKey(version [32]byte) []byte {
+	key := make([]byte, len(prefixSnapshotMeta)+32)
+	copy(key, prefixSnapshotMeta)
+	copy(key[len(prefixSnapshotMeta):], version[:])
+	return key
+}
+
+func makeSnapshotTreeKey(version [32]byte, treeName string) []byte {
+	return []byte(fmt.Sprintf("%s%x:%s", prefixSnapshotTree, version, treeName))
+}
+
+func encodeSnapshotMeta(version [32]byte, timestamp int64, treeCount int) []byte {
+	buf := make([]byte, 32+8+4)
+	copy(buf[0:32], version[:])
+	binary.BigEndian.PutUint64(buf[32:40], uint64(timestamp))
+	binary.BigEndian.PutUint32(buf[40:44], uint32(treeCount))
+	return buf
+}
+
+func decodeSnapshotMeta(data []byte) ([32]byte, int64, int) {
+	var version [32]byte
+	copy(version[:], data[0:32])
+	timestamp := int64(binary.BigEndian.Uint64(data[32:40]))
+	treeCount := int(binary.BigEndian.Uint32(data[40:44]))
+	return version, timestamp, treeCount
+}
+
+func (s *SnapshotStorage) listSnapshotTrees(version [32]byte) ([]string, error) {
+	prefix := fmt.Sprintf("%s%x:", prefixSnapshotTree, version)
+	
+	iter, err := s.db.NewIter(&pebble.IterOptions{
+		LowerBound: []byte(prefix),
+		UpperBound: []byte(prefix + "\xff"),
+	})
 	if err != nil {
-		if err == pebble.ErrNotFound {
-			return nil, fmt.Errorf("no snapshots found")
-		}
+		return nil, err
+	}
+	defer iter.Close()
+	
+	var names []string
+	for iter.First(); iter.Valid(); iter.Next() {
+		key := string(iter.Key())
+		treeName := key[len(prefix):]
+		names = append(names, treeName)
+	}
+	
+	return names, iter.Error()
+}
+
+func (s *SnapshotStorage) getLastVersion() (*[32]byte, error) {
+	data, closer, err := s.db.Get([]byte(prefixGlobalMeta + "last"))
+	if err != nil {
 		return nil, err
 	}
 	defer closer.Close()
-	
-	if len(data) != 32 {
-		return nil, fmt.Errorf("invalid version size: %d", len(data))
-	}
 	
 	var version [32]byte
 	copy(version[:], data)
 	return &version, nil
 }
 
-// updateMetadata обновляет метаданные после сохранения снапшота
-func (s *SnapshotStorage) updateMetadata(batch *pebble.Batch, version [32]byte) error {
-	// Проверяем, это первый снапшот?
-	_, closer, err := s.db.Get([]byte(keyMetaFirst))
+func (s *SnapshotStorage) updateGlobalMeta(batch *pebble.Batch, version [32]byte) error {
+	// Check if first
+	_, closer, err := s.db.Get([]byte(prefixGlobalMeta + "first"))
 	isFirst := err == pebble.ErrNotFound
 	if closer != nil {
 		closer.Close()
 	}
 	
 	if isFirst {
-		// Устанавливаем первую версию
-		if err := batch.Set([]byte(keyMetaFirst), version[:], pebble.NoSync); err != nil {
-			return err
-		}
+		batch.Set([]byte(prefixGlobalMeta+"first"), version[:], pebble.NoSync)
 	}
 	
-	// Всегда обновляем последнюю версию
-	if err := batch.Set([]byte(keyMetaLast), version[:], pebble.NoSync); err != nil {
-		return err
-	}
+	// Always update last
+	batch.Set([]byte(prefixGlobalMeta+"last"), version[:], pebble.NoSync)
 	
-	// Инкрементируем счетчик
+	// Increment count
 	return s.incrementCount(batch)
 }
 
-// incrementCount увеличивает счетчик снапшотов
 func (s *SnapshotStorage) incrementCount(batch *pebble.Batch) error {
-	count := 0
+	count := uint32(0)
 	
-	// Читаем текущий счетчик
-	countData, closer, err := s.db.Get([]byte(keyMetaCount))
-	if err != nil && err != pebble.ErrNotFound {
-		return err
-	}
+	data, closer, err := s.db.Get([]byte(prefixGlobalMeta + "count"))
 	if err == nil {
-		msgpack.Unmarshal(countData, &count)
+		count = binary.BigEndian.Uint32(data)
 		closer.Close()
-	}
-	
-	// Инкрементируем
-	count++
-	
-	// Сохраняем
-	newCountData, err := msgpack.Marshal(count)
-	if err != nil {
+	} else if err != pebble.ErrNotFound {
 		return err
 	}
 	
-	return batch.Set([]byte(keyMetaCount), newCountData, pebble.NoSync)
+	count++
+	buf := make([]byte, 4)
+	binary.BigEndian.PutUint32(buf, count)
+	
+	return batch.Set([]byte(prefixGlobalMeta+"count"), buf, pebble.NoSync)
 }
 
-// decrementCount уменьшает счетчик снапшотов
 func (s *SnapshotStorage) decrementCount(batch *pebble.Batch) error {
-	count := 0
+	count := uint32(0)
 	
-	countData, closer, err := s.db.Get([]byte(keyMetaCount))
-	if err != nil && err != pebble.ErrNotFound {
+	data, closer, err := s.db.Get([]byte(prefixGlobalMeta + "count"))
+	if err == nil {
+		count = binary.BigEndian.Uint32(data)
+		closer.Close()
+	} else if err != pebble.ErrNotFound {
 		return err
 	}
-	if err == nil {
-		msgpack.Unmarshal(countData, &count)
-		closer.Close()
-	}
 	
-	// Декрементируем
 	if count > 0 {
 		count--
 	}
 	
-	newCountData, err := msgpack.Marshal(count)
-	if err != nil {
-		return err
-	}
+	buf := make([]byte, 4)
+	binary.BigEndian.PutUint32(buf, count)
 	
-	return batch.Set([]byte(keyMetaCount), newCountData, pebble.NoSync)
+	return batch.Set([]byte(prefixGlobalMeta+"count"), buf, pebble.NoSync)
 }

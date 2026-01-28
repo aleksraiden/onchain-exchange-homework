@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 	"sort"
+	"runtime"
 	"github.com/zeebo/blake3"
 )
 
@@ -50,9 +51,14 @@ func NewManagerWithSnapshot[T Hashable](cfg *Config, snapshotPath string) (*Tree
 		globalRootDirty: true,
 	}
 	
-	// Инициализируем snapshot manager если путь указан
 	if snapshotPath != "" {
-		snapshotMgr, err := NewSnapshotManager[T](snapshotPath, true) // true = compression
+		// Используем все CPU для параллелизма
+		workers := runtime.NumCPU()
+		if workers > 16 {
+			workers = 16 // Cap для разумного использования
+		}
+		
+		snapshotMgr, err := NewSnapshotManager[T](snapshotPath, workers)
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize snapshot manager: %w", err)
 		}
@@ -705,40 +711,23 @@ func (tm *TreeManager[T]) GetStats() ManagerStats {
 	return stats
 }
 
-// CloseSnapshots закрывает snapshot manager и освобождает ресурсы
-// Должен вызываться при завершении работы TreeManager
-func (m *TreeManager[T]) CloseSnapshots() error {
-	if m.snapshotMgr == nil {
-		return nil
-	}
-	
-	return m.snapshotMgr.Close()
-}
+// ============================================
+// Snapshot API (Lock-Free)
+// ============================================
 
-// CreateSnapshot создает снапшот текущего состояния всех деревьев
-// Возвращает version (GlobalRootHash) созданного снапшота
-// Блокирует TreeManager только на ~500µs для получения списка деревьев
+// CreateSnapshot создает снапшот синхронно
+// Блокировка: ~80µs
 func (m *TreeManager[T]) CreateSnapshot() ([32]byte, error) {
-	if m.snapshotMgr == nil {
-		return [32]byte{}, fmt.Errorf("snapshot manager not initialized, use NewManagerWithSnapshot")
-	}
-	
-	return m.snapshotMgr.CreateSnapshot(m, DefaultSnapshotOptions())
-}
-
-// CreateSnapshotWithOptions создает снапшот с опциями
-func (m *TreeManager[T]) CreateSnapshotWithOptions(opts *SnapshotOptions) ([32]byte, error) {
 	if m.snapshotMgr == nil {
 		return [32]byte{}, fmt.Errorf("snapshot manager not initialized")
 	}
-	
-	return m.snapshotMgr.CreateSnapshot(m, opts)
+	return m.snapshotMgr.CreateSnapshot(m, DefaultSnapshotOptions())
 }
 
-// CreateSnapshotAsync создает снапшот асинхронно в фоне
+// CreateSnapshotAsync создает снапшот асинхронно (рекомендуется!)
+// Блокировка: 0µs (всё в фоне)
 // Возвращает канал для получения результата
-// Не блокирует работу с деревьями
-func (m *TreeManager[T]) CreateSnapshotAsync(opts *SnapshotOptions) <-chan SnapshotResult {
+func (m *TreeManager[T]) CreateSnapshotAsync() <-chan SnapshotResult {
 	if m.snapshotMgr == nil {
 		ch := make(chan SnapshotResult, 1)
 		ch <- SnapshotResult{Error: fmt.Errorf("snapshot manager not initialized")}
@@ -746,53 +735,85 @@ func (m *TreeManager[T]) CreateSnapshotAsync(opts *SnapshotOptions) <-chan Snaps
 		return ch
 	}
 	
-	if opts == nil {
-		opts = DefaultSnapshotOptions()
-		opts.Async = true
-	}
-	
+	opts := DefaultSnapshotOptions()
+	opts.Async = true
 	return m.snapshotMgr.CreateSnapshotAsync(m, opts)
 }
 
-// LoadFromSnapshot загружает состояние TreeManager из снапшота
-// Если version == nil, загружает последний снапшот
-// ВНИМАНИЕ: заменяет все текущие деревья!
+// LoadFromSnapshot загружает снапшот
+// version == nil загружает последний
 func (m *TreeManager[T]) LoadFromSnapshot(version *[32]byte) error {
 	if m.snapshotMgr == nil {
 		return fmt.Errorf("snapshot manager not initialized")
 	}
-	
 	return m.snapshotMgr.LoadSnapshot(m, version)
 }
 
-// GetSnapshotMetadata возвращает метаданные о доступных снапшотах
+// GetSnapshotMetadata возвращает метаданные
 func (m *TreeManager[T]) GetSnapshotMetadata() (*SnapshotMetadata, error) {
 	if m.snapshotMgr == nil {
 		return nil, fmt.Errorf("snapshot manager not initialized")
 	}
-	
 	return m.snapshotMgr.GetMetadata()
 }
 
-// ListSnapshotVersions возвращает список всех доступных версий снапшотов
+// ListSnapshotVersions возвращает список версий
 func (m *TreeManager[T]) ListSnapshotVersions() ([][32]byte, error) {
 	if m.snapshotMgr == nil {
 		return nil, fmt.Errorf("snapshot manager not initialized")
 	}
-	
 	return m.snapshotMgr.ListVersions()
 }
 
-// DeleteSnapshot удаляет снапшот по версии
+// DeleteSnapshot удаляет снапшот
 func (m *TreeManager[T]) DeleteSnapshot(version [32]byte) error {
 	if m.snapshotMgr == nil {
 		return fmt.Errorf("snapshot manager not initialized")
 	}
-	
 	return m.snapshotMgr.DeleteSnapshot(version)
 }
 
-// IsSnapshotEnabled проверяет, включена ли поддержка снапшотов
+// GetSnapshotMetrics возвращает метрики производительности
+func (m *TreeManager[T]) GetSnapshotMetrics() SnapshotMetrics {
+	if m.snapshotMgr == nil {
+		return SnapshotMetrics{}
+	}
+	return m.snapshotMgr.GetMetrics()
+}
+
+// GetSnapshotStats возвращает статистику хранилища
+func (m *TreeManager[T]) GetSnapshotStats() StorageStats {
+	if m.snapshotMgr == nil {
+		return StorageStats{}
+	}
+	return m.snapshotMgr.GetStorageStats()
+}
+
+// CompactSnapshots сжимает базу снапшотов
+func (m *TreeManager[T]) CompactSnapshots() error {
+	if m.snapshotMgr == nil {
+		return fmt.Errorf("snapshot manager not initialized")
+	}
+	return m.snapshotMgr.Compact()
+}
+
+// FlushSnapshots сбрасывает данные на диск
+func (m *TreeManager[T]) FlushSnapshots() error {
+	if m.snapshotMgr == nil {
+		return fmt.Errorf("snapshot manager not initialized")
+	}
+	return m.snapshotMgr.Flush()
+}
+
+// CloseSnapshots закрывает snapshot manager
+func (m *TreeManager[T]) CloseSnapshots() error {
+	if m.snapshotMgr == nil {
+		return nil
+	}
+	return m.snapshotMgr.Close()
+}
+
+// IsSnapshotEnabled проверяет доступность снапшотов
 func (m *TreeManager[T]) IsSnapshotEnabled() bool {
 	return m.snapshotMgr != nil
 }

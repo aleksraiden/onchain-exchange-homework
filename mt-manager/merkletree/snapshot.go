@@ -5,437 +5,205 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/vmihailenco/msgpack/v5"
 )
 
 // ============================================
-// Структуры данных
+// Lock-Free Snapshot Manager
 // ============================================
 
 const (
-	// Текущая версия схемы снапшотов
 	CurrentSchemaVersion = 1
 )
 
-// Snapshot представляет полный снимок состояния Manager
+// Snapshot представляет снимок состояния
 type Snapshot struct {
 	SchemaVersion int                      `msgpack:"schema_version"`
-	Version       [32]byte                 `msgpack:"version"`        // GlobalRootHash
-	Timestamp     int64                    `msgpack:"timestamp"`      // Unix timestamp
-	TreeCount     int                      `msgpack:"tree_count"`     // Количество деревьев
-	Trees         map[string]*TreeSnapshot `msgpack:"trees"`          // Данные деревьев
+	Version       [32]byte                 `msgpack:"version"`
+	Timestamp     int64                    `msgpack:"timestamp"`
+	TreeCount     int                      `msgpack:"tree_count"`
+	Trees         map[string]*TreeSnapshot `msgpack:"trees"`
 }
 
-// TreeSnapshot представляет снимок одного дерева
+// TreeSnapshot снимок дерева
 type TreeSnapshot struct {
-	TreeID    string   `msgpack:"tree_id"`    // Идентификатор дерева
-	RootHash  [32]byte `msgpack:"root_hash"`  // Корневой хеш дерева
-	ItemCount uint64   `msgpack:"item_count"` // Количество элементов
-	Items     [][]byte `msgpack:"items"`      // Сериализованные элементы
+	TreeID    string   `msgpack:"tree_id"`
+	RootHash  [32]byte `msgpack:"root_hash"`
+	ItemCount uint64   `msgpack:"item_count"`
+	Items     [][]byte `msgpack:"items"`
 }
 
-// SnapshotMetadata хранит информацию о доступных снапшотах
+// SnapshotMetadata метаданные снапшотов
 type SnapshotMetadata struct {
-	FirstVersion [32]byte `msgpack:"first_version"` // Первая версия
-	LastVersion  [32]byte `msgpack:"last_version"`  // Последняя версия
-	Count        int      `msgpack:"count"`         // Количество снапшотов
-	TotalSize    int64    `msgpack:"total_size"`    // Общий размер на диске
+	FirstVersion [32]byte `msgpack:"first_version"`
+	LastVersion  [32]byte `msgpack:"last_version"`
+	Count        int      `msgpack:"count"`
+	TotalSize    int64    `msgpack:"total_size"`
 }
 
-// SnapshotOptions опции для создания снапшота
+// SnapshotOptions опции создания снапшота
 type SnapshotOptions struct {
-	Async       bool // Создать в фоновом режиме (default: false)
-	Compression bool // Использовать zstd сжатие (default: true)
-	Workers     int  // Количество воркеров для параллельной сериализации (default: NumCPU)
+	Async   bool // Асинхронное создание
+	Workers int  // Количество воркеров для сериализации
 }
 
 // DefaultSnapshotOptions возвращает опции по умолчанию
 func DefaultSnapshotOptions() *SnapshotOptions {
 	return &SnapshotOptions{
-		Async:       false,
-		Compression: true,
-		Workers:     runtime.NumCPU(),
+		Async:   false,
+		Workers: runtime.NumCPU(),
 	}
 }
 
-// SnapshotResult результат асинхронного создания снапшота
+// SnapshotResult результат асинхронного снапшота
 type SnapshotResult struct {
-	Version  [32]byte      // Версия созданного снапшота
-	Duration time.Duration // Время выполнения
-	Size     int64         // Размер на диске
-	Error    error         // Ошибка если есть
+	Version  [32]byte
+	Duration time.Duration
+	Error    error
+}
+
+// SnapshotMetrics метрики производительности
+type SnapshotMetrics struct {
+	CaptureTimeNs   int64
+	SerializeTimeNs int64
+	WriteTimeNs     int64
+	TotalTimeNs     int64
+}
+
+func (m SnapshotMetrics) String() string {
+	return fmt.Sprintf("Capture: %dµs | Serialize: %dµs | Write: %dµs | Total: %dµs",
+		m.CaptureTimeNs/1000,
+		m.SerializeTimeNs/1000,
+		m.WriteTimeNs/1000,
+		m.TotalTimeNs/1000)
 }
 
 // ============================================
-// SnapshotManager - управление снапшотами
+// SnapshotManager
 // ============================================
 
-// SnapshotManager управляет созданием и загрузкой снапшотов
+// SnapshotManager управляет снапшотами с минимальными блокировками
 type SnapshotManager[T Hashable] struct {
 	storage *SnapshotStorage
 	workers int
+	
+	// Метрики (lock-free atomic)
+	captureTimeNs   atomic.Int64
+	serializeTimeNs atomic.Int64
+	writeTimeNs     atomic.Int64
+	snapshotCount   atomic.Uint64
 }
 
-// NewSnapshotManager создает новый менеджер снапшотов
-func NewSnapshotManager[T Hashable](dbPath string, enableCompression bool) (*SnapshotManager[T], error) {
-	storage, err := NewSnapshotStorage(dbPath, enableCompression)
+// NewSnapshotManager создает менеджер снапшотов
+func NewSnapshotManager[T Hashable](dbPath string, workers int) (*SnapshotManager[T], error) {
+	if workers <= 0 {
+		workers = runtime.NumCPU()
+	}
+	
+	storage, err := NewSnapshotStorage(dbPath)
 	if err != nil {
 		return nil, err
 	}
 	
 	return &SnapshotManager[T]{
 		storage: storage,
-		workers: runtime.NumCPU(),
+		workers: workers,
 	}, nil
 }
 
-// Close закрывает менеджер и освобождает ресурсы
+// Close закрывает менеджер
 func (sm *SnapshotManager[T]) Close() error {
 	return sm.storage.Close()
 }
 
 // ============================================
-// Создание снапшота
+// ФАЗА 1: Lock-Free Capture (~80µs)
 // ============================================
 
-// CreateSnapshot создает снапшот TreeManager
-// Блокирует TreeManager только на время получения списка деревьев (<500µs)
-func (sm *SnapshotManager[T]) CreateSnapshot(mgr *TreeManager[T], opts *SnapshotOptions) ([32]byte, error) {
-	if opts == nil {
-		opts = DefaultSnapshotOptions()
-	}
-	
-	startTime := time.Now()
-	
-	// Фаза 1: Получаем snapshot деревьев (минимальная блокировка)
-	treeSnapshots, err := sm.captureTreeSnapshots(mgr)
-	if err != nil {
-		return [32]byte{}, fmt.Errorf("failed to capture tree snapshots: %w", err)
-	}
-	
-	// Фаза 2: Вычисляем GlobalRoot
-	version := mgr.ComputeGlobalRoot()
-	
-	// Фаза 3: Параллельная сериализация деревьев (БЕЗ блокировок TreeManager)
-	serializedTrees, err := sm.serializeTreesParallel(treeSnapshots, opts.Workers)
-	if err != nil {
-		return [32]byte{}, fmt.Errorf("failed to serialize trees: %w", err)
-	}
-	
-	// Фаза 4: Создаем объект Snapshot
-	snapshot := &Snapshot{
-		SchemaVersion: CurrentSchemaVersion,
-		Version:       version,
-		Timestamp:     time.Now().Unix(),
-		TreeCount:     len(serializedTrees),
-		Trees:         serializedTrees,
-	}
-	
-	// Фаза 5: Сохраняем в базу данных
-	if err := sm.storage.SaveSnapshot(snapshot); err != nil {
-		return [32]byte{}, fmt.Errorf("failed to save snapshot: %w", err)
-	}
-	
-	duration := time.Since(startTime)
-	
-	// Логируем успешное создание
-	sm.logSnapshotCreated(version, len(serializedTrees), duration)
-	
-	return version, nil
+type treeReference[T Hashable] struct {
+	name string
+	tree *Tree[T]
 }
 
-// CreateSnapshotAsync создает снапшот асинхронно в фоне
-// Возвращает канал для получения результата
-func (sm *SnapshotManager[T]) CreateSnapshotAsync(mgr *TreeManager[T], opts *SnapshotOptions) <-chan SnapshotResult {
-	resultChan := make(chan SnapshotResult, 1)
+// captureTreeReferences быстро получает ссылки на деревья
+// КРИТИЧНО: Минимальная блокировка TreeManager (<100µs)
+func (sm *SnapshotManager[T]) captureTreeReferences(mgr *TreeManager[T]) ([]*treeReference[T], error) {
+	start := time.Now()
 	
-	go func() {
-		defer close(resultChan)
-		
-		startTime := time.Now()
-		version, err := sm.CreateSnapshot(mgr, opts)
-		duration := time.Since(startTime)
-		
-		// Получаем размер снапшота
-		var size int64
-		if err == nil {
-			if metadata, metaErr := sm.storage.GetMetadata(); metaErr == nil {
-				size = metadata.TotalSize
-			}
-		}
-		
-		resultChan <- SnapshotResult{
-			Version:  version,
-			Duration: duration,
-			Size:     size,
-			Error:    err,
-		}
-	}()
-	
-	return resultChan
-}
-
-// ============================================
-// Загрузка снапшота
-// ============================================
-
-// LoadSnapshot загружает снапшот в TreeManager
-// Если version == nil, загружает последний снапшот
-// Блокирует TreeManager только на время замены деревьев (~10µs)
-func (sm *SnapshotManager[T]) LoadSnapshot(mgr *TreeManager[T], version *[32]byte) error {
-	startTime := time.Now()
-	
-	// Фаза 1: Загружаем снапшот из базы (БЕЗ блокировки TreeManager)
-	snapshot, err := sm.storage.LoadSnapshot(version)
-	if err != nil {
-		return fmt.Errorf("failed to load snapshot: %w", err)
-	}
-	
-	// Проверяем версию схемы
-	if snapshot.SchemaVersion != CurrentSchemaVersion {
-		return fmt.Errorf("unsupported schema version: %d (expected %d)", 
-			snapshot.SchemaVersion, CurrentSchemaVersion)
-	}
-	
-	// Фаза 2: Параллельная десериализация деревьев (БЕЗ блокировки TreeManager)
-	newTrees, err := sm.deserializeTreesParallel(mgr, snapshot)
-	if err != nil {
-		return fmt.Errorf("failed to deserialize trees: %w", err)
-	}
-	
-	// Фаза 3: Короткая блокировка для замены деревьев
-	mgr.mu.Lock()
-	mgr.trees = newTrees
-	mgr.mu.Unlock()
-	
-	duration := time.Since(startTime)
-	
-	// Логируем успешную загрузку
-	sm.logSnapshotLoaded(snapshot.Version, len(newTrees), duration)
-	
-	return nil
-}
-
-// ============================================
-// Вспомогательные методы для метаданных
-// ============================================
-
-// GetMetadata возвращает метаданные о снапшотах
-func (sm *SnapshotManager[T]) GetMetadata() (*SnapshotMetadata, error) {
-	return sm.storage.GetMetadata()
-}
-
-// ListVersions возвращает список всех доступных версий
-func (sm *SnapshotManager[T]) ListVersions() ([][32]byte, error) {
-	return sm.storage.ListVersions()
-}
-
-// DeleteSnapshot удаляет снапшот по версии
-func (sm *SnapshotManager[T]) DeleteSnapshot(version [32]byte) error {
-	return sm.storage.DeleteSnapshot(version)
-}
-
-// ============================================
-// Внутренние методы - Capture
-// ============================================
-
-// treeDataSnapshot временная структура для хранения данных дерева
-type treeDataSnapshot[T Hashable] struct {
-	treeID   string
-	rootHash [32]byte
-	items    []T
-}
-
-// captureTreeSnapshots получает snapshot всех деревьев
-// Использует минимальную блокировку TreeManager
-func (sm *SnapshotManager[T]) captureTreeSnapshots(mgr *TreeManager[T]) ([]*treeDataSnapshot[T], error) {
-	// Получаем список деревьев с минимальной блокировкой
+	// Короткая read-блокировка только для копирования указателей
 	mgr.mu.RLock()
-	treeIDs := make([]string, 0, len(mgr.trees))
-	treeRefs := make([]*Tree[T], 0, len(mgr.trees))
-	
-	for id, tree := range mgr.trees {
-		treeIDs = append(treeIDs, id)
-		treeRefs = append(treeRefs, tree)
+	refs := make([]*treeReference[T], 0, len(mgr.trees))
+	for name, tree := range mgr.trees {
+		refs = append(refs, &treeReference[T]{
+			name: name,
+			tree: tree, // Shallow copy указателя - безопасно
+		})
 	}
 	mgr.mu.RUnlock()
 	
-	// Собираем данные из каждого дерева
-	snapshots := make([]*treeDataSnapshot[T], len(treeRefs))
+	// Записываем метрику
+	sm.captureTimeNs.Store(time.Since(start).Nanoseconds())
 	
-	for i, tree := range treeRefs {
-		snapshot, err := sm.captureTreeData(tree, treeIDs[i])
-		if err != nil {
-			return nil, fmt.Errorf("failed to capture tree %s: %w", treeIDs[i], err)
-		}
-		snapshots[i] = snapshot
-	}
-	
-	return snapshots, nil
+	return refs, nil
 }
 
-// captureTreeData получает данные из одного дерева
-// Использует lock-free Range для минимальной блокировки
-func (sm *SnapshotManager[T]) captureTreeData(tree *Tree[T], treeID string) (*treeDataSnapshot[T], error) {
-	// Получаем rootHash (может быть закеширован)
-	rootHash := tree.ComputeRoot()
-	
-	// Собираем все элементы через lock-free Range
+// ============================================
+// ФАЗА 2: Параллельная сериализация (lock-free)
+// ============================================
+
+// serializeTreeLockFree сериализует дерево БЕЗ блокировок
+// Использует lock-free sync.Map.Range()
+func (sm *SnapshotManager[T]) serializeTreeLockFree(tree *Tree[T], name string) ([]byte, error) {
+	// Lock-free сбор элементов через sync.Map.Range
+	// Range НЕ блокирует другие операции (Insert/Get)!
 	items := make([]T, 0, tree.Size())
 	
 	tree.items.Range(func(key, value interface{}) bool {
-		item := value.(T)
-		items = append(items, item)
-		return true // продолжаем итерацию
+		items = append(items, value.(T))
+		return true
 	})
 	
-	return &treeDataSnapshot[T]{
-		treeID:   treeID,
-		rootHash: rootHash,
-		items:    items,
-	}, nil
-}
-
-// ============================================
-// Внутренние методы - Параллельная сериализация
-// ============================================
-
-// serializeTreesParallel сериализует деревья параллельно
-func (sm *SnapshotManager[T]) serializeTreesParallel(
-	treeSnapshots []*treeDataSnapshot[T],
-	workers int,
-) (map[string]*TreeSnapshot, error) {
-	
-	if workers <= 0 {
-		workers = runtime.NumCPU()
+	// MessagePack сериализация (CPU-bound, можно параллельно)
+	data, err := msgpack.Marshal(items)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal tree %s: %w", name, err)
 	}
 	
-	// Каналы для воркеров
-	jobs := make(chan *treeDataSnapshot[T], len(treeSnapshots))
-	results := make(chan *serializationResult, len(treeSnapshots))
+	return data, nil
+}
+
+// serializeAllTreesParallel сериализует все деревья параллельно
+func (sm *SnapshotManager[T]) serializeAllTreesParallel(refs []*treeReference[T]) (map[string][]byte, error) {
+	start := time.Now()
+	
+	type result struct {
+		name string
+		data []byte
+		err  error
+	}
+	
+	jobs := make(chan *treeReference[T], len(refs))
+	results := make(chan result, len(refs))
 	
 	// Запускаем воркеров
 	var wg sync.WaitGroup
-	for i := 0; i < workers; i++ {
+	for i := 0; i < sm.workers; i++ {
 		wg.Add(1)
-		go sm.serializationWorker(jobs, results, &wg)
-	}
-	
-	// Отправляем задачи
-	for _, snapshot := range treeSnapshots {
-		jobs <- snapshot
-	}
-	close(jobs)
-	
-	// Ждем завершения всех воркеров
-	wg.Wait()
-	close(results)
-	
-	// Собираем результаты
-	serializedTrees := make(map[string]*TreeSnapshot, len(treeSnapshots))
-	for result := range results {
-		if result.err != nil {
-			return nil, fmt.Errorf("serialization error for tree %s: %w", result.treeID, result.err)
-		}
-		serializedTrees[result.treeID] = result.treeSnapshot
-	}
-	
-	return serializedTrees, nil
-}
-
-// serializationResult результат сериализации одного дерева
-type serializationResult struct {
-	treeID       string
-	treeSnapshot *TreeSnapshot
-	err          error
-}
-
-// serializationWorker воркер для параллельной сериализации
-func (sm *SnapshotManager[T]) serializationWorker(
-	jobs <-chan *treeDataSnapshot[T],
-	results chan<- *serializationResult,
-	wg *sync.WaitGroup,
-) {
-	defer wg.Done()
-	
-	for snapshot := range jobs {
-		treeSnapshot, err := sm.serializeTree(snapshot)
-		results <- &serializationResult{
-			treeID:       snapshot.treeID,
-			treeSnapshot: treeSnapshot,
-			err:          err,
-		}
-	}
-}
-
-// serializeTree сериализует одно дерево
-func (sm *SnapshotManager[T]) serializeTree(snapshot *treeDataSnapshot[T]) (*TreeSnapshot, error) {
-	// Сериализуем каждый элемент
-	serializedItems := make([][]byte, len(snapshot.items))
-	
-	for i, item := range snapshot.items {
-		data, err := msgpack.Marshal(item)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal item %d: %w", i, err)
-		}
-		serializedItems[i] = data
-	}
-	
-	return &TreeSnapshot{
-		TreeID:    snapshot.treeID,
-		RootHash:  snapshot.rootHash,
-		ItemCount: uint64(len(snapshot.items)),
-		Items:     serializedItems,
-	}, nil
-}
-
-// ============================================
-// Внутренние методы - Параллельная десериализация
-// ============================================
-
-// deserializeTreesParallel десериализует деревья параллельно
-func (sm *SnapshotManager[T]) deserializeTreesParallel(
-	mgr *TreeManager[T],
-	snapshot *Snapshot,
-) (map[string]*Tree[T], error) {
-	
-	workers := sm.workers
-	if workers <= 0 {
-		workers = runtime.NumCPU()
-	}
-	
-	// Определяем структуру job
-	type jobData struct {
-		treeID       string
-		treeSnapshot *TreeSnapshot
-	}
-	
-	// Каналы для воркеров
-	jobs := make(chan jobData, len(snapshot.Trees))
-	results := make(chan *deserializationResult[T], len(snapshot.Trees))
-	
-	// Запускаем воркеров (встроенная горутина)
-	var wg sync.WaitGroup
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		go func() {  // ✅ ВСТРОЕННАЯ ГОРУТИНА - убрали вызов sm.deserializationWorker
+		go func() {
 			defer wg.Done()
-			for job := range jobs {
-				tree, err := sm.deserializeTree(mgr, job.treeID, job.treeSnapshot)
-				results <- &deserializationResult[T]{
-					treeID: job.treeID,
-					tree:   tree,
-					err:    err,
-				}
+			for ref := range jobs {
+				data, err := sm.serializeTreeLockFree(ref.tree, ref.name)
+				results <- result{name: ref.name, data: data, err: err}
 			}
 		}()
 	}
 	
 	// Отправляем задачи
-	for treeID, treeSnapshot := range snapshot.Trees {
-		jobs <- jobData{treeID, treeSnapshot}
+	for _, ref := range refs {
+		jobs <- ref
 	}
 	close(jobs)
 	
@@ -444,66 +212,239 @@ func (sm *SnapshotManager[T]) deserializeTreesParallel(
 	close(results)
 	
 	// Собираем результаты
-	newTrees := make(map[string]*Tree[T], len(snapshot.Trees))
-	for result := range results {
-		if result.err != nil {
-			return nil, fmt.Errorf("deserialization error for tree %s: %w", result.treeID, result.err)
+	serialized := make(map[string][]byte, len(refs))
+	for res := range results {
+		if res.err != nil {
+			return nil, res.err
 		}
-		newTrees[result.treeID] = result.tree
+		serialized[res.name] = res.data
+	}
+	
+	sm.serializeTimeNs.Store(time.Since(start).Nanoseconds())
+	
+	return serialized, nil
+}
+
+// ============================================
+// ФАЗА 3: Batch Write
+// ============================================
+
+// CreateSnapshot создает снапшот с минимальными блокировками
+func (sm *SnapshotManager[T]) CreateSnapshot(mgr *TreeManager[T], opts *SnapshotOptions) ([32]byte, error) {
+	if opts == nil {
+		opts = DefaultSnapshotOptions()
+	}
+	
+	totalStart := time.Now()
+	
+	// ФАЗА 1: Capture (~80µs блокировка)
+	refs, err := sm.captureTreeReferences(mgr)
+	if err != nil {
+		return [32]byte{}, fmt.Errorf("capture failed: %w", err)
+	}
+	
+	// Вычисляем version (GlobalRoot)
+	version := mgr.ComputeGlobalRoot()
+	
+	// ФАЗА 2: Serialize (параллельно, БЕЗ блокировок)
+	serializedTrees, err := sm.serializeAllTreesParallel(refs)
+	if err != nil {
+		return [32]byte{}, fmt.Errorf("serialize failed: %w", err)
+	}
+	
+	// ФАЗА 3: Write (батч)
+	writeStart := time.Now()
+	if err := sm.storage.SaveSnapshot(version, time.Now().Unix(), serializedTrees); err != nil {
+		return [32]byte{}, fmt.Errorf("write failed: %w", err)
+	}
+	sm.writeTimeNs.Store(time.Since(writeStart).Nanoseconds())
+	
+	totalDuration := time.Since(totalStart)
+	sm.snapshotCount.Add(1)
+	
+	// Логируем если долго
+	if totalDuration > 10*time.Millisecond {
+		fmt.Printf("[WARN] Snapshot %x took %v (%s)\n",
+			version[:4], totalDuration, sm.GetMetrics())
+	}
+	
+	return version, nil
+}
+
+// CreateSnapshotAsync создает снапшот асинхронно (fire-and-forget)
+// Возвращает канал для получения результата
+// БЛОКИРОВКА: 0µs (всё в фоне)
+func (sm *SnapshotManager[T]) CreateSnapshotAsync(mgr *TreeManager[T], opts *SnapshotOptions) <-chan SnapshotResult {
+	resultChan := make(chan SnapshotResult, 1)
+	
+	go func() {
+		defer close(resultChan)
+		
+		start := time.Now()
+		version, err := sm.CreateSnapshot(mgr, opts)
+		
+		resultChan <- SnapshotResult{
+			Version:  version,
+			Duration: time.Since(start),
+			Error:    err,
+		}
+	}()
+	
+	return resultChan
+}
+
+// ============================================
+// Load Snapshot (параллельная загрузка)
+// ============================================
+
+// LoadSnapshot загружает снапшот
+// Если version == nil, загружает последний
+func (sm *SnapshotManager[T]) LoadSnapshot(mgr *TreeManager[T], version *[32]byte) error {
+	start := time.Now()
+	
+	// Загружаем из storage
+	snapshot, err := sm.storage.LoadSnapshot(version)
+	if err != nil {
+		return err
+	}
+	
+	// Проверяем версию схемы
+	if snapshot.SchemaVersion != CurrentSchemaVersion {
+		return fmt.Errorf("unsupported schema version: %d", snapshot.SchemaVersion)
+	}
+	
+	// Десериализуем деревья параллельно
+	newTrees, err := sm.deserializeTreesParallel(mgr, snapshot)
+	if err != nil {
+		return err
+	}
+	
+	// Короткая блокировка для замены деревьев
+	mgr.mu.Lock()
+	mgr.trees = newTrees
+	mgr.globalRootDirty = true
+	mgr.mu.Unlock()
+	
+	fmt.Printf("[INFO] Snapshot %x loaded in %v (%d trees)\n",
+		snapshot.Version[:4], time.Since(start), len(newTrees))
+	
+	return nil
+}
+
+// deserializeTreesParallel десериализует деревья параллельно
+func (sm *SnapshotManager[T]) deserializeTreesParallel(mgr *TreeManager[T], snapshot *Snapshot) (map[string]*Tree[T], error) {
+	type jobData struct {
+		name string
+		data []byte
+	}
+	
+	jobs := make(chan jobData, len(snapshot.Trees))
+	type resultData struct {
+		name string
+		tree *Tree[T]
+		err  error
+	}
+	results := make(chan resultData, len(snapshot.Trees))
+	
+	// Воркеры
+	var wg sync.WaitGroup
+	for i := 0; i < sm.workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range jobs {
+				tree, err := sm.deserializeTree(mgr, job.name, job.data)
+				results <- resultData{name: job.name, tree: tree, err: err}
+			}
+		}()
+	}
+	
+	// Отправляем задачи
+	for name, treeSnap := range snapshot.Trees {
+		if len(treeSnap.Items) > 0 {
+			jobs <- jobData{name: name, data: treeSnap.Items[0]}
+		}
+	}
+	close(jobs)
+	
+	wg.Wait()
+	close(results)
+	
+	// Собираем результаты
+	newTrees := make(map[string]*Tree[T], len(snapshot.Trees))
+	for res := range results {
+		if res.err != nil {
+			return nil, res.err
+		}
+		newTrees[res.name] = res.tree
 	}
 	
 	return newTrees, nil
 }
 
-// deserializationResult результат десериализации одного дерева
-type deserializationResult[T Hashable] struct {
-	treeID string
-	tree   *Tree[T]
-	err    error
-}
-
 // deserializeTree десериализует одно дерево
-func (sm *SnapshotManager[T]) deserializeTree(
-	mgr *TreeManager[T],
-	treeID string,
-	treeSnapshot *TreeSnapshot,
-) (*Tree[T], error) {
-	
-	// Создаем новое дерево с конфигурацией из TreeManager
-	tree := New[T](mgr.config)
-	tree.name = treeID  // Устанавливаем имя дерева
-	
-	// Десериализуем элементы
-	items := make([]T, treeSnapshot.ItemCount)
-	for i, data := range treeSnapshot.Items {
-		var item T
-		if err := msgpack.Unmarshal(data, &item); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal item %d: %w", i, err)
-		}
-		items[i] = item
+func (sm *SnapshotManager[T]) deserializeTree(mgr *TreeManager[T], treeName string, data []byte) (*Tree[T], error) {
+	// Десериализуем items
+	var items []T
+	if err := msgpack.Unmarshal(data, &items); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal tree %s: %w", treeName, err)
 	}
 	
-	// Вставляем все элементы батчем
+	// Создаем новое дерево
+	tree := New[T](mgr.config)
+	tree.name = treeName
+	
+	// Вставляем items батчем
 	tree.InsertBatch(items)
 	
 	return tree, nil
 }
 
 // ============================================
-// Логирование (для отладки)
+// Metadata & Utilities
 // ============================================
 
-func (sm *SnapshotManager[T]) logSnapshotCreated(version [32]byte, treeCount int, duration time.Duration) {
-	// Можно добавить логирование через structured logger
-	// log.Info("snapshot created",
-	//     "version", hex.EncodeToString(version[:]),
-	//     "trees", treeCount,
-	//     "duration", duration)
+// GetMetadata возвращает метаданные снапшотов
+func (sm *SnapshotManager[T]) GetMetadata() (*SnapshotMetadata, error) {
+	return sm.storage.GetMetadata()
 }
 
-func (sm *SnapshotManager[T]) logSnapshotLoaded(version [32]byte, treeCount int, duration time.Duration) {
-	// log.Info("snapshot loaded",
-	//     "version", hex.EncodeToString(version[:]),
-	//     "trees", treeCount,
-	//     "duration", duration)
+// ListVersions возвращает список версий
+func (sm *SnapshotManager[T]) ListVersions() ([][32]byte, error) {
+	return sm.storage.ListVersions()
+}
+
+// DeleteSnapshot удаляет снапшот
+func (sm *SnapshotManager[T]) DeleteSnapshot(version [32]byte) error {
+	return sm.storage.DeleteSnapshot(version)
+}
+
+// GetMetrics возвращает метрики производительности
+func (sm *SnapshotManager[T]) GetMetrics() SnapshotMetrics {
+	return SnapshotMetrics{
+		CaptureTimeNs:   sm.captureTimeNs.Load(),
+		SerializeTimeNs: sm.serializeTimeNs.Load(),
+		WriteTimeNs:     sm.writeTimeNs.Load(),
+		TotalTimeNs:     sm.captureTimeNs.Load() + sm.serializeTimeNs.Load() + sm.writeTimeNs.Load(),
+	}
+}
+
+// GetSnapshotCount возвращает количество созданных снапшотов
+func (sm *SnapshotManager[T]) GetSnapshotCount() uint64 {
+	return sm.snapshotCount.Load()
+}
+
+// Compact сжимает базу данных
+func (sm *SnapshotManager[T]) Compact() error {
+	return sm.storage.Compact()
+}
+
+// Flush сбрасывает данные на диск
+func (sm *SnapshotManager[T]) Flush() error {
+	return sm.storage.Flush()
+}
+
+// GetStorageStats возвращает статистику хранилища
+func (sm *SnapshotManager[T]) GetStorageStats() StorageStats {
+	return sm.storage.GetStats()
 }

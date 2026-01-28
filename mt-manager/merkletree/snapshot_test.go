@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 	
@@ -471,14 +470,7 @@ func TestSnapshotAsync(t *testing.T) {
 	accounts := generateTestAccounts(0, 5000)
 	tree.InsertBatch(accounts)
 	
-	// Асинхронное создание снапшота
-	opts := &SnapshotOptions{
-		Async:       true,
-		Compression: true,
-		Workers:     runtime.NumCPU(),
-	}
-	
-	resultChan := mgr.CreateSnapshotAsync(opts)
+	resultChan := mgr.CreateSnapshotAsync()
 	
 	// Можем продолжать работу
 	tree.Insert(&TestAccount{AccountID: 9999, Balance: 9999, Nonce: 9999})
@@ -517,7 +509,7 @@ func TestSnapshotAsyncMultiple(t *testing.T) {
 			Nonce:     uint64(i),
 		})
 		
-		channels[i] = mgr.CreateSnapshotAsync(nil)
+		channels[i] = mgr.CreateSnapshotAsync()
 		time.Sleep(10 * time.Millisecond)
 	}
 	
@@ -538,11 +530,7 @@ func TestSnapshotAsyncMultiple(t *testing.T) {
 	}
 }
 
-// ============================================
-// Compression Tests
-// ============================================
-
-func TestSnapshotCompression(t *testing.T) {
+func TestSnapshotLargeData(t *testing.T) {
 	dir := tempDir(t)
 	defer cleanup(t, dir)
 	
@@ -554,16 +542,10 @@ func TestSnapshotCompression(t *testing.T) {
 	tree := mgr.GetOrCreateTree("accounts")
 	accounts := generateTestAccounts(0, 10000)
 	tree.InsertBatch(accounts)
-	
-	// Создаем снапшот с compression
-	opts := &SnapshotOptions{
-		Compression: true,
-		Workers:     runtime.NumCPU(),
-	}
-	
-	version, err := mgr.CreateSnapshotWithOptions(opts)
+
+	version, err := mgr.CreateSnapshot()
 	if err != nil {
-		t.Fatalf("Failed to create compressed snapshot: %v", err)
+		t.Fatalf("Failed to create snapshot: %v", err)
 	}
 	
 	// Получаем метаданные
@@ -572,53 +554,16 @@ func TestSnapshotCompression(t *testing.T) {
 		t.Fatalf("Failed to get metadata: %v", err)
 	}
 	
-	t.Logf("Compressed snapshot size: %d bytes", meta.TotalSize)
+	t.Logf("Snapshot size: %d bytes (with built-in Snappy compression)", meta.TotalSize)
 	
 	// Восстанавливаем
 	if err := mgr.LoadFromSnapshot(&version); err != nil {
-		t.Fatalf("Failed to load compressed snapshot: %v", err)
+		t.Fatalf("Failed to load snapshot: %v", err)
 	}
 	
 	tree, _ = mgr.GetTree("accounts")
 	if tree.Size() != 10000 {
-		t.Errorf("Size mismatch after decompression: got %d, want 10000", tree.Size())
-	}
-}
-
-func TestSnapshotCompressionRatio(t *testing.T) {
-	// Этот тест проверяет, что compression действительно работает
-	// путем сравнения размеров (в реальности compression встроен в PebbleDB)
-	
-	dir := tempDir(t)
-	defer cleanup(t, dir)
-	
-	snapshotPath := filepath.Join(dir, "snapshots.db")
-	mgr := createTestManager(t, snapshotPath)
-	defer mgr.CloseSnapshots()
-	
-	tree := mgr.GetOrCreateTree("accounts")
-	accounts := generateTestAccounts(0, 5000)
-	tree.InsertBatch(accounts)
-	
-	version, err := mgr.CreateSnapshot()
-	if err != nil {
-		t.Fatalf("Failed to create snapshot: %v", err)
-	}
-	
-	meta, err := mgr.GetSnapshotMetadata()
-	if err != nil {
-		t.Fatalf("Failed to get metadata: %v", err)
-	}
-	
-	// Ожидаемый размер без сжатия: 5000 accounts * ~30 bytes = ~150KB
-	expectedUncompressed := int64(5000 * 30)
-	
-	t.Logf("Snapshot size: %d bytes (expected uncompressed: ~%d bytes)", meta.TotalSize, expectedUncompressed)
-	t.Logf("Version: %x", version[:8])
-	
-	// Размер должен быть меньше несжатого (но тест не строгий, т.к. есть overhead)
-	if meta.TotalSize > expectedUncompressed*2 {
-		t.Logf("Warning: snapshot size seems large (may not be compressed efficiently)")
+		t.Errorf("Size mismatch after restore: got %d, want 10000", tree.Size())
 	}
 }
 
@@ -954,16 +899,10 @@ func BenchmarkSnapshotCreateAsync(b *testing.B) {
 	accounts := generateTestAccounts(0, 10000)
 	tree.InsertBatch(accounts)
 	
-	opts := &SnapshotOptions{
-		Async:       true,
-		Compression: true,
-		Workers:     runtime.NumCPU(),
-	}
-	
 	b.ResetTimer()
 	
 	for i := 0; i < b.N; i++ {
-		resultChan := mgr.CreateSnapshotAsync(opts)
+		resultChan := mgr.CreateSnapshotAsync()
 		result := <-resultChan
 		if result.Error != nil {
 			b.Fatalf("Failed to create async snapshot: %v", result.Error)
