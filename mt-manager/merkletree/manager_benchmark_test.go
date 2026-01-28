@@ -134,13 +134,13 @@ func runStressTest(t *testing.T, numTrees, minItems, maxItems, numUpdates int) {
 		topNChecks++
 		
 		// Получаем min/max
-		if minItem, ok := tree.GetMin(); ok {
+		if _, ok := tree.GetMin(); ok {
 			topNFound++
-			t.Logf("  %s: Min ID=%d", treeID, minItem.UID)
+			//t.Logf("  %s: Min ID=%d", treeID, minItem.UID)
 		}
 		
-		if maxItem, ok := tree.GetMax(); ok {
-			t.Logf("  %s: Max ID=%d", treeID, maxItem.UID)
+		if _, ok := tree.GetMax(); ok {
+			//t.Logf("  %s: Max ID=%d", treeID, maxItem.UID)
 		}
 		
 		// Проверяем Top-5
@@ -1262,7 +1262,7 @@ func BenchmarkManagerRangeQueryCacheBehavior(b *testing.B) {
 	})
 }
 
-// ✅ НОВЫЙ ТЕСТ: Итераторы TopN
+// Итераторы TopN
 func TestTopNIterator(t *testing.T) {
 	t.Run("BasicIteration", func(t *testing.T) {
 		cfg := DefaultConfig()
@@ -1471,7 +1471,7 @@ func TestTopNIterator(t *testing.T) {
 	})
 }
 
-// ✅ БЕНЧМАРК: Итераторы
+// Итераторы
 func BenchmarkTopNIterator(b *testing.B) {
 	cfg := DefaultConfig()
 	cfg.TopN = 20
